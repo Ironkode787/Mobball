@@ -4,13 +4,20 @@ extends CanvasLayer
 ## the Night number and the combo flash — plus who is on the table right now, because the
 ## balls are guys (docs/01 §4).
 ##
-## Signal-driven: it never polls the model except for the plunger charge, which is a
-## per-frame value by nature.
+## M2 hangs the modes under the strip: the Wire's tote board, the Collection Round's clock,
+## whether the back room is lit and whether the Family Meeting is running. Each line only
+## exists while it has something to say — a mode line that is always there is furniture.
+##
+## Signal-driven for state, per-frame for clocks (a countdown is a per-frame value by nature,
+## as is the plunger charge).
 
 const STRIP_H := 168.0
 const HEAT_W := 470.0
 const HEAT_H := 26.0
 const COMBO_FLASH := 1.1
+## Where the mode lines hang, and how tall each one is.
+const MODES_TOP := STRIP_H + 16.0
+const MODE_H := 34.0
 
 var night_controller: NightController = null
 
@@ -24,6 +31,11 @@ var _heat: HeatBar = null
 var _charge: ProgressBar = null
 var _star: StarBadge = null
 var _combo_left: float = 0.0
+var _modes: VBoxContainer = null
+var _wire: Label = null
+var _collect: Label = null
+var _meeting: Label = null
+var _casino: Label = null
 
 
 func _ready() -> void:
@@ -84,6 +96,8 @@ func _ready() -> void:
 	_charge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_charge)
 
+	_build_modes()
+
 	Game.wallet.dirty_changed.connect(_on_dirty)
 	Game.wallet.clean_changed.connect(_on_clean)
 	Game.heat.heat_changed.connect(_on_heat)
@@ -94,6 +108,42 @@ func _ready() -> void:
 	Events.guy_pinched.connect(_on_guy_changed)
 	Events.plunger_charge_changed.connect(_on_charge)
 	refresh()
+
+
+## The mode lines. Nothing is laid out per-mode: they stack, and a line with no text takes
+## no room, so the block grows and shrinks with what is actually happening.
+func _build_modes() -> void:
+	_modes = VBoxContainer.new()
+	_modes.name = "Modes"
+	_modes.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_modes.offset_left = 26.0
+	_modes.offset_right = -26.0
+	_modes.offset_top = MODES_TOP
+	_modes.offset_bottom = MODES_TOP + MODE_H * 4.0
+	_modes.add_theme_constant_override("separation", 2)
+	_modes.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_modes)
+
+	_meeting = _add_mode(Feel.COL_BRASS)
+	_collect = _add_mode(Feel.COL_CLEAN)
+	_wire = _add_mode(Feel.COL_NEWSPRINT.darkened(0.2))
+	_casino = _add_mode(Color("FF2E63"))
+
+
+func _add_mode(color: Color) -> Label:
+	var l := PaperKit.label("", PaperKit.FONT_SMALL, color)
+	l.visible = false
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_modes.add_child(l)
+	return l
+
+
+static func _set_mode(l: Label, text: String) -> void:
+	if l == null:
+		return
+	if l.text != text:
+		l.text = text
+	l.visible = not text.is_empty()
 
 
 func _add_label(at: Vector2, size: int, color: Color,
@@ -115,6 +165,7 @@ func refresh() -> void:
 	_on_respect(Game.respect)
 	_on_night(Game.night_no)
 	_update_guy()
+	_update_modes()
 
 
 func _process(delta: float) -> void:
@@ -122,6 +173,63 @@ func _process(delta: float) -> void:
 		_combo_left = maxf(_combo_left - delta, 0.0)
 		_combo.modulate.a = clampf(_combo_left / COMBO_FLASH, 0.0, 1.0)
 	_update_guy()
+	_update_modes()
+
+
+# --- the modes ----------------------------------------------------------------
+
+
+## Four clocks and lights, drawn from the model every frame because three of them are
+## counting down. Anything with nothing to say renders as an empty line and disappears.
+func _update_modes() -> void:
+	if _modes == null:
+		return
+	_set_mode(_meeting, _meeting_text())
+	_set_mode(_collect, _collection_text())
+	_set_mode(_wire, _wire_text())
+	_set_mode(_casino, _casino_text())
+
+
+func _meeting_text() -> String:
+	if Game.meeting.active:
+		return "FAMILY MEETING   ·   ALL DIRTY x%d   ·   BACK ROOM %s" \
+				% [int(FamilyMeeting.DIRTY_MULT),
+					Game.meeting.jackpot_value(Game.stats.idle_rate_total()).text()]
+	if Game.meeting.lit:
+		return "BACK ROOM LIT   ·   FAMILY MEETING READY"
+	var need := FamilyMeeting.JACKPOTS_TO_LIGHT - Game.meeting.jackpots_tonight
+	if Game.casino.night_jackpots > 0 and need > 0:
+		return "BACK ROOM   ·   %d MORE JACKPOT%s" % [need, "" if need == 1 else "S"]
+	return ""
+
+
+func _collection_text() -> String:
+	if not Game.collection.active:
+		return ""
+	return "COLLECTION ROUND   ·   %d/3   ·   %0.1fs" \
+			% [Game.collection.collected_count(), maxf(Game.collection.time_left, 0.0)]
+
+
+func _wire_text() -> String:
+	if Game.wire.draws <= 0 and Game.wire.time_left >= WireDraws.PERIOD - 0.05:
+		return ""
+	var ticket := 0
+	var live := Game.night as NightController
+	if live != null and is_instance_valid(live):
+		ticket = posmod(int(TableAPI.call_if(live.table, "spinner_spins", [], 0)),
+				WireDraws.NUMBERS)
+	var drawn := "--" if Game.wire.last_number < 0 else "%02d" % Game.wire.last_number
+	return "THE WIRE   ·   DREW %s   ·   YOUR TICKET %02d   ·   NEXT %ds" \
+			% [drawn, ticket, int(ceilf(maxf(Game.wire.time_left, 0.0)))]
+
+
+func _casino_text() -> String:
+	var armed := Game.casino.armed_multiplier()
+	if armed > 1.0:
+		return "HIGH ROLLER   ·   NEXT PAYOUT x%d" % int(armed)
+	if Game.casino.loss_streak >= Casino.CasinoRules.COOLER_STREAK:
+		return "THE COOLER GOT FIRED   ·   NEXT WIN PAYS MORE"
+	return ""
 
 
 func _update_guy() -> void:

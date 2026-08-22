@@ -1,15 +1,20 @@
 extends RefCounted
-## Guards the audio contract from specs/audio-pipeline.md §6 and specs/audio-wave2.md §3.
+## Guards the audio contract from specs/audio-pipeline.md §6, specs/audio-wave2.md §3
+## and the wave-3 additions (docs/08 §5 voices, §8 velocity layers).
 ##
-## Three things are being protected here. One: gameplay is allowed to call
+## Five things are being protected here. One: gameplay is allowed to call
 ## AudioDirector.play() for any event in the vocabulary and get a sound, so every event
 ## needs a file on disk. Two: the stem stack is sample-locked, which only works if every
 ## stem in the AudioStreamSynchronized — including the two wave-2 state layers — is
 ## exactly the same length; a stem one frame short would drift a whole beat out over a
-## few minutes of play. Three: the two events designed as loops have to actually join
+## few minutes of play. Three: the events designed as loops have to actually join
 ## themselves, checked on the decoded samples rather than on the generator's word.
+## Four: the peak ladder is a real claim about which sound wins when two land together,
+## so the orderings that matter are measured off the committed samples. Five: the phrase
+## bank is complete — a specialist with a missing mood is a character who goes quiet.
 
 const SFX_DIR := "res://assets/audio/sfx/"
+const VOICE_DIR := "res://assets/audio/voice/"
 const MUSIC_DIR := "res://assets/audio/music/city1/"
 
 const EVENTS: PackedStringArray = [
@@ -25,10 +30,13 @@ const EVENTS: PackedStringArray = [
 	"safe_open", "stamp_thunk", "paper_slip", "job_done", "skill_shot_ding",
 	"combo_2", "combo_3", "combo_4", "headline_sting", "rankup_fanfare", "bill_counter",
 	"coin_drop", "siren", "raid_start", "raid_win", "raid_lose",
+	# specs/m2-content.md §1/§4 — the Club deck
+	"wheel_clatter", "chip_stack", "card_riffle", "reel_stop", "jackpot",
+	"meeting_start", "meeting_jackpot", "meeting_end", "radio_squelch", "staircase_crest",
 ]
 
 ## Loops, not one-shots: exempt from the one-shot length cap and held to a seam check.
-const LOOP_EVENTS: PackedStringArray = ["bill_counter", "siren"]
+const LOOP_EVENTS: PackedStringArray = ["bill_counter", "siren", "wheel_clatter"]
 
 const FICTION_EVENTS: PackedStringArray = [
 	"chime_a", "chime_b", "chime_c", "knocker", "cash_tick",
@@ -36,6 +44,40 @@ const FICTION_EVENTS: PackedStringArray = [
 	"safe_open", "stamp_thunk", "paper_slip", "job_done", "skill_shot_ding",
 	"combo_2", "combo_3", "combo_4", "headline_sting", "rankup_fanfare", "bill_counter",
 	"coin_drop", "siren", "raid_start", "raid_win", "raid_lose",
+	"chip_stack", "card_riffle", "jackpot", "meeting_start", "meeting_jackpot",
+	"meeting_end", "radio_squelch", "staircase_crest",
+]
+
+## docs/08 §8. Quietest first; the middle entry is the event's own file.
+const IMPACT_FAMILIES := {
+	"flipper_up": ["flipper_up_soft", "flipper_up", "flipper_up_hard"],
+	"bumper_hit": ["bumper_hit_soft", "bumper_hit", "bumper_hit_hard"],
+	"sling_hit": ["sling_hit_soft", "sling_hit", "sling_hit_hard"],
+}
+
+## docs/08 §5. Eight specialists, three moods each; the filename index IS the mood index.
+const SPECIALISTS: PackedStringArray = [
+	"big_sal", "nussbaum", "rosa", "cohen", "professor", "consigliere", "manny", "eddie",
+]
+## Index order is the contract: <specialist>_0 is the greeting, _1 the quip, _2 the grumble.
+const MOOD_NAMES: PackedStringArray = ["greeting", "quip", "grumble"]
+## Phrases are subtitled one-liners, not speeches (docs/08 §5).
+const VOICE_MIN_SECONDS := 0.80
+const VOICE_MAX_SECONDS := 1.60
+
+## Ordering claims the peak ladder makes, loudest first in each pair. The rank-up pair
+## owns the top of the ladder: the knocker is "you won something real" and nothing the
+## casino does is allowed to be bigger than it.
+const PEAK_ORDER: Array = [
+	["knocker", "rankup_fanfare"],
+	["rankup_fanfare", "jackpot"],
+	["jackpot", "meeting_start"],
+	["meeting_start", "meeting_jackpot"],
+	["meeting_jackpot", "meeting_end"],
+	["knocker", "bumper_hit_hard"],
+	["knocker", "staircase_crest"],
+	["staircase_crest", "reel_stop"],
+	["reel_stop", "wheel_clatter"],
 ]
 
 ## Everything on one AudioStreamSynchronized — the level stack plus the state layers.
@@ -67,11 +109,59 @@ const SEAM_EDGE_RMS_MIN := 0.02
 func run(t: TestCtx) -> void:
 	_test_sfx_present(t)
 	_test_loop_seams(t)
+	_test_impact_layers(t)
+	_test_peak_ladder(t)
+	_test_voice_bank(t)
 	_test_stems_present(t)
 	_test_stems_same_length(t)
 	_test_count_piano(t)
 	_test_director(t)
+	_test_say(t)
 	_test_music_states(t)
+
+
+## The 16-bit PCM payload of a committed WAV, read straight off disk.
+##
+## Not via load(): every one-shot in the set imports as QOA to keep the Android build
+## small, and QOA bytes cannot be decoded from GDScript. The claims below (the peak
+## ladder, layer brightness, "this voice is not silence") are claims about what the
+## generator committed, so the committed file is the honest thing to measure. The one
+## place the *imported* PCM has to be read instead is the loop-seam check, because
+## there the import format is itself the thing under test.
+func _pcm_of(path: String) -> PackedByteArray:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return PackedByteArray()
+	var bytes: PackedByteArray = f.get_buffer(f.get_length())
+	f.close()
+	if bytes.size() < 44 or bytes.slice(0, 4).get_string_from_ascii() != "RIFF":
+		return PackedByteArray()
+	var pos := 12
+	while pos + 8 <= bytes.size():
+		var id: String = bytes.slice(pos, pos + 4).get_string_from_ascii()
+		var size: int = bytes.decode_u32(pos + 4)
+		if id == "data":
+			return bytes.slice(pos + 8, mini(pos + 8 + size, bytes.size()))
+		pos += 8 + size + (size & 1)
+	return PackedByteArray()
+
+
+## Peak sample as a linear 0..1 amplitude. `stride` > 1 samples the file instead of
+## reading all of it — enough for "is anything in there", not enough for an ordering
+## claim, so the ladder uses the default.
+func _peak_of(path: String, stride: int = 1) -> float:
+	var data: PackedByteArray = _pcm_of(path)
+	if data.is_empty():
+		return -1.0
+	var frames: int = data.size() / 2
+	var peak := 0.0
+	var i := 0
+	while i < frames:
+		var s: float = absf(float(data.decode_s16(i * 2)))
+		if s > peak:
+			peak = s
+		i += stride
+	return peak / 32768.0
 
 
 func _test_sfx_present(t: TestCtx) -> void:
@@ -151,6 +241,129 @@ func _test_loop_seams(t: TestCtx) -> void:
 		t.ok(edge >= SEAM_EDGE_RMS_MIN,
 			"%s loop edges are near-silent (%.4f of file RMS) — a faded loop, not a seamless one"
 				% [event, edge])
+
+
+## docs/08 §8 velocity layers, as files on disk.
+##
+## The strict three-step brightness ordering is gated in tools/audiogen/generate.py,
+## which has an FFT and measures the spectral centroid properly (it fails the build
+## unless each step is >= 1.12x). What is worth re-proving here, on the PCM Godot
+## actually imported, is the part a player would notice if it broke: the ladder rises
+## in level and in length, and the hard layer really is *brighter* than the soft one
+## rather than merely louder — which is the whole reason there are three files instead
+## of one and a volume_db.
+func _test_impact_layers(t: TestCtx) -> void:
+	for family: String in IMPACT_FAMILIES:
+		var stems: Array = IMPACT_FAMILIES[family]
+		t.eq(stems[1], family, "the medium rung of %s must be the event's own file" % family)
+		var peaks := PackedFloat64Array()
+		var lengths := PackedFloat64Array()
+		var bright := PackedFloat64Array()
+		for stem: String in stems:
+			var path := SFX_DIR + stem + ".wav"
+			t.ok(ResourceLoader.exists(path), "missing impact layer %s" % stem)
+			if not ResourceLoader.exists(path):
+				continue
+			var wav: AudioStreamWAV = load(path)
+			t.ok(wav != null, "%s did not import as an AudioStreamWAV" % stem)
+			if wav == null:
+				continue
+			t.ok(not wav.stereo, "%s should be mono" % stem)
+			t.ok(_pcm_of(path).size() > 1000, "%s has no readable PCM payload" % stem)
+			peaks.append(_peak_of(path))
+			lengths.append(wav.get_length())
+			bright.append(_high_fraction(path))
+		if peaks.size() != 3:
+			continue
+		for i in 2:
+			t.ok(peaks[i] < peaks[i + 1],
+				"%s: %s (%.4f) should be quieter than %s (%.4f)"
+					% [family, stems[i], peaks[i], stems[i + 1], peaks[i + 1]])
+			t.ok(lengths[i] < lengths[i + 1],
+				"%s: %s (%.3f s) should be shorter than %s (%.3f s)"
+					% [family, stems[i], lengths[i], stems[i + 1], lengths[i + 1]])
+		t.ok(bright[2] > bright[0] * 1.5,
+			"%s: the hard layer is not meaningfully brighter than the soft one (%.3f vs %.3f of energy above 1.2 kHz) — that is one sound at two volumes"
+				% [family, bright[2], bright[0]])
+
+
+## Fraction of a file's energy above ~1.2 kHz, via a 2-pole Butterworth high-pass run
+## over the PCM. Gain- and length-invariant, which is exactly what a brightness
+## comparison between two differently-normalised files of different lengths needs.
+func _high_fraction(path: String) -> float:
+	# Butterworth high-pass, fc = 1200 Hz at 44.1 kHz, as direct-form-I coefficients.
+	const B0 := 0.88610561
+	const B1 := -1.77221122
+	const B2 := 0.88610561
+	const A1 := -1.75919695
+	const A2 := 0.78522550
+	var data: PackedByteArray = _pcm_of(path)
+	if data.is_empty():
+		return 0.0
+	var frames: int = data.size() / 2
+	var x1 := 0.0
+	var x2 := 0.0
+	var y1 := 0.0
+	var y2 := 0.0
+	var total := 0.0
+	var high := 0.0
+	for i in frames:
+		var x: float = float(data.decode_s16(i * 2)) / 32768.0
+		var y: float = B0 * x + B1 * x1 + B2 * x2 - A1 * y1 - A2 * y2
+		x2 = x1
+		x1 = x
+		y2 = y1
+		y1 = y
+		total += x * x
+		high += y * y
+	return high / maxf(total, 1e-12)
+
+
+## The peak ladder is a design claim: when two sounds land on the same frame, the one
+## that is supposed to win does. Measured off the imported PCM so the claim survives
+## any change to the generator that forgets about it.
+func _test_peak_ladder(t: TestCtx) -> void:
+	var peaks := {}
+	for pair: Array in PEAK_ORDER:
+		for name: String in pair:
+			if not peaks.has(name):
+				peaks[name] = _peak_of(SFX_DIR + name + ".wav")
+	for pair: Array in PEAK_ORDER:
+		var loud: float = peaks[pair[0]]
+		var quiet: float = peaks[pair[1]]
+		t.ok(loud > 0.0 and quiet > 0.0,
+			"peak ladder: %s or %s did not import as readable PCM" % [pair[0], pair[1]])
+		if loud <= 0.0 or quiet <= 0.0:
+			continue
+		t.ok(loud > quiet,
+			"peak ladder: %s (%.4f) must stay above %s (%.4f)"
+				% [pair[0], loud, pair[1], quiet])
+
+
+## docs/08 §5: eight specialists, three moods each, and no gaps. A specialist whose
+## grumble is missing is a character who goes silent exactly when he is annoyed.
+func _test_voice_bank(t: TestCtx) -> void:
+	for who in SPECIALISTS:
+		for mood in MOOD_NAMES.size():
+			var path := VOICE_DIR + "%s_%d.wav" % [who, mood]
+			t.ok(ResourceLoader.exists(path), "missing voice phrase %s_%d" % [who, mood])
+			if not ResourceLoader.exists(path):
+				continue
+			var wav: AudioStreamWAV = load(path)
+			t.ok(wav is AudioStreamWAV, "%s_%d did not import as an AudioStreamWAV" % [who, mood])
+			if wav == null:
+				continue
+			t.ok(not wav.stereo, "%s_%d should be mono" % [who, mood])
+			t.eq(wav.loop_mode, AudioStreamWAV.LOOP_DISABLED,
+				"%s_%d is a line, not a loop" % [who, mood])
+			var seconds := wav.get_length()
+			t.ok(seconds >= VOICE_MIN_SECONDS and seconds <= VOICE_MAX_SECONDS,
+				"%s_%d is %.2f s, outside the %.1f-%.1f s phrase window"
+					% [who, mood, seconds, VOICE_MIN_SECONDS, VOICE_MAX_SECONDS])
+			# Not silent, and roughly at the bank's level. Strided: this is a "somebody
+			# is in there" check, and 24 files at full rate is a lot of GDScript.
+			t.ok(_peak_of(path, 7) > 0.10,
+				"%s_%d is effectively silent" % [who, mood])
 
 
 func _test_stems_present(t: TestCtx) -> void:
@@ -271,6 +484,56 @@ func _test_director(t: TestCtx) -> void:
 			"asking for a looping %s must not turn the shared one-shot into a loop" % event)
 	director.stop_all()
 
+	# Velocity layers (docs/08 §8). The contract that matters most is the negative one:
+	# a call with no `impact` must load exactly the file it always loaded.
+	# Headless never marks a player as `playing`, so the pool hands out the same voice
+	# every call: everything below reads what it needs off the voice *immediately*, and
+	# never holds two players expecting them to be different objects.
+	for family: String in IMPACT_FAMILIES:
+		var stems: Array = IMPACT_FAMILIES[family]
+		var event := StringName(family)
+		var base: AudioStream = load(SFX_DIR + family + ".wav")
+		var soft_file: AudioStream = load(SFX_DIR + stems[0] + ".wav")
+		var hard_file: AudioStream = load(SFX_DIR + stems[2] + ".wav")
+
+		var plain: AudioStreamPlayer = director.play(event)
+		t.eq(plain.stream, base, "play(%s) with no impact changed which file it plays" % family)
+		t.near(plain.volume_db, 0.0, 0.001, "play(%s) with no impact moved the level" % family)
+
+		t.eq(director.play(event, {"impact": 0.0}).stream, soft_file,
+			"impact 0.0 should pick the soft layer of %s" % family)
+		t.eq(director.play(event, {"impact": 0.5}).stream, base,
+			"impact 0.5 should pick the medium layer of %s, which is the base file" % family)
+		var hard: AudioStreamPlayer = director.play(event, {"impact": 1.0})
+		t.eq(hard.stream, hard_file, "impact 1.0 should pick the hard layer of %s" % family)
+		t.eq(String(hard.bus), "Mechanics", "a layered %s still belongs on its event's bus" % family)
+		# Out of range is clamped, not wrapped or refused.
+		t.eq(director.play(event, {"impact": -3.0}).stream, soft_file,
+			"impact below 0 should clamp to the soft layer of %s" % family)
+		t.eq(director.play(event, {"impact": 9.0}).stream, hard_file,
+			"impact above 1 should clamp to the hard layer of %s" % family)
+
+		# Inside a rung the position still counts, so the ladder has no audible steps in
+		# it: the bottom of the hard rung is quieter and flatter than the top of it.
+		var low: AudioStreamPlayer = director.play(event, {"impact": 0.72, "pitch_jitter": 0.0})
+		var low_db: float = low.volume_db
+		var low_pitch: float = low.pitch_scale
+		var high: AudioStreamPlayer = director.play(event, {"impact": 1.0, "pitch_jitter": 0.0})
+		t.ok(low_db < high.volume_db,
+			"%s: the bottom of the hard rung (%.2f dB) should sit under the top of it (%.2f dB)"
+				% [family, low_db, high.volume_db])
+		t.ok(low_pitch < high.pitch_scale,
+			"%s: the within-rung tilt should reach pitch as well as level" % family)
+		var middle: AudioStreamPlayer = director.play(event, {"impact": 0.5, "pitch_jitter": 0.0})
+		t.near(middle.pitch_scale, 1.0, 0.001, "%s: the middle of a rung should be untilted" % family)
+		t.near(middle.volume_db, 0.0, 0.001, "%s: the middle of a rung should be at unity" % family)
+	# An event with no ladder ignores the option rather than failing.
+	var unlayered: AudioStreamPlayer = director.play(&"knocker", {"impact": 1.0})
+	t.eq(unlayered.stream, load(SFX_DIR + "knocker.wav"),
+		"impact on an event with no velocity layers should be ignored")
+	t.near(unlayered.volume_db, 0.0, 0.001, "impact should not move the level of an unlayered event")
+	director.stop_all()
+
 	# Jitter actually varies, and stays inside the requested ±octaves.
 	var seen := {}
 	for i in 24:
@@ -294,6 +557,53 @@ func _test_director(t: TestCtx) -> void:
 	director.music_set_level(0)
 	director.music_stop(false)
 	t.ok(not director.is_music_playing(), "music_stop(false) should stop immediately")
+	director.stop_all()
+
+
+## docs/08 §5 — AudioDirector.say(). The rules that matter: every specialist can be
+## asked for every mood, a bad mood name still produces a line, and only one wiseguy
+## holds the floor at a time.
+func _test_say(t: TestCtx) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var director: Node = tree.root.get_node_or_null("AudioDirector") if tree != null else null
+	if director == null:
+		return
+
+	for who in SPECIALISTS:
+		for mood in MOOD_NAMES.size():
+			var label: String = MOOD_NAMES[mood]
+			var said: AudioStreamPlayer = director.say(StringName(who), StringName(label))
+			t.ok(said != null, "say(%s, %s) produced nothing" % [who, label])
+			if said == null:
+				continue
+			t.eq(said.stream, load(VOICE_DIR + "%s_%d.wav" % [who, mood]),
+				"say(%s, %s) played the wrong phrase" % [who, label])
+			t.eq(String(said.bus), "Fiction", "the mob speaks on the Fiction bus")
+			t.ok(said.pitch_scale > 0.9 and said.pitch_scale < 1.1,
+				"say(%s) detuned the voice past recognition (%f)" % [who, said.pitch_scale])
+
+	# Default mood, and the fallback: a wrong mood name still says something, because a
+	# character who goes silent reads as a bug and a wrong line reads as a character.
+	t.eq(director.say(&"rosa").stream, load(VOICE_DIR + "rosa_1.wav"),
+		"say() should default to the quip")
+	t.eq(director.say(&"rosa", &"apoplectic").stream, load(VOICE_DIR + "rosa_1.wav"),
+		"an unknown mood should fall back to the quip, not to silence")
+
+	# One channel: the second guy takes the floor from the first, and it is not one of
+	# the 24 pooled voices, so a busy playfield cannot steal a line mid-sentence.
+	var first: AudioStreamPlayer = director.say(&"big_sal", &"grumble")
+	var second: AudioStreamPlayer = director.say(&"manny", &"quip")
+	t.eq(first, second, "say() should reuse one voice channel, interrupting the last speaker")
+	t.eq(second.stream, load(VOICE_DIR + "manny_1.wav"), "the new speaker should be the one heard")
+	for i in 24:
+		director.play(&"bumper_hit")
+	t.eq(director.say(&"cohen", &"greeting").stream, load(VOICE_DIR + "cohen_0.wav"),
+		"a full voice pool must not touch the speaker channel")
+
+	# Unknown specialists fail silent, exactly like unknown events.
+	t.eq(director.say(&"the_rat"), null, "an unknown specialist should fail silent")
+	director.voice_stop()
+	t.ok(not director.is_speaking(), "voice_stop should end the line")
 	director.stop_all()
 
 

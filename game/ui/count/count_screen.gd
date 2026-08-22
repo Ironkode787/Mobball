@@ -136,12 +136,54 @@ func _build_lines() -> void:
 		_add_money_row("BEAT THE RAP", summary.get("raid_payout", BigMoney.zero()), Feel.COL_CLEAN)
 	if _money(summary.get("confiscated", null)).is_positive():
 		_add_money_row("CONFISCATED", summary.get("confiscated", BigMoney.zero()), Feel.COL_DIRTY)
+	_build_club_lines()
 	_add_money_row("CLEAN BALANCE", summary.get("clean", Game.wallet.clean), Feel.COL_CLEAN)
 	_add_int_row("RESPECT GAINED", int(summary.get("respect", 0)), Feel.COL_BRASS.darkened(0.25))
 	_add_int_row("JOBS DONE", int(summary.get("jobs_done", 0)), Feel.COL_INK)
 	for name: Variant in summary.get("jobs", []):
 		_body.add_child(PaperKit.label("   " + String(name), PaperKit.FONT_SMALL,
 				Feel.COL_INK.lightened(0.35)))
+
+
+## The M2 modes, each only when it happened. The casino gets three numbers because a
+## gambler reads all three: what went in, what came out, and how much of it came out clean.
+func _build_club_lines() -> void:
+	var casino: Dictionary = summary.get("casino", {})
+	if int(casino.get("spins", 0)) > 0:
+		_add_money_row("CASINO STAKED", casino.get("staked", null), Feel.COL_DIRTY)
+		_add_money_row("   won  (%d of %d spins)" % [int(casino.get("wins", 0)),
+				int(casino.get("spins", 0))], casino.get("won", null), Feel.COL_BRASS,
+				PaperKit.FONT_SMALL)
+		if _money(casino.get("washed", null)).is_positive():
+			_add_money_row("   washed clean", casino.get("washed", null), Feel.COL_CLEAN,
+					PaperKit.FONT_SMALL)
+		if int(casino.get("jackpots", 0)) > 0:
+			_add_int_row("   JACKPOTS", int(casino.get("jackpots", 0)), Feel.COL_BRASS,
+					PaperKit.FONT_SMALL)
+
+	var meeting: Dictionary = summary.get("meeting", {})
+	if int(meeting.get("meetings", 0)) > 0:
+		_add_int_row("FAMILY MEETINGS", int(meeting.get("meetings", 0)), Feel.COL_BRASS)
+		if _money(meeting.get("paid", null)).is_positive():
+			_add_money_row("   back room", meeting.get("paid", null), Feel.COL_CLEAN,
+					PaperKit.FONT_SMALL)
+	elif bool(meeting.get("lit", false)):
+		_body.add_child(PaperKit.label("BACK ROOM STILL LIT", PaperKit.FONT_SMALL,
+				Feel.COL_INK.lightened(0.35)))
+
+	var wire: Dictionary = summary.get("wire", {})
+	if int(wire.get("draws", 0)) > 0:
+		_add_int_row("WIRE DRAWS", int(wire.get("draws", 0)), Feel.COL_INK)
+		if int(wire.get("hits", 0)) > 0:
+			_add_money_row("   %d hit%s (%d exact)" % [int(wire.get("hits", 0)),
+					"" if int(wire.get("hits", 0)) == 1 else "s", int(wire.get("exacts", 0))],
+					wire.get("won", null), Feel.COL_BRASS, PaperKit.FONT_SMALL)
+
+	var rounds: Dictionary = summary.get("collection", {})
+	if int(rounds.get("rounds", 0)) > 0:
+		_add_int_row("COLLECTION ROUNDS RUN", int(rounds.get("rounds", 0)), Feel.COL_INK)
+		_add_int_row("   perfect", int(rounds.get("won", 0)), Feel.COL_CLEAN,
+				PaperKit.FONT_SMALL)
 
 
 func _add_money_row(text: String, value: Variant, color: Color, size: int = PaperKit.FONT_BODY) -> void:
@@ -171,6 +213,7 @@ func _row(text: String, color: Color, size: int, money: BigMoney, count: int) ->
 func _build_roster() -> void:
 	for c in _roster.get_children():
 		c.queue_free()
+	_build_crew_strip()
 	var held: Array[Dictionary] = []
 	if Game.bench != null:
 		held = Game.bench.holding()
@@ -190,6 +233,35 @@ func _build_roster() -> void:
 		b.pressed.connect(_on_bail.bind(guy))
 		row.add_child(b)
 		_roster.add_child(row)
+
+
+## Who was out tonight, with the one line each of them has (docs/01 §4: one visible trait
+## line, never a menu). A guy who came in through the back room is marked as such — he was
+## not on the card at roll call.
+func _build_crew_strip() -> void:
+	var crew: Variant = summary.get("guys", [])
+	if not (crew is Array) or (crew as Array).is_empty():
+		return
+	_roster.add_child(PaperKit.label("TONIGHT'S CREW", PaperKit.FONT_SMALL,
+			Feel.COL_INK.lightened(0.35)))
+	for raw: Variant in crew as Array:
+		if not (raw is Dictionary):
+			continue
+		var g: Dictionary = raw
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 16)
+		var who := String(g.get("name", ""))
+		if bool(g.get("meeting", false)):
+			who += "  (family meeting)"
+		var name_label := PaperKit.label(who, PaperKit.FONT_SMALL, Feel.COL_INK)
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_label)
+		var trait_id := String(g.get("trait", ""))
+		row.add_child(PaperKit.label(GuyTraits.label(trait_id).to_upper(),
+				PaperKit.FONT_SMALL, Feel.COL_BRASS.darkened(0.2),
+				HORIZONTAL_ALIGNMENT_RIGHT))
+		_roster.add_child(row)
+	_roster.add_child(PaperKit.spacer(10.0))
 
 
 func _on_bail(guy: Dictionary) -> void:

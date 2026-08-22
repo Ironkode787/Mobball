@@ -9,11 +9,14 @@ The generator is deterministic — a re-run reproduces these files exactly.
 Levels: -1.5 dBFS is a ceiling, not a target. SFX peaks form a deliberate ladder
 (knocker and kickback loudest, spinner_tick and wall_tap far below) so gameplay code
 does not have to ride volume_db on every call; music stems are matched by integrated
-loudness (LUFS) instead, so the stack stays balanced as stems fade in.
+loudness (LUFS) instead, so the stack stays balanced as stems fade in. The orderings
+the ladder actually promises — the rank-up pair over the Club's jackpot, the jackpot
+over the Family Meeting stingers — are asserted against the written files at build
+time and again in tests/test_audio_assets.gd, not left as a comment.
 
 SFX — assets/audio/sfx/*.wav  (44.1 kHz, 16-bit PCM, mono)
-Looping events (bill_counter, siren) are built periodic and carry a 'seam' figure; every
-other file is a one-shot that starts and ends at true zero.
+Looping events are built periodic and carry a 'seam' figure; every other file is
+a one-shot that starts and ends at true zero. Loops: bill_counter, siren, wheel_clatter.
 ------------------------------------------------------------------------------
 file                       dur  peak dB   rms dB   crest  centroid    decay   seam     KiB
 flipper_up.wav          0.260s    -2.50   -25.10    22.6     1040Hz     213ms      —    22.4
@@ -61,7 +64,71 @@ siren.wav               7.000s    -9.00   -21.75    12.7     1186Hz    3891ms   
 raid_start.wav          1.500s    -1.70   -21.25    19.5     1347Hz    1426ms      —   129.2
 raid_win.wav            1.500s    -2.20   -20.82    18.6     3104Hz    1118ms      —   129.2
 raid_lose.wav           1.500s    -2.40   -21.34    18.9     1767Hz    1325ms      —   129.2
-subtotal                                                                            3575.7
+wheel_clatter.wav       2.000s    -8.00   -27.16    19.2     2663Hz     470ms   0.06   172.3
+chip_stack.wav          0.360s    -9.00   -27.99    19.0     1494Hz      70ms      —    31.1
+card_riffle.wav         0.550s   -11.00   -29.76    18.8     6820Hz     139ms      —    47.4
+reel_stop.wav           0.260s    -5.50   -23.98    18.5      612Hz     214ms      —    22.4
+jackpot.wav             1.800s    -1.70   -16.98    15.3     3713Hz    1106ms      —   155.1
+meeting_start.wav       1.400s    -2.60   -19.05    16.4     2381Hz    1033ms      —   120.6
+meeting_jackpot.wav     0.850s    -3.20   -17.91    14.7     3415Hz     618ms      —    73.3
+meeting_end.wav         1.600s    -4.50   -19.26    14.8     1804Hz    1336ms      —   137.9
+radio_squelch.wav       0.300s   -11.50   -19.10     7.6     1703Hz     189ms      —    25.9
+staircase_crest.wav     0.900s    -3.00   -19.89    16.9     3850Hz     424ms      —    77.6
+flipper_up_soft.wav     0.203s    -7.00   -26.83    19.8      727Hz     182ms      —    17.5
+flipper_up_hard.wav     0.291s    -2.00   -24.52    22.5     1393Hz     177ms      —    25.1
+bumper_hit_soft.wav     0.326s    -6.00   -20.63    14.6      854Hz     291ms      —    28.1
+bumper_hit_hard.wav     0.484s    -1.70   -22.17    20.5     1456Hz     433ms      —    41.7
+sling_hit_soft.wav      0.192s    -7.50   -26.70    19.2      973Hz     172ms      —    16.6
+sling_hit_hard.wav      0.254s    -2.40   -22.68    20.3     1958Hz     181ms      —    22.0
+subtotal                                                                            4590.1
+
+VELOCITY LAYERS — docs/08 §8. Three files per physical event, picked at play
+time by AudioDirector.play(event, {"impact": 0..1}); jitter still applies inside
+the chosen rung. The MEDIUM rung IS the original file — same seed, same numbers,
+byte-identical — so a call with no `impact` sounds exactly as it always has.
+Brightness, not level, is the variable: the centroids below are measured off the
+written files and the build fails unless each step is >= 1.12x.
+------------------------------------------------------------------------------
+family                 soft     medium       hard   soft->med   med->hard
+flipper_up            727Hz     1040Hz     1393Hz       1.43x       1.34x
+bumper_hit            854Hz     1039Hz     1456Hz       1.22x       1.40x
+sling_hit             973Hz     1557Hz     1958Hz       1.60x       1.26x
+
+VOICES — assets/audio/voice/<specialist>_<n>.wav  (44.1 kHz, 16-bit PCM, mono)
+docs/08 §5, the muted-brass mob: one instrument per specialist, three phrases each
+(0 greeting · 1 quip · 2 grumble). Not melodies — speech contours. Every phrase is
+3-7 syllables of continuous, unquantised pitch glide under a moving plunger mute,
+with a loudness floor between syllables so it mumbles instead of articulating.
+'wah' is the brightest 60 ms window's centroid over the dullest (the mute moving);
+'bumps' counts loudness excursions (prosody). Levelled by K-weighted loudness, not
+peak: the bank sits at -20 LUFS so nobody is louder for being a tuba.
+------------------------------------------------------------------------------
+file              instrument mood          dur  peak dB   LUFS  centroid    wah  bumps     KiB
+big_sal_0.wav     tuba       greeting    1.35s    -3.50  -20.3      677Hz  1.90x      8   115.9
+big_sal_1.wav     tuba       quip        1.22s    -3.50  -21.6      707Hz  1.83x     10   105.5
+big_sal_2.wav     tuba       grumble     1.52s    -3.50  -20.6      544Hz  1.93x     21   130.8
+nussbaum_0.wav    clarinet   greeting    1.06s    -6.73  -20.0     1755Hz  1.22x     11    91.0
+nussbaum_1.wav    clarinet   quip        0.96s    -9.06  -20.0     1721Hz  1.31x      5    82.5
+nussbaum_2.wav    clarinet   grumble     1.20s    -6.69  -20.0     1532Hz  1.32x      6   103.5
+rosa_0.wav        alto_sax   greeting    1.23s    -8.11  -20.0     1921Hz  1.29x     12   106.0
+rosa_1.wav        alto_sax   quip        1.12s    -6.43  -20.0     1610Hz  1.47x      9    96.3
+rosa_2.wav        alto_sax   grumble     1.39s    -6.47  -20.0     1481Hz  1.43x     20   119.9
+cohen_0.wav       violin     greeting    1.17s    -8.69  -20.0     2734Hz  1.40x     11   101.0
+cohen_1.wav       violin     quip        1.06s    -8.06  -20.0     2673Hz  1.58x      5    91.7
+cohen_2.wav       violin     grumble     1.33s    -6.92  -20.0     2048Hz  1.45x      9   114.4
+professor_0.wav   oboe       greeting    1.13s    -8.09  -20.0     2399Hz  1.35x      9    97.7
+professor_1.wav   oboe       quip        1.03s    -7.80  -20.0     1929Hz  1.35x     21    88.6
+professor_2.wav   oboe       grumble     1.29s    -7.26  -20.0     1998Hz  1.35x      8   110.8
+consigliere_0.wav cello      greeting    1.33s    -3.50  -20.4     1173Hz  2.00x     16   114.3
+consigliere_1.wav cello      quip        1.21s    -3.50  -20.4      978Hz  1.57x      9   103.9
+consigliere_2.wav cello      grumble     1.50s    -4.83  -20.0     1119Hz  1.74x     12   129.0
+manny_0.wav       cornet     greeting    1.02s    -7.12  -20.0     2168Hz  2.01x      7    87.7
+manny_1.wav       cornet     quip        0.92s    -7.21  -20.0     2219Hz  2.14x      6    79.5
+manny_2.wav       cornet     grumble     1.16s    -5.28  -20.0     2290Hz  2.01x     11    99.9
+eddie_0.wav       trombone   greeting    1.27s    -4.77  -20.0     1524Hz  2.37x     20   109.3
+eddie_1.wav       trombone   quip        1.15s    -6.97  -20.0     1311Hz  1.99x     13    99.3
+eddie_2.wav       trombone   grumble     1.43s    -4.32  -20.0     1109Hz  2.05x      7   123.5
+subtotal                                                                                2501.9
 
 MUSIC — assets/audio/music/city1/*.ogg  (44.1 kHz, Vorbis q0.6, stereo)
 'Eastport 72' — 92 BPM swung, D minor, 8-bar loop, 920348 frames (20.8696 s) each.
@@ -105,5 +172,6 @@ chime_a           587.33->  587.17Hz -0.48c  chime_b           698.46->  698.00H
 chime_c           880.00->  879.38Hz -1.22c  combo_2          1174.66-> 1174.48Hz -0.26c
 combo_3          1396.91-> 1396.41Hz -0.62c  combo_4          1760.00-> 1759.14Hz -0.85c
 skill_shot_ding  1760.00-> 1759.74Hz -0.26c  tilt_warning     1046.50-> 1045.67Hz -1.38c
+staircase_crest  2349.32-> 2349.36Hz +0.03c
 
-TOTAL COMMITTED AUDIO: 7.01 MiB (45 SFX + 12 music files), budget 16 MiB
+TOTAL COMMITTED AUDIO: 10.44 MiB (61 SFX + 24 voice + 12 music files), budget 24 MiB

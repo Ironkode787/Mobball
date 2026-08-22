@@ -7,7 +7,8 @@ extends RefCounted
 ## through `to_dict()` for the save file.
 ##
 ## A guy is a plain Dictionary with String keys (JSON-native — the save file writes it
-## verbatim). No traits in M1; `level` still exists because it prices bail.
+## verbatim). `level` prices bail; `trait` is his one visible line (docs/01 §4), handed out
+## from `GuyTraits` once the career is worth naming a crew for.
 
 ## Guys start free, sit in holding after a pinch, and walk after sitting a Night out.
 const STATE_FREE := "free"
@@ -25,6 +26,10 @@ const SIT_OUT_NIGHTS_RAID := 3
 
 var guys: Array[Dictionary] = []
 var slots: int = START_SLOTS
+## Career rank new hires are recruited at — it decides whether they come with a trait
+## (GuyTraits.MIN_RANK). Set by `Game` before every `night_tick`; the four guys the career
+## opens with are hired at R0 and are traitless by construction.
+var trait_rank: int = 0
 
 var _rng := RandomNumberGenerator.new()
 var _next_id: int = 1
@@ -70,8 +75,8 @@ func find_by_id(id: int) -> Dictionary:
 	return {}
 
 
-## A fresh nobody: no traits, level 0, free. Never fails — bankruptcy of the roster is
-## impossible by construction (docs/01 §8).
+## A fresh body: level 0, free, and one trait if the career is past `GuyTraits.MIN_RANK`.
+## Never fails — bankruptcy of the roster is impossible by construction (docs/01 §8).
 func hire() -> Dictionary:
 	var g := {
 		"id": _next_id,
@@ -82,6 +87,7 @@ func hire() -> Dictionary:
 		"sit_out": 0,
 		"nights": 0,
 		"from_raid": false,
+		"trait": GuyTraits.pick(_rng, trait_rank),
 	}
 	_next_id += 1
 	guys.append(g)
@@ -131,9 +137,11 @@ func bail(guy: Dictionary) -> BigMoney:
 
 ## Between Nights: holding guys serve a Night, then walk. Tops the roster back up to
 ## `slots` and guarantees at least one guy is fieldable, so the game never hard-locks.
-func night_tick(p_slots: int = -1) -> void:
+func night_tick(p_slots: int = -1, p_rank: int = -1) -> void:
 	if p_slots > 0:
 		slots = p_slots
+	if p_rank >= 0:
+		trait_rank = p_rank
 	for g in guys:
 		if g["state"] != STATE_HOLDING:
 			continue
@@ -200,6 +208,7 @@ func to_dict() -> Dictionary:
 	return {
 		"slots": slots,
 		"next_id": _next_id,
+		"trait_rank": trait_rank,
 		"seed": str(_rng.seed),
 		"state": str(_rng.state),
 		"guys": list,
@@ -211,6 +220,7 @@ func from_dict(d: Dictionary) -> void:
 		return
 	slots = maxi(int(d.get("slots", START_SLOTS)), 1)
 	_next_id = maxi(int(d.get("next_id", 1)), 1)
+	trait_rank = maxi(int(d.get("trait_rank", 0)), 0)
 	_rng.seed = SaveGame.to_i64(d.get("seed", 0), 0)
 	_rng.state = SaveGame.to_i64(d.get("state", null), int(_rng.state))
 	guys.clear()
@@ -237,4 +247,5 @@ func _sanitize(raw: Dictionary) -> Dictionary:
 		"sit_out": maxi(int(raw.get("sit_out", 0)), 0),
 		"nights": maxi(int(raw.get("nights", 0)), 0),
 		"from_raid": bool(raw.get("from_raid", false)),
+		"trait": String(raw.get("trait", "")),
 	}

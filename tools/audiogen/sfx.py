@@ -23,6 +23,8 @@ tick and wall tap far below) so the game doesn't have to ride volume_db on every
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 
 from .synth import (
@@ -202,26 +204,81 @@ def _drum(f0: float, n: int, gen: np.random.Generator, velocity: float = 1.0,
 	return unit(blend(drum, head, 0.22) * asr_env(n, 0.001, 0.05, 2.0), velocity)
 
 
+# ------------------------------------------------------- wave 3: impact layers
+
+# docs/08 §8 asks for velocity layers on the physical events. Three files per family,
+# picked at play time by `AudioDirector.play(event, {"impact": 0..1})`; the MEDIUM layer
+# *is* the original file — same seed, same numbers, byte-identical output — so nothing
+# that plays `bumper_hit` today changes, and the two new files are only what a softer or
+# a harder hit sounds like.
+#
+# Brightness is the variable, not level. A harder strike has a shorter contact time and
+# puts far more energy into the high modes: the exciter's band opens up, the click
+# sharpens, the top of the modal bank gains and rings longer, the presence tilt follows.
+# generate.py measures all three spectral centroids and fails the build unless they rise
+# strictly with impact — "we normalised it louder" is not a velocity layer.
+
+
+class Layer(NamedTuple):
+	"""One rung of a velocity ladder. Every multiplier is 1.0 (and every offset 0.0) on
+	the medium rung, so the medium render reduces to the original code exactly.
+
+	All three rungs of a family share one seed, and that is load-bearing rather than
+	lazy. ``_hit`` peak-normalises a 1-2 ms noise burst, so *which* burst you draw sets
+	the click/noise balance of the exciter and moves the finished centroid by up to an
+	octave — more than the physics does. With three different seeds the measured
+	brightness ordering is a coin toss; with one, the only thing that varies between the
+	rungs is how hard the thing was hit, which is the point. It is also what really
+	happens: the same bumper, struck harder."""
+	seed: str
+	peak_db: float
+	dur: float = 1.0        # length: a soft hit is over sooner
+	ms: float = 1.0         # exciter contact time — longer means softer and duller
+	hi: float = 1.0         # top of the exciter's band
+	click: float = 1.0      # the hard contact impulse riding on it
+	top: float = 1.0        # gain of the modes above ~1 kHz
+	top_tau: float = 1.0    # ...and how long they are allowed to ring
+	tilt: float = 0.0       # added presence shelf, dB
+	air: float = 1.0        # the noise layers on top of the body
+
+
 # ------------------------------------------------------------------- flippers
 
 
-def flipper_up() -> np.ndarray:
+def _flipper_up_layer(L: Layer) -> np.ndarray:
 	"""Solenoid clack + bat body knock. The up-stroke is the violent one: the coil
 	slams the armature into its stop and the bat rings underneath."""
-	gen = rng("flipper_up")
-	n = n_of(0.26)
-	exc = _hit(n, gen, ms=1.3, lo=380.0, hi=8500.0, sharp=6.0, click=0.85)
+	gen = rng(L.seed)
+	n = n_of(0.26 * L.dur)
+	exc = _hit(n, gen, ms=1.3 * L.ms, lo=380.0, hi=8500.0 * L.hi, sharp=6.0,
+	           click=0.85 * L.click)
 	body = modal(exc, [
 		(88.0, 0.052, 0.30),      # coil thunk through the cabinet
 		(196.0, 0.075, 0.55),     # bat body
 		(432.0, 0.044, 0.50),
 		(883.0, 0.021, 0.55),
-		(1615.0, 0.017, 0.70),    # armature
-		(2455.0, 0.0095, 0.75),
-		(3810.0, 0.0055, 0.45),
+		(1615.0, 0.017 * L.top_tau, 0.70 * L.top),    # armature
+		(2455.0, 0.0095 * L.top_tau, 0.75 * L.top),
+		(3810.0, 0.0055 * L.top_tau, 0.45 * L.top),
 	])
-	air = lowpass(noise(n, gen), 5600.0) * perc_env(n, 0.0006, 0.009, 1.4) * 0.35
-	return _finish(body + air, -2.5, wet=0.07, tilt_db=2.5)
+	air = lowpass(noise(n, gen), 5600.0) * perc_env(n, 0.0006, 0.009, 1.4) * (0.35 * L.air)
+	return _finish(body + air, L.peak_db, wet=0.07, tilt_db=2.5 + L.tilt)
+
+
+def flipper_up() -> np.ndarray:
+	return _flipper_up_layer(Layer("flipper_up", -2.5))
+
+
+def flipper_up_soft() -> np.ndarray:
+	"""A tap: the coil barely gets moving and the armature never really cracks."""
+	return _flipper_up_layer(Layer("flipper_up", -7.0, dur=0.78, ms=1.55, hi=0.44,
+	                               click=0.38, top=0.40, top_tau=0.70, tilt=-2.5, air=0.42))
+
+
+def flipper_up_hard() -> np.ndarray:
+	"""Full stroke into the stop, with the bat already loaded."""
+	return _flipper_up_layer(Layer("flipper_up", -2.0, dur=1.12, ms=0.70, hi=1.38,
+	                               click=1.30, top=1.60, top_tau=1.32, tilt=2.5, air=1.55))
 
 
 def flipper_down() -> np.ndarray:
@@ -243,44 +300,79 @@ def flipper_down() -> np.ndarray:
 # ------------------------------------------------------------------- hardware
 
 
-def bumper_hit() -> np.ndarray:
+def _bumper_layer(L: Layer) -> np.ndarray:
 	"""Pop bumper: skin slap on the ring, springy 180 Hz body, metal shimmer."""
-	gen = rng("bumper_hit")
-	n = n_of(0.44)
-	exc = _hit(n, gen, ms=2.4, lo=850.0, hi=7000.0, sharp=4.5, click=0.60)
+	gen = rng(L.seed)
+	n = n_of(0.44 * L.dur)
+	exc = _hit(n, gen, ms=2.4 * L.ms, lo=850.0, hi=7000.0 * L.hi, sharp=4.5,
+	           click=0.60 * L.click)
 	body = modal(exc, [
 		(180.0, 0.220, 0.80),     # the spring the spec asks for
 		(432.0, 0.120, 0.55),
 		(975.0, 0.055, 0.60),
-		(2310.0, 0.026, 0.62),
-		(3160.0, 0.042, 0.35),    # ring metal
-		(5400.0, 0.014, 0.18),
+		(2310.0, 0.026 * L.top_tau, 0.62 * L.top),
+		(3160.0, 0.042 * L.top_tau, 0.35 * L.top),    # ring metal
+		(5400.0, 0.014 * L.top_tau, 0.18 * L.top),
 	])
 	# the "pop": a fast pitch drop, the air the skirt shoves out of the way
 	drop_n = n_of(0.055)
 	pop = np.zeros(n)
 	pop[:drop_n] = sine(expline(drop_n, 340.0, 148.0)) * exp_decay(drop_n, 0.016) ** 1.2
-	slap = bandpass(noise(n, gen), 1400.0, 6000.0, order=2) * perc_env(n, 0.0008, 0.013, 1.6) * 1.1
-	return _finish(body + 0.9 * pop + slap, -1.8, wet=0.09, rt60=0.36, tilt_db=2.0)
+	slap = bandpass(noise(n, gen), 1400.0, 6000.0, order=2) * perc_env(n, 0.0008, 0.013, 1.6) * (1.1 * L.air)
+	return _finish(body + 0.9 * pop + slap, L.peak_db, wet=0.09, rt60=0.36,
+	               tilt_db=2.0 + L.tilt)
 
 
-def sling_hit() -> np.ndarray:
+def bumper_hit() -> np.ndarray:
+	return _bumper_layer(Layer("bumper_hit", -1.8))
+
+
+def bumper_hit_soft() -> np.ndarray:
+	"""A graze off the skirt: the spring answers, the ring never gets going."""
+	return _bumper_layer(Layer("bumper_hit", -6.0, dur=0.74, ms=1.70, hi=0.34,
+	                           click=0.32, top=0.28, top_tau=0.66, tilt=-3.0, air=0.32))
+
+
+def bumper_hit_hard() -> np.ndarray:
+	"""Straight into the skirt at speed — the whole ring assembly lets go."""
+	return _bumper_layer(Layer("bumper_hit", -1.7, dur=1.10, ms=0.68, hi=1.48,
+	                           click=1.35, top=1.65, top_tau=1.32, tilt=2.5, air=1.60))
+
+
+def _sling_layer(L: Layer) -> np.ndarray:
 	"""Slingshot: rubber snap into a small kicker plate. Snappier and higher than a bumper."""
-	gen = rng("sling_hit")
-	n = n_of(0.24)
-	exc = _hit(n, gen, ms=1.4, lo=700.0, hi=9500.0, sharp=6.0, click=0.70)
+	gen = rng(L.seed)
+	n = n_of(0.24 * L.dur)
+	exc = _hit(n, gen, ms=1.4 * L.ms, lo=700.0, hi=9500.0 * L.hi, sharp=6.0,
+	           click=0.70 * L.click)
 	body = modal(exc, [
 		(142.0, 0.048, 0.30),
 		(318.0, 0.080, 0.65),
 		(792.0, 0.044, 0.60),
-		(1885.0, 0.022, 0.70),
-		(3980.0, 0.011, 0.45),
-		(6300.0, 0.006, 0.22),
+		(1885.0, 0.022 * L.top_tau, 0.70 * L.top),
+		(3980.0, 0.011 * L.top_tau, 0.45 * L.top),
+		(6300.0, 0.006 * L.top_tau, 0.22 * L.top),
 	])
 	twang_n = n_of(0.09)
 	twang = np.zeros(n)
 	twang[:twang_n] = sine(expline(twang_n, 262.0, 178.0)) * exp_decay(twang_n, 0.026) * 1.1
-	return _finish(body + twang, -3.0, wet=0.07, tilt_db=2.0)
+	return _finish(body + twang, L.peak_db, wet=0.07, tilt_db=2.0 + L.tilt)
+
+
+def sling_hit() -> np.ndarray:
+	return _sling_layer(Layer("sling_hit", -3.0))
+
+
+def sling_hit_soft() -> np.ndarray:
+	"""The ball leans on the rubber instead of hitting it; the plate hardly moves."""
+	return _sling_layer(Layer("sling_hit", -7.5, dur=0.80, ms=1.60, hi=0.38,
+	                          click=0.34, top=0.30, top_tau=0.66, tilt=-3.0, air=0.40))
+
+
+def sling_hit_hard() -> np.ndarray:
+	"""Hit square and thrown: the rubber cracks and the plate rings with it."""
+	return _sling_layer(Layer("sling_hit", -2.4, dur=1.06, ms=0.60, hi=1.60,
+	                          click=1.40, top=2.30, top_tau=1.45, tilt=4.0, air=1.70))
 
 
 def wall_tap() -> np.ndarray:
@@ -1326,6 +1418,311 @@ def raid_lose() -> np.ndarray:
 	return _finish(out, -2.4, wet=0.15, rt60=0.72, predelay=0.013, taper=0.16)
 
 
+# ================================= wave 3 — the Club deck (specs/m2-content §1) =====
+
+
+WHEEL_CLATTER_SECONDS = 2.0
+
+# Frets the ball crosses per loop, and turns the wheel itself makes underneath it. Both
+# integers, so the tick train and the near/far swell both come back to where they began.
+_WHEEL_FRETS = 34
+_WHEEL_TURNS = 4
+
+
+def wheel_clatter() -> np.ndarray:
+	"""The ball riding the pockets of the roulette wheel — a loop, not a one-shot.
+
+	The whole sound is the fret train: a real wheel's noise *is* the ball crossing the
+	pocket separators, and the pitch you hear is that rate. A loop cannot slow down, so
+	this is the ball at its cruising canter and the deck fades it out when the wheel
+	takes the shot; the near/far swell (the wheel turning under it) is what keeps two
+	seconds of the same rate from reading as a machine fault.
+	"""
+	gen = rng("wheel_clatter")
+	loop_n = n_of(WHEEL_CLATTER_SECONDS)
+	n = loop_n + n_of(0.45)
+	out = np.zeros(n)
+
+	step = loop_n / float(_WHEEL_FRETS)
+	tick_n = n_of(0.035)
+	for i in range(_WHEEL_FRETS):
+		# No two frets are the same and the ball never hits one square.
+		f0 = 1180.0 * float(gen.uniform(0.90, 1.12))
+		tick = unit(modal(_hit(tick_n, gen, ms=0.30, lo=750.0, hi=9000.0,
+		                       sharp=11.0, click=0.45, click_ms=0.08),
+		                  [(f0, 0.0075, 0.55),
+		                   (f0 * 2.14, 0.0040, 0.60),
+		                   (f0 * 3.90, 0.0022, 0.18),
+		                   (405.0, 0.0110, 0.26)]))     # the bowl the frets are set into
+		near = 0.5 + 0.5 * np.cos(2.0 * np.pi * _WHEEL_TURNS * i / _WHEEL_FRETS)
+		add_at(out, tick, int(round(i * step)),
+		       (0.60 + 0.40 * near) * float(gen.uniform(0.86, 1.0)))
+
+	# the ball rolling on the track between frets: circularly filtered, so it stays
+	# exactly periodic, and swelling with the same rotation the ticks do
+	t = np.arange(loop_n, dtype=np.float64)
+	roll = circular_bandpass(noise(loop_n, gen), 520.0, 3400.0, slope=1.3)
+	roll /= float(np.std(roll)) + 1e-12
+	swell = 0.55 + 0.45 * np.cos(2.0 * np.pi * _WHEEL_TURNS * t / loop_n)
+	roll *= swell
+	out[:loop_n] += roll * (float(np.max(np.abs(out))) * 0.30
+	                        / (float(np.max(np.abs(roll))) + 1e-12))
+	out = comb_ff(out, 1.0 / 196.0, 0.42)        # the wooden bowl under all of it
+	# A wooden bowl is not a hi-hat. Everything past ~6 kHz here is the exciter showing
+	# through, and on a phone speaker it is the only part that survives — so it goes.
+	out = lowpass(out, 6200.0, order=2)
+	return _finish_loop(out, loop_n, -8.0, wet=0.11, rt60=0.36, tilt_db=-1.0)
+
+
+def chip_stack() -> np.ndarray:
+	"""A short stack of clay chips dropped onto felt.
+
+	Clay is the point. A poker chip has almost no ring — its modes are low-Q and gone
+	inside 15 ms — so a stack lands as a run of dull knocks with the table under them.
+	Give it plastic modes instead and you get a checkers set.
+	"""
+	gen = rng("chip_stack")
+	n = n_of(0.36)
+	out = np.zeros(n)
+	at = 0.004
+	gap = 0.032
+	for i in range(6):
+		d = float(gen.uniform(0.94, 1.09))
+		chip_n = n_of(0.09)
+		exc = _hit(chip_n, gen, ms=0.85, lo=340.0, hi=5200.0, sharp=8.0, click=0.55)
+		chip = unit(modal(exc, [
+			(268.0, 0.0140, 0.35),
+			(742.0 * d, 0.0090, 0.70),
+			(1490.0 * d, 0.0048, 0.55),
+			(2680.0 * d, 0.0026, 0.26),
+		]))
+		add_at(out, chip, n_of(at), 0.62 + 0.38 * (i / 5.0))
+		at += gap
+		gap *= 0.88                       # the stack settles faster as it gets shorter
+	felt = unit(lowpass(noise(n, gen), 620.0, order=2) * perc_env(n, 0.002, 0.030, 1.2))
+	return _finish(out + 0.20 * felt, -9.0, wet=0.06, rt60=0.26, tilt_db=-1.0, taper=0.22)
+
+
+def card_riffle() -> np.ndarray:
+	"""A deck riffled and bridged: the edges off the thumb, then the cards falling in.
+
+	The riffle accelerates — the thumb releases faster as the packet thins — and the
+	bridge at the end is what stops it sounding like a zip. Nothing below a kilohertz;
+	this has to cut through a full table without taking up any room.
+	"""
+	gen = rng("card_riffle")
+	n = n_of(0.55)
+	out = np.zeros(n)
+	at = 0.012
+	gap = 0.0148
+	for i in range(26):
+		snap = _paper(n_of(0.022), gen, 2200.0, 9000.0, tau=0.0024, grip=0.30)
+		add_at(out, snap, n_of(at), 0.55 + 0.45 * float(np.sin(np.pi * i / 25.0)))
+		at += gap
+		gap *= 0.978
+	# the packet springing back together, and the deck squaring on the table
+	out += 0.15 * _paper(n, gen, 1300.0, 9000.0, tau=0.10, grip=0.60)
+	square_n = n_of(0.12)
+	square = unit(modal(_hit(square_n, gen, ms=1.4, lo=260.0, hi=6000.0, sharp=6.0, click=0.45),
+	                    [(196.0, 0.020, 0.45), (520.0, 0.012, 0.55), (1240.0, 0.007, 0.40)]))
+	add_at(out, square, n_of(0.435), 0.42)
+	return _finish(out, -11.0, wet=0.07, rt60=0.28, tilt_db=-0.5, taper=0.18)
+
+
+def reel_stop() -> np.ndarray:
+	"""One slot column locking: the pawl drops into its notch and the drum settles.
+
+	Deliberately nothing like `drop_clack`. That is a plastic target face slapping a
+	housing; this is a steel pawl in a heavy geared drum, so it is lower, longer, and
+	arrives in two parts. The player has to be able to tell a target going down from a
+	column locking without looking at either.
+	"""
+	gen = rng("reel_stop")
+	n = n_of(0.26)
+	exc = _hit(n, gen, ms=2.2, lo=90.0, hi=3400.0, sharp=4.0, click=0.72, click_ms=0.16)
+	pawl = unit(modal(exc, [
+		(78.0, 0.075, 0.55),
+		(163.0, 0.055, 0.80),
+		(324.0, 0.034, 0.60),
+		(628.0, 0.019, 0.45),
+		(1210.0, 0.009, 0.26),
+	]))
+	rim_n = n_of(0.13)
+	rim = unit(modal(_hit(rim_n, gen, ms=1.4, lo=200.0, hi=2600.0, sharp=5.0, click=0.35),
+	                 [(214.0, 0.030, 0.60), (455.0, 0.018, 0.45), (900.0, 0.009, 0.25)]))
+	add_at(pawl, rim, n_of(0.032), 0.42)
+	return _finish(pawl, -5.5, wet=0.07, rt60=0.28, tilt_db=-1.5, taper=0.22)
+
+
+def jackpot() -> np.ndarray:
+	"""The slots pay: the bell, the band, and a great deal of money hitting a tray.
+
+	Loud, and deliberately *not* the loudest thing in the game. The knocker is still the
+	rank-up king (docs/08 §2) and rankup_fanfare is its partner, so this sits under both
+	of them on the peak ladder and under the fanfare by RMS as well. A jackpot you hear
+	over a rank-up has stolen the biggest moment in the career.
+
+	Harmony: F major — the relative major of the score's D minor — so a jackpot landing
+	anywhere in the eight bars is consonant with whatever the band is on.
+	"""
+	gen = rng("jackpot")
+	n = n_of(1.80)
+	out = np.zeros(n)
+	# the machine announcing itself: the register bell struck three times, fast
+	for i, at in enumerate((0.000, 0.082, 0.166)):
+		add_at(out, _register_bell(n_of(1.05), gen, 1320.0 * (1.0 + 0.006 * i), 0.90),
+		       n_of(at), 1.00 - 0.20 * i)
+	for i, f in enumerate((349.23, 440.00, 523.25, 698.46)):        # F4 A4 C5 F5
+		add_at(out, _brass(f, n_of(1.05), gen, 0.92 - 0.05 * i, rip_cents=60.0,
+		                   attack=0.020, release=0.30),
+		       n_of(0.150 + 0.012 * i), 0.44)
+	add_at(out, _drum(87.31, n_of(0.90), gen, 0.85, tau=0.30, head_hz=720.0), n_of(0.145), 0.50)
+	# the payout: a long cascade into the tray, thinning the way real coins do
+	add_at(out, _coin_pour(n_of(1.35), gen, 46, 0.98, f_lo=1700.0, f_hi=4800.0, decay=0.8),
+	       n_of(0.230), 0.52)
+	return _finish(out, -1.7, wet=0.16, rt60=0.72, predelay=0.013, tilt_db=1.0, taper=0.16)
+
+
+def meeting_start() -> np.ndarray:
+	"""The Family Meeting opens: the room stands up as the second guy walks in.
+
+	D minor, the band's own key, so it can land on any bar of the score without a clash.
+	The chord arrives one voice at a time from the bottom, which is what a section
+	entering sounds like and what a single stab never does.
+	"""
+	gen = rng("meeting_start")
+	n = n_of(1.40)
+	out = np.zeros(n)
+	for at, f, dur, vel in [(0.000, 146.83, 1.05, 0.86),      # D3
+	                        (0.075, 220.00, 0.98, 0.90),      # A3
+	                        (0.150, 293.66, 0.92, 0.94),      # D4
+	                        (0.225, 349.23, 0.86, 1.00)]:     # F4
+		add_at(out, _brass(f, n_of(dur), gen, vel, rip_cents=70.0,
+		                   attack=0.024, release=0.24), n_of(at), 0.55)
+	add_at(out, _drum(73.42, n_of(1.05), gen, 1.0, tau=0.36, head_hz=700.0), n_of(0.010), 0.72)
+	add_at(out, _drum(110.00, n_of(0.60), gen, 0.55, tau=0.24, head_hz=880.0), n_of(0.235), 0.40)
+	return _finish(out, -2.6, wet=0.17, rt60=0.80, predelay=0.013, tilt_db=1.0, taper=0.16)
+
+
+def meeting_jackpot() -> np.ndarray:
+	"""The back room pays while both guys are still out there.
+
+	Short on purpose: it re-arms every time the ball comes back, and a two-second
+	fanfare that repeats is a two-second fanfare the player learns to dread.
+	"""
+	gen = rng("meeting_jackpot")
+	n = n_of(0.85)
+	out = np.zeros(n)
+	for at, f, dur in [(0.000, 587.33, 0.16), (0.070, 698.46, 0.16), (0.140, 880.00, 0.52)]:
+		add_at(out, _brass(f, n_of(dur), gen, 0.95, rip_cents=55.0,
+		                   attack=0.012, release=0.10), n_of(at), 0.90)
+	add_at(out, _register_bell(n_of(0.55), gen, 1760.0, 0.55), n_of(0.145), 0.42)
+	add_at(out, _coin_pour(n_of(0.45), gen, 9, 0.22, f_lo=2100.0, f_hi=4600.0), n_of(0.195), 0.26)
+	return _finish(out, -3.2, wet=0.13, rt60=0.52, predelay=0.011, tilt_db=1.5, taper=0.18)
+
+
+def meeting_end() -> np.ndarray:
+	"""One ball left. The meeting is over and somebody came home.
+
+	Wistful is a specific construction, not a mood label. The section is gone and one
+	darkened horn is left holding the line; it falls A4-G4-F4 instead of arriving; the
+	last note lets itself down about a sixth of a semitone the way a player does; and
+	the pad underneath is a Dm6 shell — D, F and the natural sixth B — which is the
+	chord the entire score is built on and the one chord that never sounds finished.
+	"""
+	gen = rng("meeting_end")
+	n = n_of(1.60)
+	out = np.zeros(n)
+	fall_n = n_of(0.86)
+	bend = np.ones(fall_n)
+	hold = n_of(0.34)
+	bend[hold:] = expline(fall_n - hold, 1.0, 2.0 ** (-18.0 / 1200.0))
+	for at, f, dur, vel, bnd in [(0.000, 440.00, 0.26, 0.72, None),
+	                             (0.190, 392.00, 0.26, 0.66, None),
+	                             (0.380, 349.23, 0.86, 0.78, bend)]:
+		add_at(out, _brass(f, n_of(dur), gen, vel, rip_cents=20.0, attack=0.045,
+		                   release=0.30, bright=0.72, bend=bnd), n_of(at), 0.85)
+	for i, f in enumerate((146.83, 174.61, 246.94)):        # D3 F3 B3 — the Dm6 shell
+		add_at(out, _brass(f, n_of(1.05), gen, 0.52 - 0.05 * i, rip_cents=12.0,
+		                   attack=0.16, release=0.46, bright=0.66), n_of(0.36 + 0.02 * i), 0.34)
+	return _finish(out, -4.5, wet=0.21, rt60=1.05, predelay=0.016, tilt_db=-1.5, taper=0.20)
+
+
+def radio_squelch() -> np.ndarray:
+	"""A cop radio keying up two streets away — the telegraph before a raid.
+
+	The same construction as the squelch buried inside `bribe_paid`, on its own and
+	shorter: the carrier breaks squelch (a burst of hiss cut off dead), a two-tone
+	chirp, then the hiss of it unkeying. Band-limited to 340-2900 Hz and saturated,
+	because it is coming out of a two-inch speaker in a car door.
+	"""
+	gen = rng("radio_squelch")
+	n = n_of(0.30)
+	out = np.zeros(n)
+	burst = bandpass(noise(n, gen), 900.0, 3600.0, order=2) * perc_env(n, 0.0015, 0.014, 1.6)
+	add_at(out, unit(burst), 0, 0.85)
+	chirp_n = n_of(0.16)
+	chirp = sine(expline(chirp_n, 1520.0, 880.0)) * asr_env(chirp_n, 0.006, 0.040, 1.4)
+	chirp += 0.45 * sine(expline(chirp_n, 2280.0, 1320.0)) * asr_env(chirp_n, 0.008, 0.040, 1.4)
+	add_at(out, unit(chirp), n_of(0.028), 1.00)
+	tail_n = n_of(0.09)
+	tail = bandpass(noise(tail_n, gen), 1100.0, 3200.0, order=2) * perc_env(tail_n, 0.002, 0.022, 1.2)
+	add_at(out, unit(tail), n_of(0.185), 0.45)
+	out = bandpass(out, 340.0, 2900.0, order=4)
+	out = comb_ff(out, 1.0 / 470.0, 0.45)
+	# Saturation is what a two-inch speaker in a car door does, and it also flattens the
+	# crest factor: normalised to a transient's peak this would be the densest thing in
+	# the game by RMS. A telegraph warns, it does not announce, so it sits well down the
+	# ladder — the same trade `bribe_paid` makes for the same reason.
+	out = unit(np.tanh(out * 1.35))
+	return _finish(out, -11.5, wet=0.06, rt60=0.26, tilt_db=-1.0, taper=0.20)
+
+
+def staircase_crest() -> np.ndarray:
+	"""The top of the Staircase: air up the wireform, then the bell over the door.
+
+	The Club has been borrowing `skill_shot_ding` for this, which is exactly the
+	collision docs/08 §2 forbids — two different achievements taught with one sound.
+	This is the same *family* as the chime unit (a struck bar, so it agrees with the
+	score) an octave above it at D7, and it arrives on the back of a rising rush that
+	the skill shot has nothing like. The whoosh is what the player actually hears first;
+	the bar is the receipt.
+	"""
+	gen = rng("staircase_crest")
+	n = n_of(0.90)
+	out = np.zeros(n)
+
+	# the climb: a filtered rush that only ever goes up
+	climb_n = n_of(0.42)
+	ramp = np.linspace(0.0, 1.0, climb_n) ** 0.85
+	centre = 520.0 * (1.0 + 6.5 * ramp)
+	air = sweep_filter(noise(climb_n, gen), centre, q=1.5, kind="bp")
+	air = sweep_filter(air, centre * 1.45, q=0.75, kind="lp")
+	air = unit(air * (ramp ** 1.4) * asr_env(climb_n, 0.020, 0.090, 1.2))
+	add_at(out, air, 0, 0.55)
+	# the ball ticking off the stair rungs on the way up, closer together as it goes
+	for i, frac in enumerate((0.20, 0.42, 0.61, 0.77, 0.90)):
+		ping = unit(modal(_hit(n_of(0.035), gen, ms=0.30, lo=2200.0, hi=12000.0,
+		                       sharp=11.0, click=0.40, click_ms=0.07),
+		                  [(2960.0 + 540.0 * i, 0.0050, 0.60),
+		                   (5300.0 + 700.0 * i, 0.0025, 0.30)]))
+		add_at(out, ping, int(frac * climb_n), 0.14 + 0.055 * i)
+
+	# and the bar at the top: D7, the chime unit's D two octaves up
+	f0 = 2349.32
+	bell_n = n_of(0.50)
+	bexc = _hit(bell_n, gen, ms=0.50, lo=2400.0, hi=14000.0, sharp=10.0, click=0.85)
+	bell = modal(bexc, [
+		(f0, 0.160, 1.00),
+		(f0 * 1.0024, 0.150, 0.55),      # the beating partner, as on every bar in the set
+		(f0 * 2.758, 0.070, 0.34),
+		(f0 * 5.404, 0.028, 0.14),
+	])
+	shimmer = 1.0 + 0.10 * np.sin(2.0 * np.pi * 7.5 * t_axis(bell_n))
+	add_at(out, unit(bell * shimmer), n_of(0.40), 1.00)
+	return _finish(out, -3.0, wet=0.15, rt60=0.58, predelay=0.011, tilt_db=1.5, taper=0.18)
+
+
 # ------------------------------------------------------------------- registry
 
 # Events that are designed to be looped rather than fired once. AudioDirector sets
@@ -1333,6 +1730,16 @@ def raid_lose() -> np.ndarray:
 LOOP_EVENTS: dict[str, float] = {
 	"bill_counter": BILL_COUNTER_SECONDS,
 	"siren": SIREN_SECONDS,
+	"wheel_clatter": WHEEL_CLATTER_SECONDS,
+}
+
+# docs/08 §8 velocity layers: family -> (soft, medium, hard) file stems, quietest first.
+# The medium entry is the family's own event name, because the medium layer IS the file
+# that already shipped. AudioDirector picks a rung from the `impact` option.
+VELOCITY_LAYERS: dict[str, tuple[str, str, str]] = {
+	"flipper_up": ("flipper_up_soft", "flipper_up", "flipper_up_hard"),
+	"bumper_hit": ("bumper_hit_soft", "bumper_hit", "bumper_hit_hard"),
+	"sling_hit": ("sling_hit_soft", "sling_hit", "sling_hit_hard"),
 }
 
 # Order matches specs/audio-pipeline.md §4.
@@ -1384,6 +1791,25 @@ EVENTS: dict[str, callable] = {
 	"raid_start": raid_start,
 	"raid_win": raid_win,
 	"raid_lose": raid_lose,
+	# --- wave 3, specs/m2-content.md §1/§4: the Club deck ---
+	"wheel_clatter": wheel_clatter,
+	"chip_stack": chip_stack,
+	"card_riffle": card_riffle,
+	"reel_stop": reel_stop,
+	"jackpot": jackpot,
+	"meeting_start": meeting_start,
+	"meeting_jackpot": meeting_jackpot,
+	"meeting_end": meeting_end,
+	"radio_squelch": radio_squelch,
+	"staircase_crest": staircase_crest,
+	# --- wave 3: velocity layers (docs/08 §8). Not events — extra rungs under three
+	# events that already exist, so they are rendered here but never named by gameplay.
+	"flipper_up_soft": flipper_up_soft,
+	"flipper_up_hard": flipper_up_hard,
+	"bumper_hit_soft": bumper_hit_soft,
+	"bumper_hit_hard": bumper_hit_hard,
+	"sling_hit_soft": sling_hit_soft,
+	"sling_hit_hard": sling_hit_hard,
 }
 
 # Pitched events, and what they must actually measure. combo_* are the chime pitches an
@@ -1399,6 +1825,9 @@ PITCHED_EVENTS: dict[str, tuple[float, float]] = {
 	"combo_4": (1760.00, 0.03),
 	"skill_shot_ding": (1760.00, 0.12),
 	"tilt_warning": (1046.50, 0.05),
+	# The Club's own bar, two octaves above chime_a — measured after the whoosh has
+	# finished so nothing but the bar is left in the window.
+	"staircase_crest": (2349.32, 0.42),
 }
 
 

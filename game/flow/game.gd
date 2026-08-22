@@ -14,6 +14,12 @@ extends Node
 signal state_changed(state: StringName)
 ## Offline earnings waiting in the Safe (docs/03 §6). Zero once collected.
 signal safe_changed(amount: BigMoney)
+## M2 mode traffic for the HUD and The Count. `Events` is core and frozen, so the modes the
+## flow lane owns announce themselves here rather than on the global bus.
+signal casino_resolved(result: Dictionary)
+signal wire_drawn(result: Dictionary)
+signal meeting_changed(active: bool, lit: bool)
+signal collection_changed(active: bool, collected: int)
 
 ## ☆ thresholds per rank, docs/02 §1. R1=10 R2=50 R3=150 are M1's ladder; the rest are
 ## here so the ladder is data rather than a special case when M2 lands.
@@ -47,6 +53,15 @@ var state: StringName = &"attract":
 var save := SaveGame.new()
 var jobs := Jobs.new()
 var combo := Combo.new()
+## M2 modes (specs/m2-content.md). All four are pure logic on a fed clock; the
+## NightController feeds them table events and this file pays what they decide.
+var casino := Casino.new()
+var meeting := FamilyMeeting.new()
+var wire := WireDraws.new()
+var collection := CollectionRound.new()
+## The guys physically on the table right now — one normally, two during a Family Meeting.
+## Their traits fold into every dirty payout and into the Heat meter's gain scale.
+var fielded: Array[Dictionary] = []
 ## Ledger node id -> owned level, and the half of it flow is responsible for: the save file.
 ## The meta lane keeps the same map in `LedgerState` for its board; the two are kept in step
 ## by `_push_owned_to_meta()` / `_pull_owned_from_meta()` on every purchase and every load.
@@ -68,6 +83,11 @@ var session_seed: int = 0
 var night_dirty: BigMoney = BigMoney.zero()
 var night_idle: BigMoney = BigMoney.zero()
 var night_laundered: BigMoney = BigMoney.zero()
+## Clean paid straight out (casino wins under the Wash, Jackpots, exact Wire numbers) —
+## money that was never dirty, as opposed to `night_laundered`, which was.
+var night_clean: BigMoney = BigMoney.zero()
+## Dirty booked per value group tonight. The Wire prices its ticket off the spinner's line.
+var night_group: Dictionary = {}
 var night_respect: int = 0
 var night_jobs: Array[String] = []
 var night_skill_shots: int = 0
@@ -123,26 +143,78 @@ func _process(delta: float) -> void:
 
 
 ## THE single money path: every dirty payout on the table flows through here.
-## base_value × stats add/mult × heat multiplier × combo → wallet; the same post-multiplier
-## amount feeds the heat window (hot money is what raises heat, docs/03 §4) and the Jobs.
+## base_value × stats add/mult × heat multiplier × mode/trait multiplier × combo → wallet;
+## unless `no_heat` says otherwise the same post-multiplier amount feeds the heat window
+## (hot money is what raises heat, docs/03 §4), and it always feeds the Jobs.
 ##
 ## `Stats` already folds the &"all" group into every `value_add`/`value_mult` it returns, so
 ## there is exactly one lookup here — folding it in again would square the Brass Balls line.
 ##
-## `meta` options: `no_combo` (idle/mode payouts that must not extend a chain),
-## `switch` (the hardware id, for Jobs that count specific switches).
+## `meta` options:
+##   `no_combo` — idle/mode payouts that must not extend a chain.
+##   `no_heat`  — the money does not feed the Heat window. This is the Casino Wash: casino
+##                winnings are laundry, not hot money (specs/m2-content.md §1), so they land
+##                in the wallet and pay the Heat *multiplier* like anything else, but they do
+##                not raise the meter. Everything else on the table is hot.
+##   `switch`   — the hardware id, for Jobs that count specific switches.
 func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {}) -> BigMoney:
 	var v := base_value.add(stats.value_add(group))
 	v = v.mul(stats.value_mult(group))
 	v = v.mul(heat.multiplier())
+	v = v.mul(mode_multiplier())
 	if not bool(meta.get("no_combo", false)):
 		v = v.mul(combo.on_hit(group))
 	wallet.earn_dirty(v)
-	heat.on_dirty_earned(v, Rates.rank_scale(rank))
+	if not bool(meta.get("no_heat", false)):
+		heat.on_dirty_earned(v, Rates.rank_scale(rank))
 	Events.dirty_earned.emit(v, group)
 	night_dirty = night_dirty.add(v)
+	var group_total: Variant = night_group.get(group, null)
+	night_group[group] = v if not (group_total is BigMoney) else (group_total as BigMoney).add(v)
 	jobs.on_earn(v, group)
 	return v
+
+
+## Everything that multiplies dirty because of who is on the table and what mode is running:
+## the Family Meeting's ×2 while two guys are working, and the fielded guys' own traits
+## (Loud, Fast). Multiplicative across guys — during a Meeting both men's traits are live,
+## which is the point of taking the crew out together.
+func mode_multiplier() -> float:
+	return meeting.dirty_multiplier() * GuyTraits.dirty_mult_for(fielded)
+
+
+## Dirty booked in one value group tonight (the Wire prices off `&"spinner"`).
+func night_group_dirty(group: StringName) -> BigMoney:
+	var v: Variant = night_group.get(group, null)
+	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
+
+
+## Clean paid directly, never having been dirty: casino wins under the Wash, the slots
+## Jackpot, the Meeting jackpot, an exact Wire number. It is not laundering — nothing moved
+## out of the dirty pile — so it books its own line rather than eating the wash cap, and it
+## does NOT emit `Events.laundered`, whose contract is "this much dirty became clean"
+## (`night_dirty − night_laundered == held dirty` is a load-bearing invariant in the sims).
+## The Jobs board still counts it, because in the fiction the casino is a laundry (docs/03 §2).
+##
+## `_source` labels the call site for readers; it is not published. `Events` is core and
+## frozen, and each M2 mode announces itself on its own signal above with its whole result.
+func earn_clean(amount: BigMoney, _source: StringName = &"") -> BigMoney:
+	if amount == null or not amount.is_positive():
+		return BigMoney.zero()
+	wallet.earn_clean(amount)
+	night_clean = night_clean.add(amount)
+	jobs.on_launder(amount)
+	return amount
+
+
+## Who is on the table. Their traits fold into the money path and into the Heat meter's gain
+## scale (Loud +10%, Careful −15%) for exactly as long as they are out there.
+func set_fielded(guys: Array) -> void:
+	fielded = []
+	for g: Variant in guys:
+		if g is Dictionary and not (g as Dictionary).is_empty():
+			fielded.append(g as Dictionary)
+	heat.gain_scale = GuyTraits.heat_scale_for(fielded)
 
 
 ## The idle layer's trickle (docs/03 §6): real dirty cash, but it is not "hot money" —
@@ -172,6 +244,92 @@ func launder_cap_left() -> BigMoney:
 	if cap == null or not cap.is_positive():
 		return BigMoney.zero()
 	return cap.sub_clamped(night_laundered)
+
+
+# ================================================================ the club =====
+##
+## The deck reports outcomes and this file pays them (specs/m2-empire.md casino API). Every
+## casino payout is routed by ONE rule: clean if `casino_wash` is owned, otherwise dirty
+## through the ordinary money path with the Heat feed switched off. Until the Wash is bought
+## the house pays you in the same dirty money you handed it — which is exactly the reason to
+## buy it (specs/m2-content.md §3: "REQUIRED for clean payouts").
+
+
+## One `roulette_landed`. Stakes 5% of held dirty (capped by rank), resolves it, pays it.
+func casino_roulette(pocket: int, house: bool) -> Dictionary:
+	var stake := Casino.stake_for(wallet.dirty, rank)
+	if stake.is_positive() and not wallet.spend_dirty(stake):
+		stake = BigMoney.zero()
+	var result := casino.resolve(pocket, house, stake, Casino.payout_rate(stats),
+			Casino.wash_active(stats), Casino.cooler_bonus(stats))
+	var won: BigMoney = result["won"]
+	var paid := _pay_casino(won, bool(result["clean"]), &"roulette_wheel")
+	result["paid"] = paid
+	casino_resolved.emit(result)
+	return result
+
+
+## A High Roller hold ended: arm the next payout, take the Heat the greed cost.
+func casino_high_roller(steps: int) -> float:
+	var added := casino.arm(steps)
+	if added > 0.0:
+		heat.add_flat(added)
+	return added
+
+
+## A `reels_state` report. Pays the JACKPOT when it completes all three columns inside one
+## deck visit: eight minutes of the whole empire's idle rate, clean, plus flat Heat.
+func casino_reels(cleared_columns: Array) -> BigMoney:
+	if not casino.on_reels(cleared_columns):
+		return BigMoney.zero()
+	var paid := _pay_casino(Casino.jackpot_value(stats.idle_rate_total()), true, &"slot_reels")
+	heat.add_flat(Casino.CasinoRules.JACKPOT_HEAT)
+	if meeting.note_casino_jackpot():
+		meeting_changed.emit(meeting.active, meeting.lit)
+	casino_resolved.emit({"jackpot": true, "paid": paid, "clean": true,
+			"jackpots": casino.night_jackpots})
+	return paid
+
+
+## The one place a casino payout can enter the wallet.
+func _pay_casino(won: BigMoney, clean: bool, switch: StringName) -> BigMoney:
+	if won == null or not won.is_positive():
+		return BigMoney.zero()
+	var paid := earn_clean(won, switch) if clean \
+			else earn_switch(&"casino", won,
+					{"no_heat": true, "no_combo": true, "switch": switch})
+	casino.book_payout(paid, clean)
+	return paid
+
+
+## One Wire draw (docs/05 §4). The ticket is the spinner's count; the base is what the
+## spinner has earned tonight, floored at $500.
+func wire_draw(ticket: int) -> Dictionary:
+	var result := wire.draw(ticket, night_group_dirty(&"spinner"))
+	var won: BigMoney = result["won"]
+	var paid := BigMoney.zero()
+	if won.is_positive():
+		if bool(result["clean"]):
+			paid = earn_clean(won, &"wire")
+		else:
+			paid = earn_switch(&"wire", won, {"no_combo": true, "switch": &"wire_bank"})
+		wire.book_payout(paid)
+	result["paid"] = paid
+	wire_drawn.emit(result)
+	return result
+
+
+## The third storefront of a Collection Round: the last one pays its value again, ☆10 lands,
+## and the back room lights up (docs/05 §3).
+func collection_completed(id: StringName, base_value: BigMoney) -> BigMoney:
+	var bonus := BigMoney.zero()
+	if base_value != null and base_value.is_positive():
+		bonus = earn_switch(&"storefronts", base_value.mul(CollectionRound.LAST_PAYS_EXTRA),
+				{"no_combo": true, "switch": id})
+	add_respect(CollectionRound.RESPECT, &"collection")
+	if meeting.note_collection_round():
+		meeting_changed.emit(meeting.active, meeting.lit)
+	return bonus
 
 
 # ============================================================ career ladder =====
@@ -259,6 +417,11 @@ func new_game(seed_value: int = 0) -> void:
 	_wire(jobs.completed, _on_job_completed)
 	_reveal_from_dict({})
 	combo.reset()
+	casino = Casino.new()
+	meeting = FamilyMeeting.new()
+	wire = WireDraws.new()
+	collection = CollectionRound.new()
+	set_fielded([])
 	safe_pending = BigMoney.zero()
 	last_seen = Time.get_unix_time_from_system()
 	best_night = BigMoney.zero()
@@ -275,10 +438,15 @@ func start_night() -> void:
 	if bench == null:
 		bench = Bench.new(session_seed, stats.bench_slots())
 	night_no += 1
-	bench.night_tick(stats.bench_slots())
+	bench.night_tick(stats.bench_slots(), rank)
 	jobs.roll(rank, stats, stats.job_slots(), _rng)
 	jobs.begin_night()
 	combo.reset_night()
+	casino.begin_night()
+	meeting.begin_night()
+	collection.begin_night()
+	wire.begin_night(session_seed, night_no)
+	set_fielded([])
 	_reset_night_tallies()
 	state = &"night"
 	Events.night_started.emit(night_no)
@@ -309,6 +477,11 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["bench_free"] = bench.available().size() if bench != null else 0
 	s["best_night"] = best_night
 	s["quiet_floor"] = stats.pocket_money()
+	s["clean_earned"] = night_clean
+	s["casino"] = casino.night_summary()
+	s["wire"] = wire.night_summary()
+	s["meeting"] = meeting.night_summary()
+	s["collection"] = collection.night_summary()
 	s["rank_up"] = bool(s.get("rank_up", int(s.get("rank_before", rank)) < rank))
 	s["headline"] = _headlines.pick(s, _rng)
 	if night_dirty.cmp(best_night) > 0:
@@ -447,6 +620,10 @@ func to_dict() -> Dictionary:
 		"bench": bench.to_dict() if bench != null else {},
 		"jobs": jobs.to_dict(),
 		"reveal": _reveal_to_dict(),
+		"casino": casino.to_dict(),
+		"meeting": meeting.to_dict(),
+		"wire": wire.to_dict(),
+		"collection": collection.to_dict(),
 		"safe": {
 			"last_seen": last_seen,
 			"pending": safe_pending.to_dict(),
@@ -488,6 +665,15 @@ func from_dict(d: Dictionary) -> void:
 	_wire(jobs.completed, _on_job_completed)
 	jobs.from_dict(d.get("jobs", {}))
 	_reveal_from_dict(d.get("reveal", {}))
+	casino = Casino.new()
+	casino.from_dict(d.get("casino", {}))
+	meeting = FamilyMeeting.new()
+	meeting.from_dict(d.get("meeting", {}))
+	wire = WireDraws.new()
+	wire.from_dict(d.get("wire", {}))
+	collection = CollectionRound.new()
+	collection.from_dict(d.get("collection", {}))
+	set_fielded([])
 
 	var safe_d: Dictionary = d.get("safe", {})
 	last_seen = float(safe_d.get("last_seen", Time.get_unix_time_from_system()))
@@ -505,6 +691,8 @@ func _reset_night_tallies() -> void:
 	night_dirty = BigMoney.zero()
 	night_idle = BigMoney.zero()
 	night_laundered = BigMoney.zero()
+	night_clean = BigMoney.zero()
+	night_group = {}
 	night_respect = 0
 	night_jobs = []
 	night_skill_shots = 0
@@ -582,9 +770,15 @@ func _pull_owned_from_meta() -> void:
 		owned[key] = maxi(int((theirs as Dictionary)[id]), int(owned.get(key, 0)))
 
 
+## An Old-Timer on the table talks the Commission up: +25% ☆ on anything he was out for.
+## The Consigliere does the same from a desk (`job_respect_mult`, specs/m2-content.md §2);
+## that getter is read through `has_method` because the meta lane is still growing `Stats`.
 func _on_job_completed(j: Dictionary, stars: int) -> void:
 	night_jobs.append(String(j.get("name", j.get("id", "job"))))
-	add_respect(stars, &"job")
+	var paid := GuyTraits.job_respect(stars, fielded)
+	if stats.has_method("job_respect_mult"):
+		paid = maxi(int(round(float(paid) * float(stats.call("job_respect_mult")))), paid)
+	add_respect(paid, &"job")
 	AudioDirector.play(&"job_done")
 	Events.job_completed.emit(String(j.get("id", "")), stars)
 

@@ -6,6 +6,12 @@ extends Node
 ## Everything under assets/audio/ is synthesised by tools/audiogen — no samples, no
 ## licences. Regenerate with `python3 tools/audiogen/generate.py`.
 ##
+## Two things beyond one-shots and the score live here as of wave 3:
+##   * `play(event, {"impact": 0..1})` picks a velocity layer (docs/08 §8). The medium
+##     layer is the event's original file, so a call without `impact` is unchanged.
+##   * `say(specialist, mood)` plays the muted-brass phrase bank (docs/08 §5) on a
+##     channel of its own — one wiseguy at a time.
+##
 ## Three Godot 4.5 details this file depends on, all verified headless:
 ##   * AudioStreamSynchronized.set_sync_stream_volume() takes DECIBELS, not a linear
 ##     gain. Passing 0.0 expecting silence gives full level instead; -80 is silence.
@@ -18,6 +24,7 @@ extends Node
 
 # --- assets ---------------------------------------------------------------------
 const SFX_DIR := "res://assets/audio/sfx/"
+const VOICE_DIR := "res://assets/audio/voice/"
 const MUSIC_DIR := "res://assets/audio/music/city1/"
 
 ## City-1 stem stack, in the order they fade in as the empire grows (docs/08 §1).
@@ -57,11 +64,39 @@ const EVENTS: PackedStringArray = [
 	"safe_open", "stamp_thunk", "paper_slip", "job_done", "skill_shot_ding",
 	"combo_2", "combo_3", "combo_4", "headline_sting", "rankup_fanfare", "bill_counter",
 	"coin_drop", "siren", "raid_start", "raid_win", "raid_lose",
+	# specs/m2-content.md §1/§4 — the Club deck, the casino and the Family Meeting
+	"wheel_clatter", "chip_stack", "card_riffle", "reel_stop", "jackpot",
+	"meeting_start", "meeting_jackpot", "meeting_end", "radio_squelch", "staircase_crest",
 ]
 
 ## Assets built as seamless loops rather than one-shots. Pass `{"loop": true}` to
 ## `play()` and the voice repeats until you stop it (keep the returned player).
-const LOOPABLE_EVENTS: PackedStringArray = ["bill_counter", "siren"]
+const LOOPABLE_EVENTS: PackedStringArray = ["bill_counter", "siren", "wheel_clatter"]
+
+# --- velocity layers -------------------------------------------------------------
+
+## docs/08 §8. Three files per physical event — soft, medium, hard — chosen by the
+## `impact` option (0..1). The MEDIUM entry is the event's own filename, because the
+## medium layer *is* the file that already shipped: a `play()` with no `impact` loads
+## exactly what it always loaded and sounds exactly as it always sounded.
+const IMPACT_LAYERS := {
+	&"flipper_up": ["flipper_up_soft", "flipper_up", "flipper_up_hard"],
+	&"bumper_hit": ["bumper_hit_soft", "bumper_hit", "bumper_hit_hard"],
+	&"sling_hit": ["sling_hit_soft", "sling_hit", "sling_hit_hard"],
+}
+
+## Where one rung ends and the next begins. Uneven on purpose: most contacts in a ball's
+## life are middling, so the medium layer owns the middle half of the range and the two
+## ends are reserved for hits that really are gentle or really are violent.
+const IMPACT_SOFT_MAX := 0.28
+const IMPACT_HARD_MIN := 0.72
+
+## Within a rung, where the hit sat still counts for something — a 0.30 bumper and a
+## 0.70 bumper are both "medium" but they are not the same hit. The position inside the
+## rung tilts pitch and level a little, on top of (not instead of) the usual random
+## jitter, so repeats at one impact still vary.
+const IMPACT_PITCH_TILT := 0.022        # octaves, ±: about a quarter tone at the edges
+const IMPACT_DB_TILT := 1.5             # dB, ±
 
 # --- voices ---------------------------------------------------------------------
 const MAX_VOICES := 24
@@ -88,7 +123,29 @@ const EVENT_PITCH_JITTER := {
 	&"bill_counter": 0.0, &"siren": 0.0,
 	# These fire many times a second, so they get more variety, not less.
 	&"spinner_tick": 0.090, &"rollover_click": 0.070, &"coin_drop": 0.050,
+	# Wave 3. The Club's brass is tuned (F major over the score's D minor for the
+	# jackpot, D minor for the meeting), and staircase_crest is a D7 bar that has to
+	# agree with the chime unit two octaves below it.
+	&"jackpot": 0.005, &"meeting_start": 0.004, &"meeting_jackpot": 0.005,
+	&"meeting_end": 0.004, &"staircase_crest": 0.006,
+	&"wheel_clatter": 0.0,
+	&"reel_stop": 0.045, &"chip_stack": 0.060, &"card_riffle": 0.055,
+	&"radio_squelch": 0.030,
 }
+
+# --- specialist voices -----------------------------------------------------------
+
+## docs/08 §5, the muted-brass mob. One instrument per specialist; the phrase bank is
+## three files each and the index in the filename is the index into VOICE_MOODS.
+const SPECIALISTS: PackedStringArray = [
+	"big_sal", "nussbaum", "rosa", "cohen", "professor", "consigliere", "manny", "eddie",
+]
+const VOICE_MOODS: PackedStringArray = ["greeting", "quip", "grumble"]
+const VOICE_DEFAULT_MOOD := &"quip"
+
+## Wiseguys talk over each other; the mixer does not. One voice channel, and a new
+## say() takes it from whoever had it.
+const VOICE_PITCH_JITTER := 0.012
 
 # --- buses ----------------------------------------------------------------------
 const BUS_MASTER := &"Master"
@@ -106,6 +163,11 @@ const FICTION_EVENTS: PackedStringArray = [
 	"safe_open", "stamp_thunk", "paper_slip", "job_done", "skill_shot_ding",
 	"combo_2", "combo_3", "combo_4", "headline_sting", "rankup_fanfare", "bill_counter",
 	"coin_drop", "siren", "raid_start", "raid_win", "raid_lose",
+	# Wave 3: the money, the brass and the police are fiction; the wheel and the reels
+	# are hardware bolted to the playfield, so they stay on Mechanics with the rest of
+	# the machine.
+	"chip_stack", "card_riffle", "jackpot", "meeting_start", "meeting_jackpot",
+	"meeting_end", "radio_squelch", "staircase_crest",
 ]
 
 ## All eight stems at unity sum to about +1 dBFS, so the music bus carries the trim
@@ -140,8 +202,10 @@ const PIANO_DB := 0.0
 var _missing_logged: Dictionary = {}
 var _sfx: Dictionary = {}                       # StringName -> AudioStream
 var _sfx_looping: Dictionary = {}               # StringName -> looping copy
+var _phrases: Dictionary = {}                   # "big_sal_0" -> AudioStream
 var _voices: Array[AudioStreamPlayer] = []
 var _voice_started: PackedFloat64Array = []
+var _speaker: AudioStreamPlayer                 # the one channel say() talks on
 var _rng := RandomNumberGenerator.new()
 
 var _music_player: AudioStreamPlayer
@@ -175,6 +239,7 @@ func _ensure_init() -> void:
 	_rng.randomize()
 	_ensure_buses()
 	_build_voice_pool()
+	_build_speaker()
 	_warm_sfx_cache()
 
 
@@ -184,11 +249,23 @@ func _ensure_init() -> void:
 ## Fire a one-shot sound effect.
 ## opts: `pitch_jitter` (octaves, default 0.05), `pitch_scale` (explicit, skips jitter),
 ## `volume_db`, `bus`, `loop` (LOOPABLE_EVENTS only — keep the returned player and
-## stop() it yourself). Returns the voice it grabbed, or null if the asset is missing.
+## stop() it yourself), `impact` (0..1, IMPACT_LAYERS events only — how hard the thing
+## was hit; picks the velocity layer). Returns the voice it grabbed, or null if the
+## asset is missing.
+##
+## `impact` is additive to everything else: leaving it out is the whole of the old
+## behaviour, down to which file gets loaded.
 func play(event: StringName, opts: Dictionary = {}) -> AudioStreamPlayer:
 	_ensure_init()
-	var stream: AudioStream = (_looping_stream(event) if bool(opts.get("loop", false))
-		else _sfx_stream(event))
+	var asset: StringName = event
+	var tilt := 0.0
+	if opts.has("impact") and IMPACT_LAYERS.has(event):
+		var hit: float = clampf(float(opts["impact"]), 0.0, 1.0)
+		var rung: int = _impact_rung(hit)
+		asset = StringName((IMPACT_LAYERS[event] as Array)[rung])
+		tilt = _impact_tilt(hit, rung)
+	var stream: AudioStream = (_looping_stream(asset) if bool(opts.get("loop", false))
+		else _sfx_stream(asset))
 	if stream == null:
 		return null
 
@@ -198,8 +275,9 @@ func play(event: StringName, opts: Dictionary = {}) -> AudioStreamPlayer:
 
 	voice.stream = stream
 	voice.bus = _bus_for(event, opts)
-	voice.volume_db = float(opts.get("volume_db", 0.0))
-	voice.pitch_scale = _pitch_for(event, opts)
+	voice.volume_db = float(opts.get("volume_db", 0.0)) + tilt * IMPACT_DB_TILT
+	voice.pitch_scale = clampf(_pitch_for(event, opts) * pow(2.0, tilt * IMPACT_PITCH_TILT),
+		PITCH_MIN, PITCH_MAX)
 	# In the headless test runner the scene tree is not live yet; configuring the voice
 	# is still worth doing (and testable) but play() would push an engine error.
 	if voice.is_inside_tree():
@@ -207,11 +285,54 @@ func play(event: StringName, opts: Dictionary = {}) -> AudioStreamPlayer:
 	return voice
 
 
-## Silence every one-shot voice. Music is unaffected.
+## A specialist says something (docs/08 §5). No words — one instrument, three phrases,
+## and the subtitle carries the joke.
+##
+## `specialist` is a SPECIALISTS name, `mood` one of VOICE_MOODS (unknown moods fall
+## back to "quip" rather than going silent — a missing line is worse than the wrong one).
+## Plays on the Fiction bus, on a channel of its own: one wiseguy at a time, and a new
+## say() takes the floor from whoever had it. Returns the player, or null if the bank is
+## missing that phrase.
+func say(specialist: StringName, mood: StringName = VOICE_DEFAULT_MOOD) -> AudioStreamPlayer:
+	_ensure_init()
+	var index := VOICE_MOODS.find(String(mood))
+	if index < 0:
+		index = VOICE_MOODS.find(String(VOICE_DEFAULT_MOOD))
+	var stream: AudioStream = _phrase_stream(specialist, maxi(index, 0))
+	if stream == null:
+		return null
+	if _speaker == null:
+		return null
+	_speaker.stop()
+	_speaker.stream = stream
+	_speaker.volume_db = 0.0
+	_speaker.pitch_scale = clampf(
+		pow(2.0, _rng.randf_range(-VOICE_PITCH_JITTER, VOICE_PITCH_JITTER)),
+		PITCH_MIN, PITCH_MAX)
+	if _speaker.is_inside_tree():
+		_speaker.play()
+	return _speaker
+
+
+## Cut the current specialist off mid-sentence. Safe when nobody is talking.
+func voice_stop() -> void:
+	_ensure_init()
+	if _speaker != null:
+		_speaker.stop()
+
+
+## Is somebody talking right now?
+func is_speaking() -> bool:
+	return _speaker != null and _speaker.playing
+
+
+## Silence every one-shot voice, including whoever was talking. Music is unaffected.
 func stop_all() -> void:
 	_ensure_init()
 	for voice in _voices:
 		voice.stop()
+	if _speaker != null:
+		_speaker.stop()
 
 
 ## Start the stem stack. Idempotent: calling it while playing does nothing.
@@ -369,6 +490,16 @@ func _build_voice_pool() -> void:
 		_voice_started[i] = -1.0
 
 
+## The one channel say() speaks on. Deliberately NOT out of the voice pool: a phrase is
+## a second long and the pool steals its oldest player under load, so a specialist
+## talking through a busy moment would be cut off by bumper hits.
+func _build_speaker() -> void:
+	_speaker = AudioStreamPlayer.new()
+	_speaker.name = "Speaker"
+	_speaker.bus = BUS_FICTION
+	add_child(_speaker)
+
+
 func _warm_sfx_cache() -> void:
 	# Silent: a missing asset is only worth a log line when something actually asks
 	# for it, and boot-time noise for assets nobody plays helps nobody.
@@ -378,6 +509,15 @@ func _warm_sfx_cache() -> void:
 			var stream: AudioStream = load(path)
 			if stream != null:
 				_sfx[StringName(event)] = stream
+	# The soft and hard rungs are not events, so the loop above misses them; warming
+	# them here keeps the first hard bumper of a Night off the loader.
+	for event: StringName in IMPACT_LAYERS:
+		for asset: String in IMPACT_LAYERS[event]:
+			var path := SFX_DIR + asset + ".wav"
+			if not _sfx.has(StringName(asset)) and ResourceLoader.exists(path):
+				var stream: AudioStream = load(path)
+				if stream != null:
+					_sfx[StringName(asset)] = stream
 
 
 func _sfx_stream(event: StringName) -> AudioStream:
@@ -413,6 +553,52 @@ func _looping_stream(event: StringName) -> AudioStream:
 	wav.loop_end = int(round(base.get_length() * float(wav.mix_rate)))
 	_sfx_looping[event] = wav
 	return wav
+
+
+## The phrase bank is loaded on demand and cached: 24 short files that only matter on
+## the Count screen and at a handful of story beats are not worth warming at boot.
+func _phrase_stream(specialist: StringName, index: int) -> AudioStream:
+	var key := StringName("%s_%d" % [specialist, index])
+	if _phrases.has(key):
+		return _phrases[key]
+	var path := VOICE_DIR + String(key) + ".wav"
+	if ResourceLoader.exists(path):
+		var stream: AudioStream = load(path)
+		if stream != null:
+			_phrases[key] = stream
+			return stream
+	if not _missing_logged.has(key):
+		_missing_logged[key] = true
+		print("[audio] no voice phrase yet for: ", key)
+	return null
+
+
+## Which rung of a velocity ladder a 0..1 impact lands on.
+func _impact_rung(hit: float) -> int:
+	if hit < IMPACT_SOFT_MAX:
+		return 0
+	if hit >= IMPACT_HARD_MIN:
+		return 2
+	return 1
+
+
+## Where inside its rung the hit sat, remapped to -1..+1. This is what stops a rung
+## from being a step function: the top of "soft" and the bottom of "medium" meet in the
+## middle instead of jumping.
+func _impact_tilt(hit: float, rung: int) -> float:
+	var lo := 0.0
+	var hi := 1.0
+	match rung:
+		0:
+			hi = IMPACT_SOFT_MAX
+		1:
+			lo = IMPACT_SOFT_MAX
+			hi = IMPACT_HARD_MIN
+		_:
+			lo = IMPACT_HARD_MIN
+	if hi - lo < 0.0001:
+		return 0.0
+	return clampf((hit - lo) / (hi - lo), 0.0, 1.0) * 2.0 - 1.0
 
 
 func _take_voice() -> AudioStreamPlayer:
