@@ -19,18 +19,26 @@ func run(t: TestCtx) -> void:
 	_test_launder_cap(t, fixture)
 	_test_recompute_is_pure(t, fixture)
 	_test_bad_owned_input(t, fixture)
+	_test_fold_table(t)
+	_test_specialist_powers(t, fixture)
+	_test_specialist_caps(t, fixture)
+	_test_min_and_max_buckets(t, fixture)
+	_test_specialist_roster(t, fixture)
+	_test_docket_preview(t, fixture)
 	_test_shipped_catalog(t)
 
 
 # --- fixture ------------------------------------------------------------------
 
 
-func _node(id: String, tier: int, cost: String, effects: Array, repeat: Variant = null, requires: Array = []) -> Dictionary:
+func _node(id: String, tier: int, cost: String, effects: Array, repeat: Variant = null,
+		requires: Array = [], specialist: Variant = null) -> Dictionary:
 	return {
 		"id": id, "branch": "crew", "tier": tier,
 		"name": id, "flavor": "flavor", "cost": cost,
 		"repeat": repeat, "requires": requires,
 		"effects": effects, "table_change": "something appears",
+		"specialist": specialist,
 	}
 
 
@@ -85,6 +93,49 @@ func _fixture() -> Upgrades:
 				{"kind": "safe_hours_set", "value": 1},
 				{"kind": "job_slots_set", "value": 1},
 			]),
+			# --- the M2 crew: one node per new effect kind (specs/m2-content.md §2) ---
+			_node("crew.skids", 1, "5K", [
+				{"kind": "serve_speed_mult", "value": 1.15, "per_level": true},
+			], {"max": 5, "growth": 1.2}, [], {"id": "skids", "instrument": "harmonica"}),
+			_node("crew.nussbaum", 2, "60K", [
+				{"kind": "auto_launder_per_sec", "value": 0.004, "per_level": true},
+			], {"max": 6, "growth": 1.3}, [], {"id": "nussbaum", "instrument": "clarinet", "quips": "numbers_nussbaum"}),
+			_node("crew.sal", 2, "40K", [
+				{"kind": "kickback_cooldown_mult", "value": 0.9, "per_level": true},
+			], {"max": 5, "growth": 1.4}, [], {"id": "big_sal", "instrument": "tuba", "quips": "big_sal"}),
+			_node("crew.professor", 3, "80K", [
+				{"kind": "aim_line", "value": 1, "per_level": true},
+			], {"max": 5, "growth": 1.4}, [], {"id": "professor", "instrument": "oboe"}),
+			_node("crew.rosa", 3, "50K", [
+				{"kind": "all_dirty_mult", "value": 1.05, "per_level": true},
+			], {"max": 10, "growth": 1.3}, [], {"id": "rosa", "instrument": "alto_sax"}),
+			_node("crew.cohen", 4, "1M", [
+				{"kind": "heat_decay_mult", "value": 1.2, "per_level": true},
+				{"kind": "bail_discount", "value": 0.05, "per_level": true},
+			], {"max": 8, "growth": 1.25}, [], {"id": "cohen", "instrument": "violin"}),
+			_node("crew.manny", 4, "2M", [
+				{"kind": "auto_collect_interval", "value": 45.0, "per_level": true},
+			], {"max": 4, "growth": 1.3}, [], {"id": "manny", "instrument": "cornet"}),
+			_node("crew.eddie", 5, "20M", [
+				{"kind": "casino_edge_add", "value": 0.01, "per_level": true},
+			], {"max": 12, "growth": 1.2}, [], {"id": "eddie_odds", "instrument": "trombone"}),
+			_node("crew.consigliere", 5, "30M", [
+				{"kind": "job_reroll_add", "value": 1, "per_level": true},
+				{"kind": "job_respect_mult", "value": 1.1, "per_level": true},
+			], {"max": 6, "growth": 1.3}, [], {"id": "consigliere", "instrument": "cello"}),
+			# One-offs that collide with the crew on purpose: caps, min-wins and max-wins.
+			_node("crew.slowfix", 4, "900K", [
+				{"kind": "auto_collect_interval", "value": 60.0},
+			]),
+			_node("crew.chalk", 3, "90K", [
+				{"kind": "aim_line", "value": 3},
+			]),
+			_node("crew.bigbail", 5, "5M", [
+				{"kind": "bail_discount", "value": 0.5},
+			]),
+			_node("crew.bigedge", 5, "6M", [
+				{"kind": "casino_edge_add", "value": 0.05},
+			]),
 		],
 	}, "test_stats fixture")
 
@@ -130,6 +181,19 @@ func _test_baseline(t: TestCtx, fixture: Upgrades) -> void:
 	t.eq(s.kickbacks(), [] as Array[StringName], "no kickbacks")
 	t.eq(s.bribe_unlocked(), false, "the Beat Cop has not been met")
 	t.eq(s.owned_level("crew.root"), 0, "owned_level of an unowned node is 0")
+	# M2: an uncrewed career must read exactly like the M1 build — every specialist power
+	# is identity at zero hires, so the flow/table lanes can multiply by them unconditionally.
+	t.eq(s.heat_decay_mult(), 1.0, "Heat decays at the docs/03 rate with no lawyer")
+	t.eq(s.bail_discount(), 0.0, "nobody talks the bondsman down")
+	t.eq(s.auto_collect_interval(), 0.0, "0 means nobody is collecting for you")
+	t.eq(s.casino_edge_add(), 0.0, "the house edge is the house's")
+	t.eq(s.job_rerolls(), 0, "no rerolls")
+	t.eq(s.job_respect_mult(), 1.0, "a Job pays what the slip says")
+	t.eq(s.serve_speed_mult(), 1.0, "the ball takes as long as it takes")
+	t.eq(s.auto_launder_per_sec(), 0.0, "no accountant, no automatic wash")
+	t.eq(s.kickback_cooldown_mult(), 1.0, "kickbacks cool down at full price")
+	t.eq(s.aim_line_level(), 0, "no ghost line on Case the Joint")
+	t.eq(s.specialists(), [] as Array[Dictionary], "an empty roster")
 
 
 ## One owned-set, every getter — the contract in one place.
@@ -243,6 +307,170 @@ func _test_bad_owned_input(t: TestCtx, fixture: Upgrades) -> void:
 	var s2 := _stats(fixture, owned)
 	owned["crew.kick"] = 1
 	t.eq(s2.bribe_unlocked(), false, "mutating the caller's dictionary does not reach Stats")
+
+
+## The fold table is the contract between the engine and the docket's next-level preview.
+## Every kind the loader accepts must name a bucket, or a level preview silently guesses.
+func _test_fold_table(t: TestCtx) -> void:
+	for kind: Variant in Upgrades.EFFECT_SPECS:
+		t.ok(Stats.FOLD.has(kind), "effect kind `%s` names a fold bucket" % kind)
+	for kind: Variant in Stats.FOLD:
+		t.ok(Upgrades.EFFECT_SPECS.has(kind), "fold bucket `%s` is a kind the loader accepts" % kind)
+	t.eq(Stats.fold_of(&"value_mult"), Stats.Fold.PRODUCT, "multipliers compound")
+	t.eq(Stats.fold_of(&"value_add"), Stats.Fold.SUM, "flat adds sum")
+	t.eq(Stats.fold_of(&"job_slots_set"), Stats.Fold.MAX, "`set` kinds take the highest")
+	t.eq(Stats.fold_of(&"auto_collect_interval"), Stats.Fold.MIN, "an interval takes the shortest")
+	t.eq(Stats.fold_of(&"bribe_unlock"), Stats.Fold.UNION, "unlocks are unions")
+	t.eq(Stats.fold_of(&"not_a_kind"), Stats.Fold.UNION, "an unknown kind folds into nothing")
+
+	# The three per-level shapes, straight off the statics the docket previews with.
+	var mult := {"kind": &"value_mult", "num": 1.25, "money": BigMoney.zero(), "per_level": true}
+	var add := {"kind": &"bench_slot_add", "num": 2.0, "money": BigMoney.zero(), "per_level": true}
+	var interval := {"kind": &"auto_collect_interval", "num": 45.0, "money": BigMoney.zero(), "per_level": true}
+	var once := {"kind": &"value_mult", "num": 1.25, "money": BigMoney.zero(), "per_level": false}
+	t.near(Stats.scaled_value(mult, 3), pow(1.25, 3.0), 1e-9, "PRODUCT compounds")
+	t.near(Stats.scaled_value(add, 3), 6.0, 1e-9, "SUM scales linearly")
+	t.near(Stats.scaled_value(interval, 3), 15.0, 1e-9, "MIN divides — three levels, three collects")
+	t.near(Stats.scaled_value(once, 9), 1.25, 1e-9, "a one-off ignores the level")
+	var money := {"kind": &"launder_cap_add", "num": 0.0, "money": BigMoney.parse("1K"), "per_level": true}
+	_money(t, Stats.scaled_money(money, 4), "4K", "money scales linearly")
+
+
+## Every M2 getter under one owned crew, at levels that separate the shapes.
+func _test_specialist_powers(t: TestCtx, fixture: Upgrades) -> void:
+	var s := _stats(fixture, {
+		"crew.skids": 2, "crew.nussbaum": 3, "crew.sal": 3, "crew.professor": 2,
+		"crew.rosa": 4, "crew.cohen": 2, "crew.manny": 3, "crew.eddie": 5,
+		"crew.consigliere": 2,
+	})
+	t.near(s.serve_speed_mult(), pow(1.15, 2.0), 1e-9, "Skids: serve speed compounds")
+	t.near(s.auto_launder_per_sec(), 0.012, 1e-9, "Nussbaum: 0.4%/sec per level, summed")
+	t.near(s.kickback_cooldown_mult(), pow(0.9, 3.0), 1e-9, "Big Sal: cooldown discount compounds")
+	t.eq(s.aim_line_level(), 2, "The Professor: the aim line is a level, not a stack")
+	t.near(s.value_mult(&"all"), pow(1.05, 4.0), 1e-9, "Rosa folds into the `all` multiplier")
+	t.near(s.value_mult(&"bumpers"), pow(1.05, 4.0), 1e-9, "and every group inherits it")
+	t.near(s.heat_decay_mult(), pow(1.2, 2.0), 1e-9, "Cohen: Heat decay compounds")
+	t.near(s.bail_discount(), 0.10, 1e-9, "Cohen: bail discount sums")
+	t.near(s.auto_collect_interval(), 15.0, 1e-9, "Manny: 45s at level 3 is one every 15s")
+	t.near(s.casino_edge_add(), 0.05, 1e-9, "Eddie Odds: edge points sum")
+	t.eq(s.job_rerolls(), 2, "The Consigliere: a reroll a level")
+	t.near(s.job_respect_mult(), pow(1.1, 2.0), 1e-9, "The Consigliere: Job Respect compounds")
+
+	# The M1 surface is untouched by a full crew — nothing here leaks into another bucket.
+	t.eq(s.bench_slots(), 4, "hiring the crew does not widen the Bench")
+	t.eq(s.job_slots(), 2, "nor the Job board")
+	t.near(s.flipper_power(), 1.0, 1e-9, "nor the flippers")
+
+
+## Two of these are capped by design: influence buys the odds, never the outcome.
+func _test_specialist_caps(t: TestCtx, fixture: Upgrades) -> void:
+	var s := _stats(fixture, {"crew.cohen": 8, "crew.bigbail": 1, "crew.eddie": 12, "crew.bigedge": 1})
+	t.near(s.bail_discount(), Stats.BAIL_DISCOUNT_MAX, 1e-9, "bail discount stops at 60 percent")
+	t.near(s.casino_edge_add(), Stats.CASINO_EDGE_MAX, 1e-9, "casino edge stops at 12 points")
+	var under := _stats(fixture, {"crew.cohen": 4, "crew.eddie": 3})
+	t.near(under.bail_discount(), 0.20, 1e-9, "under the cap the sum is the sum")
+	t.near(under.casino_edge_add(), 0.03, 1e-9, "same for the edge")
+	# The loader must not be able to author a single effect past its own cap.
+	t.eq(float(Upgrades.EFFECT_SPECS[&"bail_discount"]["max"]), Stats.BAIL_DISCOUNT_MAX,
+		"the loader's bail ceiling is the Stats cap")
+	t.eq(float(Upgrades.EFFECT_SPECS[&"casino_edge_add"]["max"]), Stats.CASINO_EDGE_MAX,
+		"the loader's edge ceiling is the Stats cap")
+
+
+func _test_min_and_max_buckets(t: TestCtx, fixture: Upgrades) -> void:
+	t.near(_stats(fixture, {"crew.slowfix": 1}).auto_collect_interval(), 60.0, 1e-9,
+		"one collector, its own interval")
+	t.near(_stats(fixture, {"crew.slowfix": 1, "crew.manny": 1}).auto_collect_interval(), 45.0, 1e-9,
+		"the faster hire wins")
+	t.near(_stats(fixture, {"crew.slowfix": 1, "crew.manny": 4}).auto_collect_interval(), 11.25, 1e-9,
+		"and keeps winning as he levels")
+	# Order must not matter: MIN starts from "nobody", not from zero.
+	t.near(_stats(fixture, {"crew.manny": 1, "crew.slowfix": 1}).auto_collect_interval(), 45.0, 1e-9,
+		"the fold does not depend on owned-map order")
+
+	t.eq(_stats(fixture, {"crew.chalk": 1}).aim_line_level(), 3, "a one-off aim line is its own level")
+	t.eq(_stats(fixture, {"crew.chalk": 1, "crew.professor": 2}).aim_line_level(), 3,
+		"aim line takes the highest, it does not add")
+	t.eq(_stats(fixture, {"crew.chalk": 1, "crew.professor": 5}).aim_line_level(), 5,
+		"until the levelled one passes it")
+
+
+func _test_specialist_roster(t: TestCtx, fixture: Upgrades) -> void:
+	t.eq(fixture.specialists().size(), 9, "the catalog knows every hireable specialist")
+	t.eq(fixture.is_specialist("crew.sal"), true, "Big Sal is a person")
+	t.eq(fixture.is_specialist("crew.chalk"), false, "a chalkboard is not")
+
+	var s := _stats(fixture, {"crew.sal": 3, "crew.rosa": 1, "crew.mult": 2})
+	var roster := s.specialists()
+	t.eq(roster.size(), 2, "only the hired ones report for work")
+	var sal: Dictionary = roster[0]
+	t.eq(String(sal["id"]), "big_sal", "descriptor carries the specialist id")
+	t.eq(String(sal["node"]), "crew.sal", "and the node that hired him")
+	t.eq(String(sal["instrument"]), "tuba", "and his voice (docs/08 §5)")
+	t.eq(String(sal["quips"]), "big_sal", "and his one-liner table")
+	t.eq(int(sal["level"]), 3, "and the level he is at")
+	t.eq(int(sal["max_level"]), 5, "and how far he goes")
+	t.eq(String(sal["branch"]), "crew", "specialists are branch D")
+	t.eq(String(roster[1]["quips"]), "rosa", "quips defaults to the specialist id")
+
+	# A corrupt save must not hand the mixer a level the content does not sell.
+	t.eq(int(_stats(fixture, {"crew.sal": 99}).specialists()[0]["level"]), 5, "level clamps to max")
+	t.eq(_stats(fixture, {"crew.root": 1}).specialists(), [] as Array[Dictionary],
+		"an ordinary node hires nobody")
+
+
+## The docket's next-level preview is a promise about the engine, made on the one screen
+## where money changes hands. It has to print the number Stats will actually fold, and the
+## delta has to be the arithmetic difference of the two lines above it — not a re-derivation.
+func _test_docket_preview(t: TestCtx, fixture: Upgrades) -> void:
+	var mult: Dictionary = (fixture.def("crew.mult")["effects"] as Array)[0]
+	t.ok(LedgerStyle.effect_line(mult).ends_with("per level"), "an unlevelled line still says per level")
+	t.eq(LedgerStyle.effect_line_at(mult, 3),
+		"%s on bumpers hits" % LedgerStyle.percent(_stats(fixture, {"crew.mult": 3}).value_mult(&"bumpers")),
+		"the preview prints the multiplier Stats folded")
+	# The three numbers on screen have to add up: 95.3 + 48.8 = 144.1, not 95.3 + 48.9.
+	t.eq(LedgerStyle.effect_line_at(mult, 3), "+95.3% on bumpers hits", "the NOW line")
+	t.eq(LedgerStyle.effect_line_at(mult, 4), "+144.1% on bumpers hits", "the NEXT line")
+	t.eq(LedgerStyle.effect_delta(mult, 3), "+48.8%", "and a delta that is the gap between them")
+
+	var bench: Dictionary = (fixture.def("crew.bench")["effects"] as Array)[0]
+	t.eq(LedgerStyle.effect_line_at(bench, 2), "+4 Bench slots", "additive levels read as their total")
+	t.eq(LedgerStyle.effect_line_at(bench, 3), "+6 Bench slots", "one more level, one more pair")
+	t.eq(LedgerStyle.effect_delta(bench, 2), "+2", "with the flat step spelled out")
+	var saves: Dictionary = (fixture.def("crew.bench")["effects"] as Array)[2]
+	t.eq(LedgerStyle.effect_line_at(saves, 1), "+1 ball save a Night", "one is singular")
+	t.eq(LedgerStyle.effect_line_at(saves, 2), "+2 ball saves a Night", "two is not")
+
+	var cap: Dictionary = (fixture.def("crew.wash")["effects"] as Array)[1]
+	t.eq(LedgerStyle.effect_line_at(cap, 3), "+$3.00K wash cap per Night", "money folds linearly in the preview")
+	t.eq(LedgerStyle.effect_delta(cap, 3), "+$1.00K", "a money delta is the level's own amount")
+
+	var manny: Dictionary = (fixture.def("crew.manny")["effects"] as Array)[0]
+	t.eq(LedgerStyle.effect_line_at(manny, 3), "A lit award collects itself every 15s",
+		"the MIN bucket previews as the shorter interval")
+	t.eq(LedgerStyle.effect_delta(manny, 3), "-3.8s", "and its delta counts down, not up")
+
+	# Every per_level effect in the fixture: the preview must agree with a real recompute.
+	for id in fixture.ids():
+		var node := fixture.def(id)
+		if int(node["max_level"]) < 2:
+			continue
+		var effects: Array = node["effects"]
+		for e: Variant in effects:
+			var effect := e as Dictionary
+			if not bool(effect["per_level"]):
+				continue
+			var one := LedgerStyle.effect_line_at(effect, 1)
+			var two := LedgerStyle.effect_line_at(effect, 2)
+			t.ok(one != two, "%s/%s: a level visibly changes the line" % [id, effect["kind"]])
+			t.eq(LedgerStyle.effect_line_at(effect, 1), LedgerStyle.effect_line(_one_off(effect)),
+				"%s/%s: level 1 reads like the one-off it is" % [id, effect["kind"]])
+
+
+func _one_off(effect: Dictionary) -> Dictionary:
+	var out := effect.duplicate()
+	out["per_level"] = false
+	return out
 
 
 ## The same folding rules against the real content file, at a level set a player could

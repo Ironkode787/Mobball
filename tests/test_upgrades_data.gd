@@ -19,11 +19,14 @@ func run(t: TestCtx) -> void:
 	_test_requires_graph(t, catalog)
 	_test_reveal_blocks(t, catalog)
 	_test_effects(t, catalog)
+	_test_specialists(t, catalog)
 	_test_every_node_earns_its_place(t, catalog)
 	_test_hardware_coverage(t, catalog)
 	_test_entry_points(t, catalog)
 	_test_career_reachability(t, catalog)
 	_test_reveal_engine(t, catalog)
+	_test_stinger_queue(t, catalog)
+	_test_effect_english(t)
 	_test_purchase_rules(t, catalog)
 	_test_ledger_state(t)
 	_test_loader_rejects(t)
@@ -209,6 +212,35 @@ func _test_effects(t: TestCtx, catalog: Upgrades) -> void:
 	t.ok(kinds_used.size() >= 12, "the M1 set exercises the effects vocabulary (%d kinds)" % kinds_used.size())
 
 
+## Specialists are people, not upgrades (specs/m2-content.md §2): a CREW hire with a face, a
+## voice and a quip table. This guards the shipped file as those nodes land — today it mostly
+## proves the roster and the node list agree with each other.
+func _test_specialists(t: TestCtx, catalog: Upgrades) -> void:
+	var roster := catalog.specialists()
+	var seen: Dictionary = {}
+	for n in catalog.nodes:
+		var id := String(n["id"])
+		var specialist: Dictionary = n["specialist"]
+		t.eq(catalog.is_specialist(id), not specialist.is_empty(), "%s: is_specialist agrees with the node" % id)
+		if specialist.is_empty():
+			continue
+		var sid := String(specialist["id"])
+		t.ok(not seen.has(sid), "specialist `%s` is hired once (%s and %s)" % [sid, seen.get(sid, ""), id])
+		seen[sid] = id
+		t.eq(String(n["branch"]), Upgrades.SPECIALIST_BRANCH, "%s: a specialist is a CREW hire" % id)
+		t.ok(Upgrades.SPECIALIST_INSTRUMENTS.has(String(specialist["instrument"])),
+			"%s: `%s` is a voice docs/08 §5 knows" % [id, specialist["instrument"]])
+		t.ok(not String(specialist["quips"]).is_empty(), "%s: has a one-liner table" % id)
+		# docs/04 branch D: hired once, then levelled. A specialist you cannot grow is a prop.
+		t.ok(int(n["max_level"]) > 1, "%s: a specialist levels up" % id)
+	t.eq(roster.size(), seen.size(), "specialists() reports every specialist node")
+	for entry in roster:
+		t.eq(int(entry["level"]), 0, "%s: the catalog roster is hireable, not hired" % entry["id"])
+		t.eq(String(seen.get(String(entry["id"]), "")), String(entry["node"]),
+			"%s: descriptor points back at its node" % entry["id"])
+	t.eq(catalog.specialists({}).size(), 0, "an empty career has hired nobody")
+
+
 ## Every node must move at least one number. A node whose effects all no-op is money the
 ## player spends on nothing, and it is exactly the kind of thing a rename breaks silently.
 func _test_every_node_earns_its_place(t: TestCtx, catalog: Upgrades) -> void:
@@ -366,6 +398,117 @@ func _test_reveal_engine(t: TestCtx, catalog: Upgrades) -> void:
 	t.eq(int(late.states({deep: 1})[deep]), Reveal.State.REVEALED, "an owned node is never hidden")
 
 
+## docs/04: a card may *become* revealed mid-Night, but it is only ever *shown* to flip
+## mid-Count, with a stinger. The queue is what holds the two apart, so the flow lane can
+## observe whenever it likes and still spend the reveal at the scripted moment.
+func _test_stinger_queue(t: TestCtx, catalog: Upgrades) -> void:
+	var reveal := Reveal.new(catalog)
+	reveal.rank = 0
+	var states := reveal.observe({})
+	t.eq(states.size(), catalog.nodes.size(), "observe reports the whole board, like states()")
+	t.eq(states, reveal.states({}), "and reports exactly what states() would")
+	t.eq(reveal.pending_count(), 0, "the first look is the baseline, not a stinger")
+	t.eq(reveal.take_pending_cluster(), {}, "so there is nothing to flip")
+
+	reveal.rank = 1
+	reveal.observe({})
+	var pending := reveal.pending_ids()
+	t.ok(pending.size() > 0, "reaching R1 flips cards face-up (%d)" % pending.size())
+	reveal.observe({})
+	t.eq(reveal.pending_ids(), pending, "observing again does not queue the same cards twice")
+
+	var cluster := reveal.take_pending_cluster()
+	t.ok(not cluster.is_empty(), "the Count gets a cluster")
+	var branch := String(cluster["branch"])
+	var ids: PackedStringArray = cluster["ids"]
+	var names: PackedStringArray = cluster["names"]
+	t.ok(ids.size() > 0, "with cards in it")
+	t.eq(names.size(), ids.size(), "and a name for each, so the Count can print it")
+	for id in ids:
+		t.eq(String(catalog.def(id)["branch"]), branch, "one branch per stinger (%s)" % id)
+		t.ok(pending.has(id), "%s came out of the queue" % id)
+	for id in reveal.pending_ids():
+		t.ok(String(catalog.def(id)["branch"]) != branch, "what is left is another branch's cluster")
+	var guard := 0
+	while reveal.pending_count() > 0 and guard < 16:
+		t.ok(not reveal.take_pending_cluster().is_empty(), "every take drains a cluster")
+		guard += 1
+	t.eq(reveal.take_pending_cluster(), {}, "a drained queue hands back nothing")
+
+	# A save restores a board, not a backlog of stingers.
+	var loaded := Reveal.new(catalog)
+	loaded.from_dict(reveal.to_dict())
+	loaded.rank = 1
+	loaded.observe({})
+	t.eq(loaded.pending_count(), 0, "a loaded career re-baselines instead of firing every reveal at once")
+	loaded.rank = 2
+	loaded.observe({})
+	t.ok(loaded.pending_count() > 0, "and then reveals normally from there")
+	loaded.clear_pending()
+	t.eq(loaded.pending_count(), 0, "clear_pending drops a cluster nobody played")
+
+	# Buying is a reveal too — the card you just bought is face-up from now on.
+	var buyer := Reveal.new(catalog)
+	buyer.rank = 0
+	buyer.observe({})
+	var deep := String(catalog.nodes[catalog.nodes.size() - 1]["id"])
+	buyer.observe({deep: 1})
+	t.ok(buyer.pending_ids().has(deep), "an owned node joins the queue")
+
+	# Marks and money are conditions like any other: they queue, they do not fire.
+	var marker := Reveal.new(catalog)
+	marker.rank = 0
+	marker.observe({})
+	marker.mark_event(&"first_tilt")
+	marker.note_dirty_held(BigMoney.parse("1e12"))
+	marker.observe({})
+	t.ok(marker.pending_count() > 0, "a milestone reveal waits in the queue for the Count")
+
+
+## Every kind in the vocabulary has to have English behind it, or a docket line reads
+## `auto_launder_per_sec` at the player. Adding a kind without a sentence is the bug.
+func _test_effect_english(t: TestCtx) -> void:
+	for kind: Variant in Upgrades.EFFECT_SPECS:
+		var effect := _sample_effect(StringName(String(kind)))
+		var line := LedgerStyle.effect_line(effect)
+		t.ok(not line.strip_edges().is_empty(), "%s: has a docket line" % kind)
+		t.ok(line != String(kind), "%s: the docket line is English, not the kind name" % kind)
+		# The preview must speak the same sentence, folded — never fall back to the raw kind.
+		var levelled := effect.duplicate()
+		levelled["per_level"] = true
+		var at_three := LedgerStyle.effect_line_at(levelled, 3)
+		t.ok(at_three != String(kind), "%s: the next-level preview is English too" % kind)
+		if Stats.fold_of(StringName(String(kind))) != Stats.Fold.UNION:
+			t.ok(LedgerStyle.effect_delta(levelled, 1) != "", "%s: a level has a printable delta" % kind)
+
+
+## A plausible in-band effect for any kind, built from the loader's own spec.
+func _sample_effect(kind: StringName) -> Dictionary:
+	var spec: Dictionary = Upgrades.EFFECT_SPECS[kind]
+	var target := ""
+	match String(spec.get("target", "")):
+		"hardware":
+			target = "bumper_2"
+		"flag":
+			target = "plunger_bands"
+		"group":
+			target = "bumpers"
+		"side":
+			target = "left"
+		"racket":
+			target = "numbers"
+	var form := String(spec.get("value", ""))
+	var num := 0.0
+	var money := BigMoney.zero()
+	if form == "money":
+		money = BigMoney.parse("1K")
+	elif form != "":
+		num = clampf(1.2, float(spec.get("min", 0.0)), float(spec.get("max", 1e9)))
+		if form == "int":
+			num = maxf(roundf(num), ceilf(float(spec.get("min", 1.0))))
+	return {"kind": kind, "target": StringName(target), "num": num, "money": money, "per_level": false}
+
+
 func _test_purchase_rules(t: TestCtx, catalog: Upgrades) -> void:
 	var repeatable := ""
 	var gated := ""
@@ -445,6 +588,18 @@ func _valid_node() -> Dictionary:
 	}
 
 
+## Specialists only live on CREW, so the shape cases need a crew node to hang off.
+func _valid_crew_node() -> Dictionary:
+	return {
+		"id": "crew.example", "branch": "crew", "tier": 2,
+		"name": "Example Guy", "flavor": "A flavor.", "cost": "40K",
+		"repeat": {"max": 5, "growth": 1.3}, "requires": [], "reveal": null,
+		"effects": [{"kind": "serve_speed_mult", "value": 1.15, "per_level": true}],
+		"table_change": "he leans on the rail",
+		"specialist": {"id": "example_guy", "instrument": "tuba", "quips": "example_guy"},
+	}
+
+
 func _load_nodes(nodes: Array) -> Upgrades:
 	return Upgrades.from_variant({"schema": 1, "nodes": nodes}, "test fixture", true)
 
@@ -459,6 +614,22 @@ func _rejects(t: TestCtx, why: String, patch: Dictionary, drop: PackedStringArra
 	var u := _load_nodes([node])
 	t.ok(u.errors.size() > 0, "loader reports: %s" % why)
 	t.eq(u.nodes.size(), 0, "loader skips the node: %s" % why)
+
+
+## Same, against the CREW reference node (specialist shapes, and the M2 crew powers).
+func _rejects_crew(t: TestCtx, why: String, patch: Dictionary, drop: PackedStringArray = []) -> void:
+	var node := _valid_crew_node()
+	node.merge(patch, true)
+	for key in drop:
+		node.erase(key)
+	var u := _load_nodes([node])
+	t.ok(u.errors.size() > 0, "loader reports: %s" % why)
+	t.eq(u.nodes.size(), 0, "loader skips the node: %s" % why)
+
+
+## One effect on a one-off node — the shortest way to say "this value is out of band".
+func _rejects_effect(t: TestCtx, why: String, effect: Dictionary) -> void:
+	_rejects(t, why, {"repeat": null, "effects": [effect]})
 
 
 func _test_loader_rejects(t: TestCtx) -> void:
@@ -547,6 +718,9 @@ func _test_loader_rejects(t: TestCtx) -> void:
 	var ghosted := _load_nodes([ghost])
 	t.ok(ghosted.errors.size() > 0, "loader reports reveal.purchased pointing nowhere")
 
+	_test_rejects_m2_kinds(t)
+	_test_rejects_specialists(t)
+
 	t.ok(Upgrades.from_json("{ not json", "broken", true).errors.size() > 0, "loader survives broken JSON")
 	t.ok(Upgrades.from_variant([], "array", true).errors.size() > 0, "loader survives a non-object root")
 	t.ok(Upgrades.from_variant({"schema": 1}, "empty", true).errors.size() > 0, "loader survives a missing nodes array")
@@ -554,6 +728,123 @@ func _test_loader_rejects(t: TestCtx) -> void:
 		"loader refuses a schema it does not speak")
 	t.ok(Upgrades.from_file("res://game/content/no_such_file.json", true).errors.size() > 0,
 		"loader survives a missing file")
+
+
+## The M2 specialist powers are all single numbers, so the accepted band IS the design.
+## The shipped content has none of these yet — these fixtures are the coverage until the
+## nodes land, and the band is what a tuning commit will be measured against.
+func _test_rejects_m2_kinds(t: TestCtx) -> void:
+	var good := _load_nodes([_valid_crew_node()])
+	t.eq(good.errors.size(), 0, "a crew hire is accepted: %s" % ", ".join(good.errors))
+	t.eq(good.nodes.size(), 1, "the crew reference node loads")
+
+	# Multipliers that help by going UP: 1.0–3.0. A value under 1 is a nerf sold as an upgrade.
+	for kind in ["heat_decay_mult", "job_respect_mult", "serve_speed_mult", "all_dirty_mult"]:
+		_rejects_effect(t, "%s below 1.0 (a nerf)" % kind, {"kind": kind, "value": 0.9})
+		_rejects_effect(t, "%s past 3.0 (a wall, not a buff)" % kind, {"kind": kind, "value": 3.5})
+		_rejects_effect(t, "%s as a string" % kind, {"kind": kind, "value": "1.2"})
+	_rejects_effect(t, "all_dirty_mult with a target (it is always `all`)",
+		{"kind": "all_dirty_mult", "target": "bumpers", "value": 1.05})
+
+	# A discount multiplier goes the other way: 0 < v <= 1.
+	_rejects_effect(t, "kickback_cooldown_mult above 1.0 (that is a longer wait)",
+		{"kind": "kickback_cooldown_mult", "value": 1.2})
+	_rejects_effect(t, "kickback_cooldown_mult at zero (a cooldown of nothing)",
+		{"kind": "kickback_cooldown_mult", "value": 0.0})
+
+	# Fractions are capped at the number Stats caps them at, so no single node can outrun it.
+	_rejects_effect(t, "bail_discount past the 60% cap", {"kind": "bail_discount", "value": 0.75})
+	_rejects_effect(t, "bail_discount at zero", {"kind": "bail_discount", "value": 0.0})
+	_rejects_effect(t, "casino_edge_add past the 12-point cap", {"kind": "casino_edge_add", "value": 0.2})
+	_rejects_effect(t, "casino_edge_add negative (the house does not need help)",
+		{"kind": "casino_edge_add", "value": -0.01})
+	# 0.4 instead of 0.004 is THE typo this band exists to catch.
+	_rejects_effect(t, "auto_launder_per_sec at 40%/sec", {"kind": "auto_launder_per_sec", "value": 0.4})
+
+	# Seconds, and whole counts.
+	_rejects_effect(t, "auto_collect_interval under a second", {"kind": "auto_collect_interval", "value": 0.5})
+	_rejects_effect(t, "auto_collect_interval over ten minutes", {"kind": "auto_collect_interval", "value": 900.0})
+	_rejects_effect(t, "a fractional job_reroll_add", {"kind": "job_reroll_add", "value": 1.5})
+	_rejects_effect(t, "job_reroll_add of zero", {"kind": "job_reroll_add", "value": 0})
+	_rejects_effect(t, "a fractional aim_line level", {"kind": "aim_line", "value": 2.5})
+	_rejects_effect(t, "aim_line of zero (that is just not buying it)", {"kind": "aim_line", "value": 0})
+	_rejects_effect(t, "aim_line with a target", {"kind": "aim_line", "target": "all", "value": 1})
+	_rejects_effect(t, "heat_decay_mult with no value at all", {"kind": "heat_decay_mult"})
+
+	# And the whole point of the band: the design numbers themselves must load.
+	var crew := _valid_crew_node()
+	crew["effects"] = [
+		{"kind": "heat_decay_mult", "value": 1.2, "per_level": true},
+		{"kind": "bail_discount", "value": 0.05, "per_level": true},
+		{"kind": "auto_collect_interval", "value": 45.0, "per_level": true},
+		{"kind": "casino_edge_add", "value": 0.01, "per_level": true},
+		{"kind": "job_reroll_add", "value": 1, "per_level": true},
+		{"kind": "job_respect_mult", "value": 1.1, "per_level": true},
+		{"kind": "serve_speed_mult", "value": 1.15, "per_level": true},
+		{"kind": "auto_launder_per_sec", "value": 0.004, "per_level": true},
+		{"kind": "kickback_cooldown_mult", "value": 0.9, "per_level": true},
+		{"kind": "aim_line", "value": 1, "per_level": true},
+		{"kind": "all_dirty_mult", "value": 1.05, "per_level": true},
+	]
+	var loaded := _load_nodes([crew])
+	t.eq(loaded.errors.size(), 0, "the docs/04 branch D numbers all load: %s" % ", ".join(loaded.errors))
+	t.eq(loaded.nodes.size(), 1, "a node carrying every M2 power loads")
+	if loaded.nodes.size() == 1:
+		var s := _stats(loaded, {"crew.example": 2})
+		t.ok(_snapshot(s) != _snapshot(_stats(loaded, {})), "and every one of them moves a number")
+
+
+func _test_rejects_specialists(t: TestCtx) -> void:
+	_rejects_crew(t, "a specialist that is not an object", {"specialist": "big_sal"})
+	_rejects_crew(t, "a specialist with an unknown key",
+		{"specialist": {"id": "sal", "instrument": "tuba", "voice": "gravel"}})
+	_rejects_crew(t, "a specialist with no id", {"specialist": {"instrument": "tuba"}})
+	_rejects_crew(t, "a specialist with no instrument", {"specialist": {"id": "sal"}})
+	_rejects_crew(t, "a specialist id that is not a slug",
+		{"specialist": {"id": "Big Sal", "instrument": "tuba"}})
+	_rejects_crew(t, "a specialist id that is a number",
+		{"specialist": {"id": 7, "instrument": "tuba"}})
+	_rejects_crew(t, "an instrument the mixer does not have",
+		{"specialist": {"id": "sal", "instrument": "bagpipes"}})
+	_rejects_crew(t, "a quip table that is not a slug",
+		{"specialist": {"id": "sal", "instrument": "tuba", "quips": "Big Sal's Lines"}})
+
+	# Branch D or nobody: a specialist is a person on the CREW board.
+	var stranger := _valid_crew_node()
+	stranger["id"] = "muscle.example"
+	stranger["branch"] = "muscle"
+	var misplaced := _load_nodes([stranger])
+	t.ok(misplaced.errors.size() > 0, "loader reports a specialist outside CREW")
+	t.eq(misplaced.nodes.size(), 0, "and skips the node")
+
+	# One guy, one node — two nodes hiring the same man is a content merge accident.
+	var a := _valid_crew_node()
+	var b := _valid_crew_node()
+	b["id"] = "crew.example_twin"
+	var twins := _load_nodes([a, b])
+	t.ok(twins.errors.size() > 0, "loader reports the same specialist hired twice")
+	t.eq(twins.nodes.size(), 1, "and keeps only the first hire")
+
+	# The positive case, and the one normalization the loader does.
+	var quiet := _valid_crew_node()
+	(quiet["specialist"] as Dictionary).erase("quips")
+	var hired := _load_nodes([quiet])
+	t.eq(hired.errors.size(), 0, "quips is optional: %s" % ", ".join(hired.errors))
+	if hired.nodes.size() == 1:
+		var roster := hired.specialists()
+		t.eq(roster.size(), 1, "one hire, one descriptor")
+		t.eq(String(roster[0]["quips"]), "example_guy", "quips defaults to the specialist id")
+		t.eq(String(roster[0]["instrument"]), "tuba", "the voice survives the load")
+		t.eq(int(roster[0]["max_level"]), 5, "the descriptor carries how far he levels")
+		t.eq(hired.specialists({"crew.example": 3}).size(), 1, "an owned map reports the hire")
+		t.eq(int(hired.specialists({"crew.example": 3})[0]["level"]), 3, "with his level")
+		t.eq(hired.specialists({"crew.other": 3}).size(), 0, "and nobody else's")
+
+	# An ordinary node has an empty specialist block, not a missing one.
+	var plain := _load_nodes([_valid_node()])
+	t.eq((plain.def("rackets.example")["specialist"] as Dictionary).is_empty(), true,
+		"a node with no specialist normalizes to an empty block")
+	t.eq(plain.specialists().size(), 0, "and hires nobody")
 
 
 # --- helpers ------------------------------------------------------------------
@@ -590,4 +881,15 @@ func _snapshot(s: Stats) -> Array:
 	out.append(s.job_slots())
 	out.append(s.kickbacks())
 	out.append(s.bribe_unlocked())
+	out.append(s.heat_decay_mult())
+	out.append(s.bail_discount())
+	out.append(s.auto_collect_interval())
+	out.append(s.casino_edge_add())
+	out.append(s.job_rerolls())
+	out.append(s.job_respect_mult())
+	out.append(s.serve_speed_mult())
+	out.append(s.auto_launder_per_sec())
+	out.append(s.kickback_cooldown_mult())
+	out.append(s.aim_line_level())
+	out.append(s.specialists())
 	return out

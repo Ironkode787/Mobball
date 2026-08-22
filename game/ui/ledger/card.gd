@@ -129,10 +129,16 @@ func _draw_front() -> void:
 	_text(LedgerStyle.branch_title(branch), Vector2(20.0, 28.0), 15, accent.darkened(0.15))
 	_text("T%d" % int(_def["tier"]), Vector2(size.x - 44.0, 28.0), 15, LedgerStyle.INK_SOFT)
 
+	# A hire gives up type size for his portrait: "Skids the Wheelman" has to survive the
+	# narrower column, and a name clipped mid-word is worse than a name set one size down.
+	var specialist: Dictionary = _def["specialist"]
+	var named := specialist.is_empty()
 	draw_multiline_string(
 		_font, Vector2(20.0, 64.0), String(_def["name"]), HORIZONTAL_ALIGNMENT_LEFT,
-		size.x - 46.0, 26, 2, LedgerStyle.INK
+		(size.x - 46.0) if named else (size.x - 98.0), 26 if named else 21, 2, LedgerStyle.INK
 	)
+	if not specialist.is_empty():
+		_draw_portrait(accent, String(specialist["instrument"]))
 
 	if owned and level >= max_level:
 		_text("BOUGHT", Vector2(20.0, size.y - 20.0), 22, LedgerStyle.INK_SOFT)
@@ -156,6 +162,40 @@ func _draw_front() -> void:
 		draw_rect(r, Color(LedgerStyle.INK.r, LedgerStyle.INK.g, LedgerStyle.INK.b, 0.22))
 	if owned:
 		_draw_stamp()
+
+
+## A hire gets a face. Until the mugshot art exists (docs/07 §3 "specialist portraits"), that
+## face is an initials medallion in his branch colour with his instrument-voice under it
+## (docs/08 §5) — the portrait slot at final size, so the art drops straight in.
+func _draw_portrait(accent: Color, instrument: String) -> void:
+	var c := Vector2(size.x - 46.0, 78.0)
+	draw_circle(c + Vector2(2.0, 3.0), 27.0, Color(0.0, 0.0, 0.0, 0.22))
+	draw_circle(c, 26.0, accent.darkened(0.18))
+	draw_arc(c, 26.0, 0.0, TAU, 40, LedgerStyle.PAPER, 2.0)
+	var mark := _initials(String(_def["name"]))
+	var w := _font.get_string_size(mark, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 24).x
+	draw_string(_font, c + Vector2(-w * 0.5, 9.0), mark, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 24, LedgerStyle.PAPER)
+	var voice := LedgerStyle.pretty(instrument).to_upper()
+	var vw := _font.get_string_size(voice, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14).x
+	draw_string(_font, Vector2(c.x - vw * 0.5, c.y + 40.0), voice, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, LedgerStyle.INK_SOFT)
+
+
+## "Big Sal" -> BS, '"Numbers" Nussbaum' -> NN, "The Professor" -> P: letters only, and the
+## article is not a name.
+static func _initials(from_name: String) -> String:
+	var out := ""
+	for raw: String in from_name.split(" ", false):
+		var word := ""
+		for i in raw.length():
+			var ch := raw[i]
+			if (ch >= "a" and ch <= "z") or (ch >= "A" and ch <= "Z"):
+				word += ch
+		if word.is_empty() or word.to_lower() == "the":
+			continue
+		out += word[0].to_upper()
+		if out.length() >= 2:
+			break
+	return out if out != "" else "?"
 
 
 ## The DONE stamp: rubber-stamp red, off-square, over the top of everything.

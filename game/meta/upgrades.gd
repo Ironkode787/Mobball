@@ -51,9 +51,21 @@ const REVEAL_EVENTS: PackedStringArray = [
 
 const KICKBACK_SIDES: PackedStringArray = ["left", "right"]
 
+## Specialists live on branch D — CREW becomes people (docs/04 branch D, specs/m2-content.md §2).
+const SPECIALIST_BRANCH := "crew"
+
+## One instrument per character is their voice AND their stem presence (docs/08 §5). Validating
+## the word means a typo in a hire is caught here instead of failing silent in the mixer; the
+## list is meta-lane owned, so a new voice is a one-line change requested via report.
+const SPECIALIST_INSTRUMENTS: PackedStringArray = [
+	"tuba", "clarinet", "alto_sax", "violin", "cornet", "trombone", "oboe", "cello",
+	"muted_trumpet", "harmonica", "banjo", "accordion", "upright_bass", "vibraphone",
+	"bicycle_bell", "whistle",
+]
+
 const NODE_KEYS: PackedStringArray = [
 	"id", "branch", "tier", "name", "flavor", "cost",
-	"repeat", "requires", "reveal", "effects", "table_change",
+	"repeat", "requires", "reveal", "effects", "table_change", "specialist",
 ]
 const NODE_REQUIRED_KEYS: PackedStringArray = [
 	"id", "branch", "tier", "name", "flavor", "cost", "effects", "table_change",
@@ -61,6 +73,8 @@ const NODE_REQUIRED_KEYS: PackedStringArray = [
 const EFFECT_KEYS: PackedStringArray = ["kind", "target", "value", "per_level"]
 const REPEAT_KEYS: PackedStringArray = ["max", "growth"]
 const REVEAL_KEYS: PackedStringArray = ["rank", "event", "purchased", "dirty_held"]
+const SPECIALIST_KEYS: PackedStringArray = ["id", "instrument", "quips"]
+const SPECIALIST_REQUIRED_KEYS: PackedStringArray = ["id", "instrument"]
 
 ## Per-kind shape: which vocabulary the `target` belongs to, and how `value` is read.
 ## value forms: `num` (float), `int` (whole float), `money` (BigMoney.parse string).
@@ -83,6 +97,22 @@ const EFFECT_SPECS := {
 	&"bribe_unlock": {},
 	&"job_slots_set": {"value": &"int", "min": 1.0},
 	&"collect_minutes_mult": {"value": &"num", "min": 0.000001},
+	# --- M2 specialist powers (specs/m2-content.md §2) ---------------------------
+	# Ranges are deliberately tight per kind: these are all one-number powers, so the band
+	# is the only thing standing between "-10% cooldown" and "-1000% cooldown". A multiplier
+	# that helps by going UP reads 1.0..3.0; one that helps by going DOWN reads 0..1.0;
+	# a fraction reads as its own cap. Fold buckets live in Stats.FOLD.
+	&"heat_decay_mult": {"value": &"num", "min": 1.0, "max": 3.0},
+	&"bail_discount": {"value": &"num", "min": 0.000001, "max": 0.6},
+	&"auto_collect_interval": {"value": &"num", "min": 1.0, "max": 600.0},
+	&"casino_edge_add": {"value": &"num", "min": 0.000001, "max": 0.12},
+	&"job_reroll_add": {"value": &"int", "min": 1.0, "max": 10.0},
+	&"job_respect_mult": {"value": &"num", "min": 1.0, "max": 3.0},
+	&"serve_speed_mult": {"value": &"num", "min": 1.0, "max": 3.0},
+	&"auto_launder_per_sec": {"value": &"num", "min": 0.000001, "max": 0.25},
+	&"kickback_cooldown_mult": {"value": &"num", "min": 0.000001, "max": 1.0},
+	&"aim_line": {"value": &"int", "min": 1.0, "max": 10.0},
+	&"all_dirty_mult": {"value": &"num", "min": 1.0, "max": 3.0},
 }
 
 ## Why a node cannot be bought right now. NONE means "take the money".
@@ -191,6 +221,44 @@ func max_level(id: String) -> int:
 
 func is_repeatable(id: String) -> bool:
 	return max_level(id) > 1
+
+
+func is_specialist(id: String) -> bool:
+	var n := def(id)
+	return not n.is_empty() and not (n["specialist"] as Dictionary).is_empty()
+
+
+## The crew as descriptors, for the flow and audio lanes (specs/m2-content.md §2):
+##   {id, node, name, branch, tier, instrument, quips, level, max_level}
+##
+## `owned` null asks the catalog "who is hireable" — every specialist it declares, at level 0.
+## Passing the owned map asks "who works for me" — only hired ones, with the level clamped the
+## same way Stats clamps it, so a corrupt save cannot hand the mixer a level-99 tuba.
+## `Stats.specialists()` is the same list for the career currently loaded.
+func specialists(owned: Variant = null) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for n in nodes:
+		var specialist: Dictionary = n["specialist"]
+		if specialist.is_empty():
+			continue
+		var level := 0
+		if owned is Dictionary:
+			level = int((owned as Dictionary).get(String(n["id"]), 0))
+			if level < 1:
+				continue
+			level = mini(level, int(n["max_level"]))
+		out.append({
+			"id": String(specialist["id"]),
+			"node": String(n["id"]),
+			"name": String(n["name"]),
+			"branch": String(n["branch"]),
+			"tier": int(n["tier"]),
+			"instrument": String(specialist["instrument"]),
+			"quips": String(specialist["quips"]),
+			"level": level,
+			"max_level": int(n["max_level"]),
+		})
+	return out
 
 
 ## Cost of the NEXT purchase given the level already owned: `base × growth^level`.
@@ -345,6 +413,11 @@ func _read_node(entry: Variant, index: int, quiet: bool) -> Dictionary:
 	if effects.is_empty():
 		fatal = true
 
+	var specialist := _read_specialist(raw.get("specialist", null), where, branch, quiet)
+	if specialist.has("_bad"):
+		fatal = true
+		specialist = {}
+
 	if fatal:
 		return {}
 
@@ -362,7 +435,50 @@ func _read_node(entry: Variant, index: int, quiet: bool) -> Dictionary:
 		"reveal": reveal,
 		"effects": effects,
 		"table_change": String(raw["table_change"]),
+		"specialist": specialist,
 	}
+
+
+## A hire, not an upgrade: `{"id": "big_sal", "instrument": "tuba", "quips": "big_sal"}`.
+## `quips` (the headline table this guy's one-liners come from) defaults to the specialist id.
+## Empty Dictionary = an ordinary node; `_bad` = a malformed one.
+func _read_specialist(raw: Variant, where: String, branch: String, quiet: bool) -> Dictionary:
+	if raw == null:
+		return {}
+	if not (raw is Dictionary):
+		_bad("%s: specialist must be null or an object" % where, quiet)
+		return {"_bad": true}
+	var d := raw as Dictionary
+	var bad := false
+	for key: Variant in d:
+		if not SPECIALIST_KEYS.has(String(key)):
+			_bad("%s: specialist has unknown key `%s`" % [where, key], quiet)
+			bad = true
+	for key in SPECIALIST_REQUIRED_KEYS:
+		if not d.has(key):
+			_bad("%s: specialist is missing `%s`" % [where, key], quiet)
+			bad = true
+	if bad:
+		return {"_bad": true}
+	if branch != SPECIALIST_BRANCH:
+		_bad("%s: a specialist is a %s hire, not a %s node" % [where, SPECIALIST_BRANCH, branch], quiet)
+		bad = true
+	var sid := String(d["id"]) if d["id"] is String else ""
+	if not _is_slug(sid):
+		_bad("%s: specialist.id `%s` must be a lower_snake_case slug" % [where, d["id"]], quiet)
+		bad = true
+	if not (d["instrument"] is String) or not SPECIALIST_INSTRUMENTS.has(String(d["instrument"])):
+		_bad("%s: specialist.instrument `%s` is not a voice the mixer knows" % [where, d["instrument"]], quiet)
+		bad = true
+	var quips := sid
+	if d.has("quips"):
+		quips = String(d["quips"]) if d["quips"] is String else ""
+		if not _is_slug(quips):
+			_bad("%s: specialist.quips `%s` must be a lower_snake_case slug" % [where, d["quips"]], quiet)
+			bad = true
+	if bad:
+		return {"_bad": true}
+	return {"id": sid, "instrument": String(d["instrument"]), "quips": quips}
 
 
 func _read_repeat(raw: Variant, where: String, quiet: bool) -> Dictionary:
@@ -589,8 +705,17 @@ func _target_ok(vocab: StringName, value: String) -> bool:
 ## Second pass: cross-references only resolvable once every node is in.
 func _link(quiet: bool) -> void:
 	var dead: PackedStringArray = []
+	var hired: Dictionary = {}
 	for n in nodes:
 		var id := String(n["id"])
+		var specialist: Dictionary = n["specialist"]
+		if not specialist.is_empty():
+			var sid := String(specialist["id"])
+			if hired.has(sid):
+				_bad("%s: specialist `%s` is already hired by `%s`" % [id, sid, hired[sid]], quiet)
+				dead.append(id)
+			else:
+				hired[sid] = id
 		var requires: PackedStringArray = n["requires"]
 		for parent in requires:
 			if not _by_id.has(parent):
@@ -665,6 +790,18 @@ func _src() -> String:
 
 static func _is_number(v: Variant) -> bool:
 	return (v is float or v is int) and is_finite(float(v))
+
+
+## Content-facing identifiers (specialist ids, quip tables) are lower_snake_case so they can
+## be StringNames, filenames and JSON keys in the audio and writing lanes without translation.
+static func _is_slug(s: String) -> bool:
+	if s.is_empty() or not (s[0] >= "a" and s[0] <= "z"):
+		return false
+	for i in s.length():
+		var c := s[i]
+		if not ((c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "_"):
+			return false
+	return true
 
 
 ## 10^x in mantissa/exponent form, for any real x.

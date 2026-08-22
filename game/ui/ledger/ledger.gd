@@ -188,7 +188,9 @@ func _refresh() -> void:
 	var owned := LedgerState.get_owned()
 	reveal.rank = _rank()
 	reveal.note_dirty_held(_dirty())
-	_board.refresh(reveal.states(owned), owned, _rank(), _clean())
+	# `observe`, not `states`: the board banks what flipped, it never drains the queue. Seeing
+	# a card here does not spend the Count's stinger (docs/04 — the flip is a scripted beat).
+	_board.refresh(reveal.observe(owned), owned, _rank(), _clean())
 	if _selected != "":
 		_show_docket(_selected)
 	queue_redraw()
@@ -319,6 +321,14 @@ func _seed_preview() -> void:
 
 ## Framing hooks for tools/shot.sh, so evidence renders need no code edits. Preview only.
 func _apply_shot_framing() -> void:
+	# SHOT_CATALOG renders a candidate content file instead of the shipped one — how a draft
+	# of the T4-T5 tier or a new specialist gets looked at before it is committed.
+	var alt := OS.get_environment("SHOT_CATALOG")
+	if alt != "" and FileAccess.file_exists(alt):
+		catalog = Upgrades.from_file(alt)
+		reveal.catalog = catalog
+		_board.build(catalog)
+		_refresh()
 	var z := OS.get_environment("SHOT_ZOOM")
 	if z.is_valid_float():
 		_board.set_zoom(z.to_float())

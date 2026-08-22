@@ -121,6 +121,9 @@ func show_for(node_def: Dictionary, level: int, cost: BigMoney, block: int, reas
 		bits.append("LEVEL %d OF %d" % [level, max_level])
 	elif level > 0:
 		bits.append("OWNED")
+	var specialist: Dictionary = node_def["specialist"]
+	if not specialist.is_empty():
+		bits.append("SPECIALIST · %s" % LedgerStyle.pretty(String(specialist["instrument"])).to_upper())
 	_sub.text = "  ·  ".join(bits)
 	_flavor.text = "“%s”" % String(node_def["flavor"])
 	_table.text = String(node_def["table_change"])
@@ -130,7 +133,7 @@ func show_for(node_def: Dictionary, level: int, cost: BigMoney, block: int, reas
 		child.queue_free()
 	var effects: Array = node_def["effects"]
 	for effect: Variant in effects:
-		_effects.add_child(_label("•  " + LedgerStyle.effect_line(effect), 22, LedgerStyle.INK))
+		_add_effect_lines(effect as Dictionary, level, max_level)
 
 	if block == Upgrades.Block.MAXED:
 		_cost.text = "MAXED"
@@ -144,6 +147,25 @@ func show_for(node_def: Dictionary, level: int, cost: BigMoney, block: int, reas
 	_buy.text = "BUY" if block == Upgrades.Block.NONE else reason
 	_buy.add_theme_font_size_override("font_size", 30 if block == Upgrades.Block.NONE else 22)
 	open()
+
+
+## One line for a one-off. For a repeatable you already own a level of, two: what the books
+## say now, and what the next stamp turns it into — the whole question the escalating price
+## is asking. An unowned or maxed node has no "next", so it keeps the single line.
+func _add_effect_lines(effect: Dictionary, level: int, max_level: int) -> void:
+	var levelled := bool(effect["per_level"]) and max_level > 1 and level >= 1
+	if not levelled:
+		_effects.add_child(_label("•  " + LedgerStyle.effect_line(effect), 22, LedgerStyle.INK))
+		return
+	_effects.add_child(_label("•  " + LedgerStyle.effect_line_at(effect, level), 22, LedgerStyle.INK))
+	if level >= max_level:
+		return
+	var delta := LedgerStyle.effect_delta(effect, level)
+	var next := LedgerStyle.effect_line_at(effect, level + 1)
+	var line := "     next:  %s" % next
+	if delta != "":
+		line += "   (%s)" % delta
+	_effects.add_child(_label(line, 19, LedgerStyle.BRASS.darkened(0.35)))
 
 
 func open() -> void:

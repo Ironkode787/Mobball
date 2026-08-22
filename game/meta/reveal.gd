@@ -14,6 +14,10 @@ extends RefCounted
 ## `rank` and `purchased` are read live — they only ever go up. The sticky half serializes
 ## through `to_dict` / `from_dict` so a save keeps the board it earned.
 ##
+## `observe` / `take_pending_cluster` add the other half of docs/04: a card may become
+## revealed mid-Night, but it is only *shown* to flip mid-Count, with a stinger. See the
+## stinger-queue section.
+##
 ## RefCounted and autoload-free: the UI feeds it rank/dirty/marks, it never reaches for Game.
 
 enum State { HIDDEN, FACEDOWN, REVEALED }
@@ -31,6 +35,12 @@ var _crossed: Dictionary = {}
 ## every dirty payout of a Night, so it may not walk the node list each time.
 var _thresholds: PackedStringArray = []
 var _thresholds_for: Upgrades = null
+
+## Ids `observe` has already seen face-up, and the ones that flipped since the Count last
+## drained the queue. Both are runtime-only: a reload re-baselines off the board it loads.
+var _seen: Dictionary = {}
+var _pending: PackedStringArray = []
+var _baselined: bool = false
 
 
 ## Process-wide instance. The reveal history has to outlive the Ledger UI, which is
@@ -148,6 +158,70 @@ func is_revealed(id: String, owned: Dictionary) -> bool:
 	return state_of(id, owned) == State.REVEALED
 
 
+# --- the stinger queue (docs/04 "Milestone reveals") --------------------------
+#
+# "Face-down clusters flip at scripted moments, always mid-Count with a stinger" — so the
+# flip is NOT allowed to happen where the reveal condition is met (mid-Night, mid-tilt).
+# `observe` is the recorder: call it wherever rank, marks or held dirty move, and it banks
+# whatever went face-up. The Count then drains one branch at a time with
+# `take_pending_cluster` and plays it as one reveal. Pure bookkeeping — no signals, no
+# timers, no autoloads: what the Count does with a cluster is the flow lane's business.
+
+
+## The same board `states()` reports, plus the memory of what flipped. The FIRST call is the
+## baseline — the cards a player already has are not news — so a fresh session (or one just
+## restored with `from_dict`) should observe once before anything can be pending.
+func observe(owned: Dictionary) -> Dictionary:
+	var out := states(owned)
+	for id: Variant in out:
+		if int(out[id]) != State.REVEALED or _seen.has(id):
+			continue
+		_seen[id] = true
+		if _baselined:
+			_pending.append(String(id))
+	_baselined = true
+	return out
+
+
+## Everything waiting for a stinger, in catalog order, without draining it.
+func pending_ids() -> PackedStringArray:
+	return _pending.duplicate()
+
+
+func pending_count() -> int:
+	return _pending.size()
+
+
+## One cluster for The Count: `{"branch": String, "ids": PackedStringArray, "names":
+## PackedStringArray}`, and it leaves the queue. Empty `{}` when nothing is waiting.
+##
+## One branch per take, because a stinger reveals a *place* — "you got a money problem, kid"
+## is the FRONTS branch lighting up, not a shopping list. A reveal that spans branches comes
+## back over consecutive takes, so the Count can flip one, sting, and ask again.
+func take_pending_cluster() -> Dictionary:
+	if _pending.is_empty():
+		return {}
+	var cat := _catalog()
+	var branch := String(cat.def(_pending[0]).get("branch", ""))
+	var ids: PackedStringArray = []
+	var names: PackedStringArray = []
+	var rest: PackedStringArray = []
+	for id in _pending:
+		var node := cat.def(id)
+		if String(node.get("branch", "")) == branch:
+			ids.append(id)
+			names.append(String(node.get("name", id)))
+		else:
+			rest.append(id)
+	_pending = rest
+	return {"branch": branch, "ids": ids, "names": names}
+
+
+## Drops the queue without playing it (a Night abandoned, a respec, a test).
+func clear_pending() -> void:
+	_pending.clear()
+
+
 # --- serialization ------------------------------------------------------------
 
 
@@ -164,6 +238,11 @@ func to_dict() -> Dictionary:
 func from_dict(d: Dictionary) -> void:
 	_marks.clear()
 	_crossed.clear()
+	# The board that comes out of a save is the new baseline: it is history, not a stinger
+	# waiting to fire. The next `observe` re-arms the queue against it.
+	_seen.clear()
+	_pending.clear()
+	_baselined = false
 	if d == null:
 		return
 	var marks: Variant = d.get("marks", [])

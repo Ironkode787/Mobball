@@ -70,11 +70,9 @@ static func pretty(id: String) -> String:
 	return id.replace("_", " ").capitalize()
 
 
+## A multiplier as the change it makes: 1.25 reads "+25%", 0.9 reads "-10%".
 static func percent(value: float) -> String:
-	var pct := (value - 1.0) * 100.0
-	if absf(pct - roundf(pct)) < 0.05:
-		return "%+d%%" % int(roundf(pct))
-	return "%+.1f%%" % pct
+	return _points((value - 1.0) * 100.0)
 
 
 ## One human line per effect, for the docket. `per_level` effects say so — the player is
@@ -107,11 +105,11 @@ static func effect_line(effect: Dictionary) -> String:
 		&"safe_hours_set":
 			return "The Safe holds %dh of idle%s" % [int(roundf(num)), each]
 		&"bench_slot_add":
-			return "+%d Bench slot%s" % [int(roundf(num)), each]
+			return "+%d Bench slot%s%s" % [int(roundf(num)), _s(num), each]
 		&"ball_save_charges":
-			return "+%d ball save a Night%s" % [int(roundf(num)), each]
+			return "+%d ball save%s a Night%s" % [int(roundf(num)), _s(num), each]
 		&"tilt_leans_add":
-			return "+%d lean before the Inspector calls it%s" % [int(roundf(num)), each]
+			return "+%d lean%s before the Inspector calls it%s" % [int(roundf(num)), _s(num), each]
 		&"flipper_power_mult":
 			return "%s flipper power%s" % [percent(num), each]
 		&"kickback_unlock":
@@ -122,7 +120,107 @@ static func effect_line(effect: Dictionary) -> String:
 			return "Job board holds %d slips" % int(roundf(num))
 		&"collect_minutes_mult":
 			return "%s storefront collect%s" % [percent(num), each]
+		&"heat_decay_mult":
+			return "%s Heat decay%s" % [percent(num), each]
+		&"bail_discount":
+			return "Bail costs %s less%s" % [_pct(num), each]
+		&"auto_collect_interval":
+			# The MIN bucket divides by level, so a level is another award in the same window.
+			var window := " (one more award per level)" if bool(effect["per_level"]) else ""
+			return "A lit award collects itself every %s%s" % [_secs(num), window]
+		&"casino_edge_add":
+			return "+%s casino edge your way%s" % [_pct(num), each]
+		&"job_reroll_add":
+			return "+%d Job reroll%s a Night%s" % [int(roundf(num)), _s(num), each]
+		&"job_respect_mult":
+			return "%s Respect from Jobs%s" % [percent(num), each]
+		&"serve_speed_mult":
+			return "%s faster ball service%s" % [percent(num), each]
+		&"auto_launder_per_sec":
+			return "%s/sec of held dirty washes itself%s" % [_pct(num), each]
+		&"kickback_cooldown_mult":
+			return "%s kickback cooldown%s" % [percent(num), each]
+		&"aim_line":
+			return "Case the Joint draws a ghost aim line (strength %d)%s" % [int(roundf(num)), each]
+		&"all_dirty_mult":
+			return "%s on ALL dirty%s" % [percent(num), each]
 	return String(kind)
+
+
+## The same sentence, but with the effect folded to what owning `level` of it actually gives:
+## "+25% per level" at level 3 reads "+95%". Uses the engine's own fold shapes, so the docket
+## can never promise a curve Stats does not apply.
+static func effect_line_at(effect: Dictionary, level: int) -> String:
+	return effect_line(_at_level(effect, level))
+
+
+## What one more level moves the number by, in the unit the two lines above are printed in —
+## so "+95%" → "+144%" is annotated "+49%" and the three numbers agree on screen.
+static func effect_delta(effect: Dictionary, level: int) -> String:
+	var kind: StringName = effect["kind"]
+	if not bool(effect["per_level"]):
+		return ""
+	var money: BigMoney = effect["money"]
+	if money != null and money.is_positive():
+		return "+%s" % money.text()
+	var now := Stats.scaled_value(effect, maxi(level, 1))
+	var next := Stats.scaled_value(effect, maxi(level, 1) + 1)
+	match kind:
+		&"value_mult", &"flipper_power_mult", &"collect_minutes_mult", &"heat_decay_mult", \
+		&"job_respect_mult", &"serve_speed_mult", &"kickback_cooldown_mult", &"all_dirty_mult":
+			# Off the ROUNDED percentages, not the raw floats: the delta has to be the gap
+			# between the two numbers printed above it, or the docket does not add up.
+			return _points(_shown((next - 1.0) * 100.0) - _shown((now - 1.0) * 100.0))
+		&"launder_rate_add", &"passive_wash_add", &"auto_launder_per_sec", &"bail_discount", \
+		&"casino_edge_add":
+			return _points(_shown(next * 100.0) - _shown(now * 100.0))
+		&"safe_hours_set":
+			return "%+dh" % int(roundf(next - now))
+		&"auto_collect_interval":
+			var shaved := next - now
+			return ("%+.1fs" % shaved) if absf(shaved) < 10.0 else ("%+.0fs" % shaved)
+	return "%+d" % int(roundf(next - now))
+
+
+# --- formatting -----------------------------------------------------------------
+
+
+## A plain fraction as a percentage, unsigned: 0.05 reads "5%", 0.004 reads "0.4%".
+static func _pct(value: float) -> String:
+	var pct := value * 100.0
+	if absf(pct - roundf(pct)) < 0.05:
+		return "%d%%" % int(roundf(pct))
+	return "%.1f%%" % pct
+
+
+## A signed percentage, whole numbers where whole numbers will do.
+static func _points(pct: float) -> String:
+	if absf(pct - roundf(pct)) < 0.05:
+		return "%+d%%" % int(roundf(pct))
+	return "%+.1f%%" % pct
+
+
+## The value a percentage actually prints as, so a delta can be taken between two of them.
+static func _shown(pct: float) -> float:
+	return roundf(pct) if absf(pct - roundf(pct)) < 0.05 else roundf(pct * 10.0) / 10.0
+
+
+## Plural "s" — the next-level preview folds counts, so "+4 Bench slot" would show up a lot.
+static func _s(count: float) -> String:
+	return "" if is_equal_approx(absf(count), 1.0) else "s"
+
+
+static func _secs(value: float) -> String:
+	return ("%.0fs" % value) if absf(value - roundf(value)) < 0.05 else ("%.1fs" % value)
+
+
+## The effect as owning `level` of it leaves it: the numbers folded, the "per level" dropped.
+static func _at_level(effect: Dictionary, level: int) -> Dictionary:
+	var out := effect.duplicate()
+	out["num"] = Stats.scaled_value(effect, level)
+	out["money"] = Stats.scaled_money(effect, level)
+	out["per_level"] = false
+	return out
 
 
 ## Godot's default button theme is a grey box; every button on this screen is repainted
