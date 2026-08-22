@@ -396,6 +396,8 @@ func _normalize() -> void:
 		e = MAX_EXP
 		return
 	if m == 0.0:
+		# Also folds -0.0 away, so saves and dict round-trips never carry a signed zero.
+		m = 0.0
 		e = 0
 		return
 	var a := absf(m)
