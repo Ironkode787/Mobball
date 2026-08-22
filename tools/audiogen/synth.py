@@ -319,10 +319,17 @@ def mode(x: np.ndarray, freq: float, tau: float, sr: int = SR) -> np.ndarray:
 
 
 def modal(exciter: np.ndarray, spec, sr: int = SR) -> np.ndarray:
-	"""Exciter -> bank of tuned modes. ``spec`` = iterable of (freq, tau, gain)."""
+	"""Exciter -> bank of tuned modes. ``spec`` = iterable of (freq, tau, gain).
+
+	``gain`` is the mode's *energy* share, not its peak amplitude: the amplitude is
+	scaled by 1/sqrt(tau) so a 10 ms mode at gain 0.5 is as loud, to the ear, as a
+	100 ms mode at gain 0.5. Specifying peak amplitude instead buries every short
+	bright mode under the long low ones, and the result is a set of thuds that
+	disappear entirely on a phone speaker.
+	"""
 	out = np.zeros(len(exciter))
 	for freq, tau, gain in spec:
-		out += gain * mode(exciter, freq, tau, sr)
+		out += (gain / math.sqrt(max(tau, 1e-5))) * mode(exciter, freq, tau, sr)
 	return out
 
 
@@ -435,31 +442,36 @@ def stereo_room(xl: np.ndarray, xr: np.ndarray, wet: float = 0.14, rt60: float =
 # ------------------------------------------------------------- Karplus-Strong
 
 
-def karplus_strong(freq: float, n: int, exciter: np.ndarray, t60: float = 2.2,
-                   brightness: float = 0.5, stretch: float = 0.0, sr: int = SR) -> np.ndarray:
-	"""Extended Karplus-Strong with a tuning allpass — accurate to well under a cent.
+def karplus_strong(freq: float, n: int, exciter: np.ndarray, t60: float = 1.2,
+                   damping: float = 0.55, sr: int = SR) -> np.ndarray:
+	"""Extended Karplus-Strong, tuned to well under a cent.
 
-	Loop = delay(L) -> two-point weighted average (group delay ``brightness`` samples,
-	exactly, at low frequency) -> gain -> first-order allpass (fractional delay D).
-	Total loop delay is held at exactly sr/freq, which is what keeps the bass in tune;
-	naive integer-delay KS is up to 40 cents flat down at D2.
+	Loop: delay(L) -> one-pole lowpass (``damping``, this is what makes the highs die
+	long before the fundamental does) -> loop gain -> first-order allpass supplying the
+	fractional delay D.
 
-	``stretch`` (0..1) adds a second allpass to slightly disperse the partials, the
-	stiffness that makes a thick gut string sound like a string and not a comb filter.
+	Tuning is the whole game here. Both the lowpass and the allpass contribute phase
+	delay at the fundamental, so the integer delay is set to
+	``L = floor(period - pd_lowpass) - 1`` and the allpass is asked for whatever is
+	left over; the total loop delay then equals ``sr/freq`` exactly. Naive integer-delay
+	KS is up to 40 cents flat at D2, which on a walking bass line is unlistenable.
+
+	``t60`` is the fundamental's -60 dB time; the loop gain is corrected for the
+	lowpass's own attenuation at the fundamental so the decay is what you asked for.
 	"""
-	period = sr / float(freq)
-	loop = period - brightness  # the averaging filter already supplies `brightness`
-	length = int(math.floor(loop))
-	frac = loop - length
-	# A first-order allpass is best behaved for D in [0.1, 1.1); borrow a sample if needed.
-	if frac < 0.1:
-		length -= 1
-		frac += 1.0
-	assert length >= 2, f"frequency {freq} too high for this loop"
-	# allpass coefficient for delay `frac`
+	freq = float(freq)
+	w0 = 2.0 * np.pi * freq / sr
+	a = float(np.clip(damping, 0.0, 0.95))
+	# phase delay (samples) of y[i] = (1-a)x[i] + a*y[i-1] at the fundamental
+	pd_lp = math.atan2(a * math.sin(w0), 1.0 - a * math.cos(w0)) / w0 if a > 0.0 else 0.0
+	loop = sr / freq - pd_lp
+	length = int(math.floor(loop)) - 1
+	frac = loop - length                    # in [1, 2): the sweet spot for a 1st-order allpass
+	assert length >= 2, f"frequency {freq} too high for a KS loop at {sr} Hz"
 	c = (1.0 - frac) / (1.0 + frac)
-	# loop gain from the requested t60 (one loop per period)
-	g = 10.0 ** (-3.0 / (max(freq, 1e-6) * max(t60, 1e-3)))
+	# loop gain, compensated for the lowpass's magnitude at the fundamental
+	lp_mag = (1.0 - a) / math.sqrt(1.0 - 2.0 * a * math.cos(w0) + a * a) if a > 0.0 else 1.0
+	g = (10.0 ** (-3.0 / (max(freq, 1e-6) * max(t60, 1e-3)))) / max(lp_mag, 1e-9)
 	g = min(g, 0.99995)
 
 	buf = [0.0] * length
@@ -467,37 +479,28 @@ def karplus_strong(freq: float, n: int, exciter: np.ndarray, t60: float = 2.2,
 	exc = np.zeros(n)
 	m = min(len(exciter), n)
 	exc[:m] = exciter[:m]
+	exc_list = exc.tolist()
+	res = [0.0] * n
 
 	idx = 0
-	prev = 0.0          # z^-1 of the averaging filter
-	ap_x = 0.0          # allpass state
-	ap_y = 0.0
-	b0 = 1.0 - brightness
-	b1 = brightness
-	sc = 0.0            # second allpass (dispersion)
-	sy = 0.0
-	use_stretch = stretch > 1e-6
-	sc_coef = -stretch * 0.6
+	lp = 0.0            # one-pole lowpass state
+	ap_x = 0.0          # allpass input memory
+	ap_y = 0.0          # allpass output memory
+	one_minus_a = 1.0 - a
 
 	for i in range(n):
 		v = buf[idx]
-		avg = b0 * v + b1 * prev
-		prev = v
-		y = g * avg
-		# tuning allpass: y_ap = c*y + x_prev - c*y_prev
+		lp = one_minus_a * v + a * lp
+		y = g * lp
 		ap_out = c * y + ap_x - c * ap_y
 		ap_x = y
 		ap_y = ap_out
-		if use_stretch:
-			s_out = sc_coef * ap_out + sc - sc_coef * sy
-			sc = ap_out
-			sy = s_out
-			ap_out = s_out
-		out[i] = ap_out
-		buf[idx] = ap_out + exc[i]
+		res[i] = ap_out
+		buf[idx] = ap_out + exc_list[i]
 		idx += 1
 		if idx == length:
 			idx = 0
+	out[:] = res
 	return out
 
 
@@ -535,6 +538,39 @@ def limit_peak(x: np.ndarray, ceiling_db: float = -1.5) -> np.ndarray:
 	return x * (ceil / peak)
 
 
+def rms(x: np.ndarray) -> float:
+	return float(np.sqrt(np.mean(np.square(x)))) if x.size else 0.0
+
+
+def unit(x: np.ndarray, level: float = 1.0) -> np.ndarray:
+	"""Scale to a known peak. Every instrument returns notes normalised this way so a
+	mix gain of 0.5 means "half as loud", not "half of whatever this happened to be"."""
+	peak = float(np.max(np.abs(x)))
+	if peak < 1e-12:
+		return x
+	return x * (level / peak)
+
+
+def soft_limit(x: np.ndarray, ceiling_db: float = -1.5, knee_db: float = 6.0) -> np.ndarray:
+	"""Memoryless soft-knee limiter.
+
+	Memoryless matters: a look-ahead limiter has state, so its output would not be
+	periodic and the loop seam would move. A waveshaper applied to a periodic signal
+	stays exactly periodic, so this is the only kind of level control allowed after the
+	loop has been folded.
+	"""
+	ceil = db2lin(ceiling_db)
+	thr = ceil * db2lin(-knee_db)
+	a = np.abs(x)
+	over = a > thr
+	if not np.any(over):
+		return x
+	y = np.array(x, dtype=np.float64, copy=True)
+	span = ceil - thr
+	y[over] = np.sign(x[over]) * (thr + span * np.tanh((a[over] - thr) / span))
+	return y
+
+
 def soft_clip(x: np.ndarray, drive: float = 1.0) -> np.ndarray:
 	return np.tanh(x * drive) / math.tanh(max(drive, 1e-6))
 
@@ -550,6 +586,18 @@ def widen(xl: np.ndarray, xr: np.ndarray, amount: float = 0.25):
 	mid = 0.5 * (xl + xr)
 	side = 0.5 * (xl - xr) * (1.0 + amount)
 	return mid + side, mid - side
+
+
+def blend(base: np.ndarray, extra: np.ndarray, ratio: float) -> np.ndarray:
+	"""Mix ``extra`` under ``base`` at ``ratio`` of base's peak.
+
+	Needed whenever a resonator is driven by a *sustained* signal rather than a strike:
+	a Q-27 body mode fed a held string has a gain of ~30, so absolute mode gains are
+	meaningless there and relative levels are the only sane control.
+	"""
+	bp = float(np.max(np.abs(base))) + 1e-12
+	ep = float(np.max(np.abs(extra))) + 1e-12
+	return base + extra * (ratio * bp / ep)
 
 
 def add_at(buf: np.ndarray, x: np.ndarray, start: int, gain: float = 1.0) -> None:
