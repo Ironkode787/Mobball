@@ -212,7 +212,8 @@ func _run() -> void:
 	await _s8_plunger_bands()
 	await _s9_raid_hardware()
 	await _s10_purchase_refresh()
-	await _s11_soak()
+	await _s11_ball_search()
+	await _s12_soak()
 
 	var failed := 0
 	for r: Dictionary in _results:
@@ -618,8 +619,51 @@ func _s10_purchase_refresh() -> void:
 	finish()
 
 
-## 11 — the new geometry has to survive a ball as badly as the old one did.
-func _s11_soak() -> void:
+## 11 — the coils hunt for a ball that has stopped where it should not have.
+func _s11_ball_search() -> void:
+	begin("ball search frees a balanced ball")
+	use("T3")
+	# The exact spot a seeded soak found: balanced on the rounded cap of the first
+	# payphone, with no tangential force to tip it either way.
+	var phone: StandupTarget = table.wire_bank.targets()[0]
+	var perch: Vector2 = phone.to_global(Vector2(0.0, 0.0)) \
+			+ Vector2(-3.0, -(ProgressionTable.TARGET_LENGTH * 0.5 + phone.thickness * 0.5
+			+ Feel.BALL_RADIUS))
+	var searches := 0
+	var tap := func(_at: Vector2) -> void: searches += 1
+	table.ball_searched.connect(tap)
+
+	await drop_at(perch)
+	var b := table.ball
+	await wait(2.0)
+	check(searches == 0, "the coils fired after only 2 s of stillness")
+	await wait(ProgressionTable.BALL_SEARCH_DELAY - 1.0)
+	check(searches >= 1, "a ball parked for %.0f s was never searched for"
+			% ProgressionTable.BALL_SEARCH_DELAY)
+	await wait(0.6)
+	var freed := b == null or not is_instance_valid(b) \
+			or b.global_position.distance_to(perch) > Feel.BALL_RADIUS * 2.0
+	check(freed, "the search pulse did not move the ball off its perch")
+	if b != null and is_instance_valid(b):
+		print("        parked at %s, freed to %s after %d pulse(s)"
+				% [perch, b.global_position, searches])
+	table.ball_searched.disconnect(tap)
+	table.despawn_ball()
+
+	# a cradled ball is resting on purpose and must never be kicked off the bat
+	searches = 0
+	table.ball_searched.connect(tap)
+	await drop_at(table.flipper_left.cradle_point(0.5)
+			+ table.flipper_left.strike_normal() * 10.0)
+	await wait(ProgressionTable.BALL_SEARCH_DELAY + 1.5)
+	check(searches == 0, "the ball search kicked a cradled ball off the bat")
+	table.ball_searched.disconnect(tap)
+	table.despawn_ball()
+	finish()
+
+
+## 12 — the new geometry has to survive a ball as badly as the old one did.
+func _s12_soak() -> void:
 	begin("no-tunnel soak on the built-out table (%.0fs)" % SOAK_SECONDS)
 	use("T3")
 	table.auto_respawn = true

@@ -54,6 +54,15 @@ func _money_path(t: TestCtx) -> void:
 	t.ok(hot.equals_approx(BigMoney.from_float(10.0 * Rates.multiplier_for_band(2))),
 			"the Heat band multiplies every dirty payout")
 
+	# Stats folds the &"all" group into every group lookup, so the money path must apply
+	# that lookup exactly once — applying it again would square Brass Balls.
+	_fresh()
+	Game.buy_upgrade("muscle.brass_balls", BigMoney.zero())
+	var once := Game.earn_switch(&"bumpers", BigMoney.from_float(100.0))
+	var expect := BigMoney.from_float(100.0 * Game.stats.value_mult(&"bumpers"))
+	t.ok(once.equals_approx(expect, 1e-9),
+			"an all-groups multiplier lands once: got %s, want %s" % [once.text(), expect.text()])
+
 
 func _combo_multiplier(t: TestCtx) -> void:
 	_fresh()
@@ -171,3 +180,24 @@ func _serialization(t: TestCtx) -> void:
 	t.eq(Game.rank, 1, "and so did the rank it bought")
 	t.ok(Game.stats.flag(&"plunger_bands"), "Stats recomputed from the loaded owned map")
 	t.eq(String(Game.bench.guys[0]["state"]), Bench.STATE_HOLDING, "the Bench came back too")
+	_meta_stores(t)
+
+
+## The owned map and the reveal history live in the meta lane; flow owns the save file, so
+## flow has to hand both of them back after a reload.
+func _meta_stores(t: TestCtx) -> void:
+	_fresh()
+	Game.buy_upgrade("rackets.trash_2", BigMoney.zero())
+	t.eq(LedgerState.level_of("rackets.trash_2"), 1,
+			"a purchase mints its level in the meta lane's store")
+	Game.mark_reveal_event(&"first_tilt")
+	t.ok(Reveal.shared().has_mark(&"first_tilt"), "flow marks reveal events as they happen")
+
+	t.ok(Game.save_now(), "saved with the meta state attached")
+	Game.new_game(2)
+	t.eq(LedgerState.get_owned().size(), 0, "a new career clears the board")
+	t.ok(not Reveal.shared().has_mark(&"first_tilt"), "and forgets what it had seen")
+
+	Game.from_dict(Game.save.read())
+	t.eq(LedgerState.level_of("rackets.trash_2"), 1, "loading restores the Ledger's levels")
+	t.ok(Reveal.shared().has_mark(&"first_tilt"), "and the reveal history with them")

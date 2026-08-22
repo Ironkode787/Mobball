@@ -317,6 +317,8 @@ func _lose_guy() -> void:
 	var raid_stretch := raid != null and is_instance_valid(raid) and raid.active
 	Game.bench.pinch(guy, raid_stretch)
 	guys_lost += 1
+	if guys_lost >= 2:
+		Game.mark_reveal_event(&"first_double_pinch")
 	Game.combo.reset()
 	AudioDirector.play(&"guy_pinched")
 	Events.guy_pinched.emit(guy)
@@ -490,6 +492,7 @@ func _on_raid_finished(survived: bool) -> void:
 		_raid_payout = Game.wallet.dirty.mul(Game.RAID_CLEAN_PAYOUT)
 		Game.wallet.earn_clean(_raid_payout)
 		Game.add_respect(Game.RESPECT_RAID_SURVIVED, &"raid")
+		Game.mark_reveal_event(&"first_raid_survived")
 		AudioDirector.play(&"raid_win")
 	else:
 		_raid_result = "lost"

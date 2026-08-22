@@ -30,6 +30,9 @@ signal bribe_offered()
 signal orbit_completed()
 signal rollover_rolled(index: int, was_lit: bool)
 signal storefront_collected(id: StringName, amount: BigMoney)
+## The coils went hunting for a stuck ball. Diagnostic more than gameplay, but the sims
+## assert on it and a rash of them in telemetry means new geometry has a trap in it.
+signal ball_searched(at: Vector2)
 
 const BALL_SCENE := preload("res://game/core/ball.tscn")
 const FLIPPER_SCENE := preload("res://game/table/hardware/flipper.tscn")
@@ -135,6 +138,20 @@ const MAGNET_AT := Vector2(490.0, 1810.0)
 
 const PLUNGER_FIXED_POWER := 0.75
 
+# ---------------------------------------------------------------- ball search
+## Real machines hunt for a lost ball, and this one has to as well. The playfield grows new
+## geometry at every rank, and top-down gravity gives a vertical target's rounded cap a
+## perfect balance point: a seeded soak found the ball asleep on top of a payphone for
+## seventy seconds with nothing to push it either way. Rather than chase every such point
+## through the geometry forever, anything motionless above the flippers gets a coil pulse.
+const BALL_SEARCH_DELAY := 5.0
+const BALL_SEARCH_REPEAT := 2.5
+const BALL_SEARCH_SPEED := 40.0
+const BALL_SEARCH_IMPULSE := 950.0
+## Below this line resting is legitimate — cradled on a bat, dawdling down an inlane, or
+## sitting on live hardware that pops itself loose (see Bumper/Slingshot stall handling).
+const BALL_SEARCH_FLOOR := 1560.0
+
 # ---------------------------------------------------------------- state
 ## Flow reads this to know the table pays through `Game.earn_switch` itself and must not be
 ## double-scored from `Events.scored` (game/flow/night.gd `_needs_score_bridge`).
@@ -171,6 +188,8 @@ var _slings: Array[Slingshot] = []
 var _pieces: Array[Dictionary] = []          ## { ids: Array[StringName], node: Node }
 var _forced: Dictionary = {}                 ## dev env hook: ids forced unlocked
 var _lit_lane: int = -1
+var _still_for: float = 0.0
+var _search_rng := RandomNumberGenerator.new()
 
 
 # ================================================================ TableSegment =====
@@ -211,6 +230,7 @@ func socket(id: StringName) -> Vector2:
 
 func _ready() -> void:
 	_arch_radius = ARCH_CENTER.distance_to(ARCH_A)
+	_search_rng.seed = 0x5EA12C4          # seeded: a sim rerun searches the same way
 	_read_env_hook()
 	_build_walls()
 	_build_gate()
@@ -701,6 +721,26 @@ func _physics_process(delta: float) -> void:
 				_respawn_in = -1.0
 				spawn_ball()
 	_update_gate()
+	_ball_search(delta)
+
+
+## Pulse the coils under a ball that has stopped somewhere it has no business stopping.
+func _ball_search(delta: float) -> void:
+	if ball == null or not is_instance_valid(ball):
+		_still_for = 0.0
+		return
+	var p := ball.global_position
+	if ball.speed() > BALL_SEARCH_SPEED or p.y > BALL_SEARCH_FLOOR or lane_rect().has_point(p):
+		_still_for = 0.0
+		return
+	_still_for += delta
+	if _still_for < BALL_SEARCH_DELAY:
+		return
+	_still_for = BALL_SEARCH_DELAY - BALL_SEARCH_REPEAT
+	var dir := Vector2(_search_rng.randf_range(-0.55, 0.55), -1.0).normalized()
+	ball.kick(dir * BALL_SEARCH_IMPULSE)
+	AudioDirector.play(&"kickback")
+	ball_searched.emit(p)
 
 
 ## One-way gate: the arch dumps the ball leftward into the playfield and it must never get

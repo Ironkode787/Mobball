@@ -74,15 +74,18 @@ var night_skill_shots: int = 0
 var night_best_combo: int = 0
 var night_bribes: int = 0
 
-## The meta lane's authoritative owned-upgrades store. Loaded by path rather than referenced
-## as a class so the flow lane keeps booting if the meta lane moves it: the cost of it going
-## missing is the Ledger board losing its levels, not the game failing to start.
+## The meta lane's stores: the authoritative owned-upgrades map and the reveal history.
+## Both are loaded by path rather than referenced as classes so the flow lane keeps booting
+## if the meta lane moves them — the cost of one going missing is the Ledger board losing
+## its state, not the game failing to start.
 const LEDGER_STATE_PATH := "res://game/meta/ledger_state.gd"
+const REVEAL_PATH := "res://game/meta/reveal.gd"
 
 var _booted: bool = false
 var _rng := RandomNumberGenerator.new()
 var _headlines := Headlines.new()
 var _ledger_state: GDScript = null
+var _reveal_script: GDScript = null
 
 
 ## Wired at construction, not in `_ready()`: the headless test runner is a bare SceneTree
@@ -96,9 +99,15 @@ func _init() -> void:
 
 func _ready() -> void:
 	_wire(Events.upgrade_purchased, _on_upgrade_purchased)
+	_wire(Events.tilted, _on_tilted)
 	_wire(combo.changed, _on_combo_changed)
 	_wire(combo.respect_earned, _on_combo_respect)
 	_wire(jobs.completed, _on_job_completed)
+
+
+## The Inspector's first report turns a face-down card over (docs/04 influence branch).
+func _on_tilted() -> void:
+	mark_reveal_event(&"first_tilt")
 
 
 static func _wire(sig: Signal, to: Callable) -> void:
@@ -247,7 +256,8 @@ func new_game(seed_value: int = 0) -> void:
 	stats.recompute(owned)
 	bench = Bench.new(seed_value, stats.bench_slots())
 	jobs = Jobs.new()
-	jobs.completed.connect(_on_job_completed)
+	_wire(jobs.completed, _on_job_completed)
+	_reveal_from_dict({})
 	combo.reset()
 	safe_pending = BigMoney.zero()
 	last_seen = Time.get_unix_time_from_system()
@@ -433,6 +443,7 @@ func to_dict() -> Dictionary:
 		"owned": owned.duplicate(),
 		"bench": bench.to_dict() if bench != null else {},
 		"jobs": jobs.to_dict(),
+		"reveal": _reveal_to_dict(),
 		"safe": {
 			"last_seen": last_seen,
 			"pending": safe_pending.to_dict(),
@@ -471,8 +482,9 @@ func from_dict(d: Dictionary) -> void:
 	bench = Bench.new(session_seed, stats.bench_slots())
 	bench.from_dict(d.get("bench", {}))
 	jobs = Jobs.new()
-	jobs.completed.connect(_on_job_completed)
+	_wire(jobs.completed, _on_job_completed)
 	jobs.from_dict(d.get("jobs", {}))
+	_reveal_from_dict(d.get("reveal", {}))
 
 	var safe_d: Dictionary = d.get("safe", {})
 	last_seen = float(safe_d.get("last_seen", Time.get_unix_time_from_system()))
@@ -513,6 +525,40 @@ func _meta_owned_store() -> GDScript:
 	if _ledger_state == null and ResourceLoader.exists(LEDGER_STATE_PATH):
 		_ledger_state = load(LEDGER_STATE_PATH)
 	return _ledger_state
+
+
+## The meta lane's `Reveal` singleton — which face-down Ledger cards have been turned over.
+## The events that flip them happen here (a TILT, a survived raid), and the save file is
+## flow's, so flow marks them and flow persists them.
+func _reveal() -> Object:
+	if _reveal_script == null and ResourceLoader.exists(REVEAL_PATH):
+		_reveal_script = load(REVEAL_PATH)
+	if _reveal_script == null or not _reveal_script.has_method("shared"):
+		return null
+	return _reveal_script.call("shared")
+
+
+## Record a milestone the Ledger reveals cards on (`first_tilt`, `first_raid_survived`,
+## `first_double_pinch` — see Upgrades.REVEAL_EVENTS).
+func mark_reveal_event(id: StringName) -> void:
+	var r := _reveal()
+	if r != null and r.has_method("mark_event"):
+		r.call("mark_event", id)
+
+
+func _reveal_to_dict() -> Dictionary:
+	var r := _reveal()
+	if r == null or not r.has_method("to_dict"):
+		return {}
+	var d: Variant = r.call("to_dict")
+	return d if d is Dictionary else {}
+
+
+func _reveal_from_dict(d: Variant) -> void:
+	var r := _reveal()
+	if r == null or not r.has_method("from_dict"):
+		return
+	r.call("from_dict", d if d is Dictionary else {})
 
 
 func _push_owned_to_meta() -> void:

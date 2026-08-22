@@ -57,13 +57,25 @@ func flag(id: StringName) -> bool:
 	return _fx_flags.has(id)
 
 
+## Group multiplier including the `all` fold, exactly as game/meta/stats.gd defines it:
+## `value_mult(&"all")` *is* the fold, so asking for it does not multiply it in twice.
 func value_mult(group: StringName) -> float:
-	return float(_fx_mult.get(group, 1.0))
+	var g := float(_fx_mult.get(group, 1.0))
+	if group == &"all":
+		return g
+	return g * float(_fx_mult.get(&"all", 1.0))
 
 
+## Same fold on the flat adds: a group's add plus the `all` add.
 func value_add(group: StringName) -> BigMoney:
-	var v: Variant = _fx_add.get(group)
-	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
+	var all: Variant = _fx_add.get(&"all")
+	var own: Variant = _fx_add.get(group)
+	if group == &"all":
+		return (all as BigMoney).copy() if all is BigMoney else BigMoney.zero()
+	if not (own is BigMoney):
+		return (all as BigMoney).copy() if all is BigMoney else BigMoney.zero()
+	return (own as BigMoney).add(all as BigMoney) if all is BigMoney \
+			else (own as BigMoney).copy()
 
 
 func flipper_power() -> float:
