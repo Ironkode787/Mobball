@@ -65,6 +65,10 @@ VOICE_SECONDS = (0.80, 1.60)   # docs/08 §5 phrases: long enough to read, short
 VOICE_LUFS_TOLERANCE = 2.0     # a dialogue bank that changes level per speaker is unusable
 VOICE_WAH_MIN = 1.15           # the mute has to actually move
 VOICE_BUMPS_MIN = 3            # ...and the loudness has to have syllables in it
+# A struck voice (Skids' bell) carries a phrase on three dings and a sigh, so it
+# legitimately shows fewer loudness excursions than a blown one. It still has to show
+# more than one, which is all "this is not a held note" ever meant.
+VOICE_BUMPS_MIN_STRUCK = 2
 
 
 class Failure(Exception):
@@ -216,7 +220,9 @@ def render_voices(out_dir: Path) -> list[dict]:
 		if info["wah"] < VOICE_WAH_MIN:
 			raise Failure(f"{stem}: the mute barely moves ({info['wah']:.2f}x brightest to "
 			              f"dullest) — that is a held note, not a phrase")
-		if info["bumps"] < VOICE_BUMPS_MIN:
+		floor = (VOICE_BUMPS_MIN_STRUCK if voice.SPEAKER_BY_NAME[speaker].strikes > 0
+		         else VOICE_BUMPS_MIN)
+		if info["bumps"] < floor:
 			raise Failure(f"{stem}: only {info['bumps']} loudness excursions — no prosody")
 		rows.append(info)
 		print(f"  voice {stem:<16} {info['seconds']:5.2f}s  peak {info['peak_db']:6.2f} dB  "
@@ -444,19 +450,21 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 		add("(0 greeting · 1 quip · 2 grumble). Not melodies — speech contours. Every phrase is")
 		add("3-7 syllables of continuous, unquantised pitch glide under a moving plunger mute,")
 		add("with a loudness floor between syllables so it mumbles instead of articulating.")
+		add("Skids is the exception and the joke: he is struck, not blown — three dings of a")
+		add("bicycle bell over a sigh that carries the vowels the bell cannot.")
 		add("'wah' is the brightest 60 ms window's centroid over the dullest (the mute moving);")
 		add("'bumps' counts loudness excursions (prosody). Levelled by K-weighted loudness, not")
 		add(f"peak: the bank sits at {voice.VOICE_LUFS:.0f} LUFS so nobody is louder for being a tuba.")
 		add("-" * 78)
-		add(f"{'file':<18}{'instrument':<11}{'mood':<10}{'dur':>7}{'peak dB':>9}{'LUFS':>7}"
+		add(f"{'file':<18}{'instrument':<14}{'mood':<10}{'dur':>7}{'peak dB':>9}{'LUFS':>7}"
 		    f"{'centroid':>10}{'wah':>7}{'bumps':>7}{'KiB':>8}")
 		for r in voice_rows:
 			sp = voice.SPEAKER_BY_NAME[r["speaker"]]
-			add(f"{r['name']:<18}{sp.instrument:<11}{r['mood']:<10}{r['seconds']:6.2f}s"
+			add(f"{r['name']:<18}{sp.instrument:<14}{r['mood']:<10}{r['seconds']:6.2f}s"
 			    f"{r['peak_db']:9.2f}{r['lufs']:7.1f}{r['centroid_hz']:9.0f}Hz"
 			    f"{r['wah']:6.2f}x{r['bumps']:7d}{r['bytes'] / 1024:8.1f}")
 		total = sum(r["bytes"] for r in voice_rows)
-		add(f"{'subtotal':<18}{'':<11}{'':<10}{'':>7}{'':>9}{'':>7}{'':>10}{'':>7}{'':>7}"
+		add(f"{'subtotal':<18}{'':<14}{'':<10}{'':>7}{'':>9}{'':>7}{'':>10}{'':>7}{'':>7}"
 		    f"{total / 1024:8.1f}")
 		add("")
 

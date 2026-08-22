@@ -55,9 +55,10 @@ const IMPACT_FAMILIES := {
 	"sling_hit": ["sling_hit_soft", "sling_hit", "sling_hit_hard"],
 }
 
-## docs/08 §5. Eight specialists, three moods each; the filename index IS the mood index.
+## docs/08 §5. Nine specialists, three moods each; the filename index IS the mood index.
 const SPECIALISTS: PackedStringArray = [
-	"big_sal", "nussbaum", "rosa", "cohen", "professor", "consigliere", "manny", "eddie",
+	"skids", "big_sal", "nussbaum", "rosa", "cohen", "professor", "consigliere",
+	"manny", "eddie",
 ]
 ## Index order is the contract: <specialist>_0 is the greeting, _1 the quip, _2 the grumble.
 const MOOD_NAMES: PackedStringArray = ["greeting", "quip", "grumble"]

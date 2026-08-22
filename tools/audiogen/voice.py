@@ -26,6 +26,11 @@ A phrase is 3-7 **syllables**, and a syllable is three curves that move together
 Mood is the *shape* of all three: a greeting climbs at the end (a hail), a quip is
 faster and lands flat (a punchline), a grumble is slow, low, and falls off a cliff.
 
+One speaker breaks the model on purpose. Skids is a bicycle bell, and a bell is struck
+rather than blown, so his phrase spends the same contours differently: the syllable
+onsets become three dings and the sigh underneath carries the loudness and the vowels
+(:func:`_bell_and_sigh`). The prosody is identical; only the instrument disagrees.
+
 Determinism, as everywhere in this generator: the seed is derived from the speaker and
 the mood, so a phrase is the same phrase on every machine, forever.
 """
@@ -39,8 +44,8 @@ import numpy as np
 from .analysis import envelope, lufs_integrated, peak_db, spectral_centroid
 from .synth import (
 	SR, bandpass, biquad, bl_pulse, bl_saw, comb_ff, db2lin, dc_remove, fade_edges,
-	formants, lowpass, modal, n_of, noise, rng, room, smoothstep, sweep_filter, t_axis,
-	unit,
+	formants, lowpass, modal, n_of, noise, rng, room, smoothstep, soft_limit,
+	sweep_filter, t_axis, unit,
 )
 
 # Dialogue is levelled by K-weighted loudness rather than by peak: a tuba and an oboe
@@ -103,7 +108,7 @@ SPEAKERS: tuple[Speaker, ...] = (
 	# meant. docs/08 §5 hangs "a bicycle bell and a sigh" on the Inspector; the roster
 	# gives the same instrument to Skids (specs/m2-content.md §2), and one bank serves
 	# both — nobody is going to confuse a bell with a tuba.
-	Speaker("skids", "bicycle_bell", 2280.0, 3.0, 0.10, 0.0, 0.0, (420.0, 1650.0), 1.0, 1.8, 1.00, 0.20, 0.0, 3),
+	Speaker("skids", "bicycle_bell", 2280.0, 3.0, 0.10, 0.0, 0.0, (360.0, 2100.0), 1.0, 1.9, 1.00, 0.20, 0.0, 3),
 	# Big Sal is a tuba: three words, all of them low, none of them fast.
 	Speaker("big_sal", "tuba", 82.41, 5.0, 0.42, 4.4, 26.0, (250.0, 900.0), 0.75, 2.2, 1.18, 0.13, -6.5),
 	# Nussbaum's clarinet is hollow (odd harmonics only) and never stops moving.
@@ -329,12 +334,19 @@ def _bell_and_sigh(sp: Speaker, ph: Phrase, gen: np.random.Generator) -> np.ndar
 	# still has shape, and swelling into the release where the shoulders drop.
 	sigh = sweep_filter(noise(ph.n, gen), ph.mute * 0.85, q=1.6, kind="bp", block=64)
 	sigh = lowpass(sigh, 3200.0, order=2)
-	sigh += 0.35 * bandpass(noise(ph.n, gen), 900.0, 4200.0, order=2)
+	# Just enough unswept breath to stop the sweep reading as a filter sweep. More than
+	# this and the vowels disappear under it, which is the one thing the sigh is for.
+	sigh += 0.16 * bandpass(noise(ph.n, gen), 900.0, 4200.0, order=2)
 	body = int(min(ph.starts[-1] + ph.lengths[-1], ph.n))
 	swell = np.ones(ph.n)
 	if body < ph.n:
 		swell[body:] = np.linspace(1.0, 2.4, ph.n - body)
-	return unit(out) + 0.42 * unit(sigh * ph.amp * swell)
+	# A struck voice has a far bigger crest factor than a blown one, and the loudness
+	# match at the end of the chain can only spend so much before it hits the peak cap —
+	# so a bell left un-rounded lands audibly quieter than the rest of the bank. Taking
+	# the tips off is also what a pressed-steel dome and a room actually do to a hard
+	# strike, so this buys the level back without inventing anything.
+	return soft_limit(unit(out), -1.0, knee_db=11.0) + 0.42 * unit(sigh * ph.amp * swell)
 
 
 def _tone(sp: Speaker, f: np.ndarray, n: int, gen: np.random.Generator) -> np.ndarray:

@@ -99,36 +99,41 @@ docs/08 §5, the muted-brass mob: one instrument per specialist, three phrases e
 (0 greeting · 1 quip · 2 grumble). Not melodies — speech contours. Every phrase is
 3-7 syllables of continuous, unquantised pitch glide under a moving plunger mute,
 with a loudness floor between syllables so it mumbles instead of articulating.
+Skids is the exception and the joke: he is struck, not blown — three dings of a
+bicycle bell over a sigh that carries the vowels the bell cannot.
 'wah' is the brightest 60 ms window's centroid over the dullest (the mute moving);
 'bumps' counts loudness excursions (prosody). Levelled by K-weighted loudness, not
 peak: the bank sits at -20 LUFS so nobody is louder for being a tuba.
 ------------------------------------------------------------------------------
-file              instrument mood          dur  peak dB   LUFS  centroid    wah  bumps     KiB
-big_sal_0.wav     tuba       greeting    1.35s    -3.50  -20.3      677Hz  1.90x      8   115.9
-big_sal_1.wav     tuba       quip        1.22s    -3.50  -21.6      707Hz  1.83x     10   105.5
-big_sal_2.wav     tuba       grumble     1.52s    -3.50  -20.6      544Hz  1.93x     21   130.8
-nussbaum_0.wav    clarinet   greeting    1.06s    -6.73  -20.0     1755Hz  1.22x     11    91.0
-nussbaum_1.wav    clarinet   quip        0.96s    -9.06  -20.0     1721Hz  1.31x      5    82.5
-nussbaum_2.wav    clarinet   grumble     1.20s    -6.69  -20.0     1532Hz  1.32x      6   103.5
-rosa_0.wav        alto_sax   greeting    1.23s    -8.11  -20.0     1921Hz  1.29x     12   106.0
-rosa_1.wav        alto_sax   quip        1.12s    -6.43  -20.0     1610Hz  1.47x      9    96.3
-rosa_2.wav        alto_sax   grumble     1.39s    -6.47  -20.0     1481Hz  1.43x     20   119.9
-cohen_0.wav       violin     greeting    1.17s    -8.69  -20.0     2734Hz  1.40x     11   101.0
-cohen_1.wav       violin     quip        1.06s    -8.06  -20.0     2673Hz  1.58x      5    91.7
-cohen_2.wav       violin     grumble     1.33s    -6.92  -20.0     2048Hz  1.45x      9   114.4
-professor_0.wav   oboe       greeting    1.13s    -8.09  -20.0     2399Hz  1.35x      9    97.7
-professor_1.wav   oboe       quip        1.03s    -7.80  -20.0     1929Hz  1.35x     21    88.6
-professor_2.wav   oboe       grumble     1.29s    -7.26  -20.0     1998Hz  1.35x      8   110.8
-consigliere_0.wav cello      greeting    1.33s    -3.50  -20.4     1173Hz  2.00x     16   114.3
-consigliere_1.wav cello      quip        1.21s    -3.50  -20.4      978Hz  1.57x      9   103.9
-consigliere_2.wav cello      grumble     1.50s    -4.83  -20.0     1119Hz  1.74x     12   129.0
-manny_0.wav       cornet     greeting    1.02s    -7.12  -20.0     2168Hz  2.01x      7    87.7
-manny_1.wav       cornet     quip        0.92s    -7.21  -20.0     2219Hz  2.14x      6    79.5
-manny_2.wav       cornet     grumble     1.16s    -5.28  -20.0     2290Hz  2.01x     11    99.9
-eddie_0.wav       trombone   greeting    1.27s    -4.77  -20.0     1524Hz  2.37x     20   109.3
-eddie_1.wav       trombone   quip        1.15s    -6.97  -20.0     1311Hz  1.99x     13    99.3
-eddie_2.wav       trombone   grumble     1.43s    -4.32  -20.0     1109Hz  2.05x      7   123.5
-subtotal                                                                                2501.9
+file              instrument    mood          dur  peak dB   LUFS  centroid    wah  bumps     KiB
+skids_0.wav       bicycle_bell  greeting    1.17s    -5.44  -20.0     3300Hz  2.39x     11   101.0
+skids_1.wav       bicycle_bell  quip        1.06s    -3.50  -20.3     2973Hz  1.45x      8    91.7
+skids_2.wav       bicycle_bell  grumble     1.33s    -3.74  -20.0     3089Hz  1.96x      3   114.4
+big_sal_0.wav     tuba          greeting    1.35s    -3.50  -20.3      677Hz  1.90x      8   115.9
+big_sal_1.wav     tuba          quip        1.22s    -3.50  -21.6      707Hz  1.83x     10   105.5
+big_sal_2.wav     tuba          grumble     1.52s    -3.50  -20.6      544Hz  1.93x     21   130.8
+nussbaum_0.wav    clarinet      greeting    1.06s    -6.73  -20.0     1755Hz  1.22x     11    91.0
+nussbaum_1.wav    clarinet      quip        0.96s    -9.06  -20.0     1721Hz  1.31x      5    82.5
+nussbaum_2.wav    clarinet      grumble     1.20s    -6.69  -20.0     1532Hz  1.32x      6   103.5
+rosa_0.wav        alto_sax      greeting    1.23s    -8.11  -20.0     1921Hz  1.29x     12   106.0
+rosa_1.wav        alto_sax      quip        1.12s    -6.43  -20.0     1610Hz  1.47x      9    96.3
+rosa_2.wav        alto_sax      grumble     1.39s    -6.47  -20.0     1481Hz  1.43x     20   119.9
+cohen_0.wav       violin        greeting    1.17s    -8.69  -20.0     2734Hz  1.40x     11   101.0
+cohen_1.wav       violin        quip        1.06s    -8.06  -20.0     2673Hz  1.58x      5    91.7
+cohen_2.wav       violin        grumble     1.33s    -6.92  -20.0     2048Hz  1.45x      9   114.4
+professor_0.wav   oboe          greeting    1.13s    -8.09  -20.0     2399Hz  1.35x      9    97.7
+professor_1.wav   oboe          quip        1.03s    -7.80  -20.0     1929Hz  1.35x     21    88.6
+professor_2.wav   oboe          grumble     1.29s    -7.26  -20.0     1998Hz  1.35x      8   110.8
+consigliere_0.wav cello         greeting    1.33s    -3.50  -20.4     1173Hz  2.00x     16   114.3
+consigliere_1.wav cello         quip        1.21s    -3.50  -20.4      978Hz  1.57x      9   103.9
+consigliere_2.wav cello         grumble     1.50s    -4.83  -20.0     1119Hz  1.74x     12   129.0
+manny_0.wav       cornet        greeting    1.02s    -7.12  -20.0     2168Hz  2.01x      7    87.7
+manny_1.wav       cornet        quip        0.92s    -7.21  -20.0     2219Hz  2.14x      6    79.5
+manny_2.wav       cornet        grumble     1.16s    -5.28  -20.0     2290Hz  2.01x     11    99.9
+eddie_0.wav       trombone      greeting    1.27s    -4.77  -20.0     1524Hz  2.37x     20   109.3
+eddie_1.wav       trombone      quip        1.15s    -6.97  -20.0     1311Hz  1.99x     13    99.3
+eddie_2.wav       trombone      grumble     1.43s    -4.32  -20.0     1109Hz  2.05x      7   123.5
+subtotal                                                                                   2809.0
 
 MUSIC — assets/audio/music/city1/*.ogg  (44.1 kHz, Vorbis q0.6, stereo)
 'Eastport 72' — 92 BPM swung, D minor, 8-bar loop, 920348 frames (20.8696 s) each.
@@ -174,4 +179,4 @@ combo_3          1396.91-> 1396.41Hz -0.62c  combo_4          1760.00-> 1759.14H
 skill_shot_ding  1760.00-> 1759.74Hz -0.26c  tilt_warning     1046.50-> 1045.67Hz -1.38c
 staircase_crest  2349.32-> 2349.36Hz +0.03c
 
-TOTAL COMMITTED AUDIO: 10.44 MiB (61 SFX + 24 voice + 12 music files), budget 24 MiB
+TOTAL COMMITTED AUDIO: 10.74 MiB (61 SFX + 27 voice + 12 music files), budget 24 MiB

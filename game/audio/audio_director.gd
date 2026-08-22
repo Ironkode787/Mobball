@@ -138,7 +138,8 @@ const EVENT_PITCH_JITTER := {
 ## docs/08 §5, the muted-brass mob. One instrument per specialist; the phrase bank is
 ## three files each and the index in the filename is the index into VOICE_MOODS.
 const SPECIALISTS: PackedStringArray = [
-	"big_sal", "nussbaum", "rosa", "cohen", "professor", "consigliere", "manny", "eddie",
+	"skids", "big_sal", "nussbaum", "rosa", "cohen", "professor", "consigliere",
+	"manny", "eddie",
 ]
 const VOICE_MOODS: PackedStringArray = ["greeting", "quip", "grumble"]
 const VOICE_DEFAULT_MOOD := &"quip"
