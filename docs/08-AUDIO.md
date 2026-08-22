@@ -126,7 +126,9 @@ The stem-growth *structure* is identical in every city, so the player's audio li
 
 - [x] Provenance: everything synthesized in-house by `tools/audiogen` (deterministic,
       byte-identical builds); `assets/audio/MANIFEST.txt` is the manifest. Nothing to license.
-- [ ] Stem stack city 1 (8 stems, loop-cut, level-matched) + state snapshots (calm/hot/raid/count/legit)
-- [ ] ~90 SFX events (list above → event map), velocity layers where physical
+- [x] Stem stack city 1 (10 synced stems + count piano, loop-verified, level-matched) +
+      state mixes calm/hot/raid/count — `legit` ships with the Going-Legit upgrade (M2+)
+- [ ] ~90 SFX events (45 shipped through wave 2), velocity layers where physical (wave-3
+      candidate: 3 impact layers per mechanical event, picked by impulse magnitude)
 - [ ] Haptics map (7 patterns, [07-ART](07-ART-DIRECTION.md) §7)
 - [ ] The goosebump gate: R0→R4 growth demo approved
