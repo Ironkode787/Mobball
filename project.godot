@@ -1,0 +1,48 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+
+config_version=5
+
+[application]
+
+config/name="KINGPIN"
+config/description="A pinball racket. Points are money. The table is your career."
+run/main_scene="res://game/main.tscn"
+config/features=PackedStringArray("4.5", "GL Compatibility")
+
+[autoload]
+
+Events="*res://game/core/events.gd"
+Feel="*res://game/core/feel.gd"
+AudioDirector="*res://game/audio/audio_director.gd"
+
+[display]
+
+window/size/viewport_width=1080
+window/size/viewport_height=1920
+window/size/window_width_override=486
+window/size/window_height_override=864
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+
+[layer_names]
+
+2d_physics/layer_1="walls"
+2d_physics/layer_2="ball"
+2d_physics/layer_3="flippers"
+2d_physics/layer_4="hardware"
+2d_physics/layer_5="zones"
+
+[physics]
+
+common/physics_ticks_per_second=120
+common/physics_interpolation=true
+2d/default_gravity=3800.0
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
