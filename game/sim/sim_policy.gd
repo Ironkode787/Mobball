@@ -43,7 +43,15 @@ const MENU_HARDWARE: Array[StringName] = [
 	&"bumper_2", &"bumper_3", &"slingshots", &"rollovers", &"spinner_numbers", &"wire_bank",
 	&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn", &"orbit_left",
 	&"laundromat_loop",
+	# M2, the Club: the deck is a whole second menu, and every one of these changes it.
+	&"staircase_ramp", &"club_deck", &"roulette_wheel", &"slot_reels", &"high_roller_saucer",
+	&"backroom_saucer", &"club_flippers", &"kickback_right",
 ]
+## Reel hits a Jackpot costs: three columns, three targets deep, inside one deck visit.
+const JACKPOT_HITS := float(SimTable.SLOT_COLUMNS * SimTable.SLOT_ROWS)
+## Back-room re-entries the projection credits per Family Meeting. The jackpot grows ×1.5 per
+## take, so this is deliberately the pessimistic end: a player gets back there once.
+const MEETING_JACKPOTS := 1.0
 
 var catalog: Upgrades
 var profile: SimProfile
@@ -104,7 +112,7 @@ func buy_pass(state: SimState) -> PackedStringArray:
 ## buys the cheapest revealed card anyway: that is what people do with a full wallet and a
 ## board full of face-up cards, and it is the only way those nodes ever get exercised.
 func _best(state: SimState, states: Dictionary) -> Dictionary:
-	var base := project(state.stats, state.rank, state.heat.multiplier())
+	var base := project(state.stats, state.rank, state.heat.multiplier(), state.wallet.dirty)
 	var base_clean: BigMoney = base["clean_per_night"]
 	var base_dirty: BigMoney = base["dirty_per_night"]
 	var horizon := state.wallet.clean.add(base_clean.mul(REACH_NIGHTS))
@@ -244,7 +252,7 @@ func _gain_of(chain: PackedStringArray, state: SimState, base_clean: BigMoney,
 	for id in chain:
 		owned[id] = int(owned.get(id, 0)) + 1
 	_scratch.recompute(owned)
-	var after := project(_scratch, state.rank, state.heat.multiplier())
+	var after := project(_scratch, state.rank, state.heat.multiplier(), state.wallet.dirty)
 	return {
 		"clean": (after["clean_per_night"] as BigMoney).sub_clamped(base_clean),
 		"dirty": (after["dirty_per_night"] as BigMoney).sub_clamped(base_dirty),
@@ -256,15 +264,24 @@ func _gain_of(chain: PackedStringArray, state: SimState, base_clean: BigMoney,
 
 ## An analytic Night: how long it runs, what it earns dirty, and how much of that turns
 ## clean. Used by the policy to rank purchases and by the report to quote a rate.
-func project(stats: Stats, rank: int, heat_mult: float = 1.0) -> Dictionary:
+func project(stats: Stats, rank: int, heat_mult: float = 1.0,
+		held_dirty: BigMoney = null) -> Dictionary:
 	var ball := expected_ball_seconds(stats)
 	var saves := float(stats.ball_saves()) * _save_use_chance() * ball
 	var play := float(SimNight.GUYS_PER_NIGHT) * ball + saves
-	var night_seconds := play + float(SimNight.GUYS_PER_NIGHT) * SimNight.PINCH_BEAT
 
 	var table := _table_for(stats)
 	var rate := table.shot_rate(profile, stats)
 	var shots := rate * play
+	# THE CLUB: a climb is a deck visit, and a deck visit is live-ball seconds the drain clock
+	# never runs on (the return lane catches everything). So the deck lengthens the Night as
+	# well as paying for it.
+	var club := _club_projection(table, stats, rank, shots, heat_mult, held_dirty)
+	var deck_seconds := float(club["deck_seconds"])
+	var night_seconds := play + deck_seconds \
+			+ float(SimNight.GUYS_PER_NIGHT) * SimNight.PINCH_BEAT \
+			/ maxf(stats.serve_speed_mult(), 0.1)
+
 	var per_group: Dictionary = {}
 	for row in table.shots:
 		var group: StringName = row["group"]
@@ -278,6 +295,9 @@ func project(stats: Stats, rank: int, heat_mult: float = 1.0) -> Dictionary:
 		var value := _value_per_shot(row, stats, night_seconds, n)
 		if value.is_positive():
 			dirty = dirty.add(value.mul(n * heat_mult * combo))
+	dirty = dirty.add(club["dirty"] as BigMoney)
+	# The Family Meeting doubles ALL dirty for as long as two guys are out.
+	dirty = dirty.mul(1.0 + float(club["meeting_share"]))
 	var idle := stats.idle_rate_total().mul(night_seconds)
 	dirty = dirty.add(idle)
 	var safe := _safe_per_night(stats)
@@ -293,18 +313,125 @@ func project(stats: Stats, rank: int, heat_mult: float = 1.0) -> Dictionary:
 		if stats.flag(&"plunger_bands"):
 			p = minf(p * SimNight.PLUNGER_SKILL_BONUS, 1.0)
 		dirty = dirty.add(skill.mul(float(SimNight.GUYS_PER_NIGHT) * p * heat_mult))
+	dirty = dirty.sub_clamped(club["staked"] as BigMoney)
 
 	var clean := _clean_from(dirty, stats, table, shots, night_seconds)
+	# Money that was never dirty does not touch the wash cap (`Game.earn_clean`): the deck is
+	# a laundry that ignores the laundry's own limit, which is the whole reason to buy it.
+	clean = clean.add(club["clean"] as BigMoney)
 	return {
 		"night_seconds": night_seconds,
 		"ball_seconds": ball,
+		"deck_seconds": deck_seconds,
 		"shots": shots,
 		"rate": rate,
 		"combo": combo,
 		"dirty_per_night": dirty,
 		"clean_per_night": clean,
 		"idle_per_night": idle.add(safe),
+		"club": club,
 	}
+
+
+## THE CLUB, analytically (specs/m2-content.md §1/§4). Returns what one Night upstairs is
+## worth: the seconds it adds, the dirty it books, the CLEAN it books outside the wash cap,
+## the dirty it stakes at the wheel, and the share of the Night a Family Meeting doubles.
+##
+## Deliberately coarse — the policy only has to RANK options, and the sim is the authority on
+## what actually happens. Where it is coarse it is coarse PESSIMISTICALLY (one back-room
+## jackpot per Meeting, a linear Jackpot chance), so a Club node is never bought on a promise
+## the deck cannot keep.
+func _club_projection(table: SimTable, stats: Stats, rank: int, shots: float,
+		heat_mult: float, held_dirty: BigMoney) -> Dictionary:
+	var out := {
+		"deck_seconds": 0.0, "dirty": BigMoney.zero(), "clean": BigMoney.zero(),
+		"staked": BigMoney.zero(), "meeting_share": 0.0, "spins": 0.0, "jackpots": 0.0,
+		"ev": Casino.expected_value(stats),
+	}
+	if table.deck == null or table.deck.shots.is_empty():
+		return out
+	var climbs := shots * _share_of_kind(table, SimTable.Kind.RAMP) * _climb_chance(stats)
+	if climbs <= 0.0:
+		return out
+	var visit := table.deck.deck_visit_seconds(profile)
+	var deck_seconds := climbs * visit
+	var deck_shots := deck_seconds * table.deck.deck_rate(profile)
+	out["deck_seconds"] = deck_seconds
+
+	var dirty := BigMoney.zero()
+	var clean := BigMoney.zero()
+	var idle := stats.idle_rate_total()
+
+	# The courtesy switches: the wheel's pocket and every reel target that was there to drop.
+	for row in table.deck.shots:
+		var base: BigMoney = row["base_big"]
+		if not base.is_positive():
+			continue
+		var n := deck_shots * float(row["weight"]) / maxf(table.deck.total_weight, 0.0001)
+		var value := base.add(stats.value_add(row["group"])).mul(stats.value_mult(row["group"]))
+		dirty = dirty.add(value.mul(n * heat_mult))
+
+	# The bet. Five of eight pockets pay `payout`× the stake; Influence buys pockets and
+	# payout, never outcomes, so `Casino.expected_value` is the whole story.
+	var spins := deck_shots * _share_of_kind(table.deck, SimTable.Kind.ROULETTE)
+	var stake := Casino.stake_for(held_dirty if held_dirty != null else BigMoney.zero(), rank)
+	out["spins"] = spins
+	if spins > 0.0 and stake.is_positive():
+		var returned := stake.mul(spins * (1.0 + float(out["ev"])))
+		out["staked"] = stake.mul(spins)
+		if Casino.wash_active(stats):
+			clean = clean.add(returned)
+		else:
+			dirty = dirty.add(returned.mul(stats.value_mult(&"casino") * heat_mult))
+
+	# The grind: three columns cleared inside ONE visit pays eight minutes of the whole
+	# empire's idle rate, clean.
+	var reel_hits := deck_shots * _share_of_kind(table.deck, SimTable.Kind.REEL) * _useful_share()
+	var jackpots := 0.0
+	if climbs > 0.0:
+		jackpots = climbs * clampf(reel_hits / maxf(climbs, 0.0001) / JACKPOT_HITS, 0.0, 1.0)
+	out["jackpots"] = jackpots
+	clean = clean.add(Casino.jackpot_value(idle).mul(jackpots))
+
+	# The back room: a Meeting doubles all dirty for its window and pays a growing jackpot.
+	var backroom := deck_shots * _share_of_kind(table.deck, SimTable.Kind.BACKROOM)
+	if backroom > 0.0 and _meeting_lightable(stats, jackpots):
+		var reached := 1.0 - exp(-backroom)
+		var window := profile.meeting_seconds_mean * reached
+		out["meeting_share"] = window / maxf(deck_seconds + 1.0, 1.0)
+		clean = clean.add(idle.mul(FamilyMeeting.JACKPOT_MINUTES * 60.0
+				* MEETING_JACKPOTS * reached))
+	out["dirty"] = dirty
+	out["clean"] = clean
+	return out
+
+
+## Can the back room light at all tonight? Two slots Jackpots, or one perfect Collection
+## Round — which needs all three blocks standing at once (`CollectionRound.on_all_armed`).
+func _meeting_lightable(stats: Stats, jackpots: float) -> bool:
+	if not stats.hardware_unlocked(&"backroom_saucer"):
+		return false
+	if jackpots >= float(FamilyMeeting.JACKPOTS_TO_LIGHT):
+		return true
+	var shops := 0
+	for hw in SimTable.STOREFRONT_HARDWARE:
+		if stats.hardware_unlocked(hw):
+			shops += 1
+	return shops >= int(Switches.COVER_SIZE.get(&"storefronts", 3))
+
+
+## Chance a shot at the Staircase mouth has the pace to climb (`SimClub.try_climb`).
+func _climb_chance(stats: Stats) -> float:
+	var power := pow(maxf(stats.flipper_power(), 0.1), SimClub.STAIR_POWER_EXP)
+	return clampf(profile.stair_take * power, 0.01, 0.95)
+
+
+static func _share_of_kind(menu: SimTable, kind: int) -> float:
+	var w := 0.0
+	for row in menu.shots:
+		if int(row["kind"]) == kind:
+			w += float(row["weight"])
+	return w / maxf(menu.total_weight, 0.0001)
 
 
 ## The shot menu for a Stats, cached: the projection prices ~30 candidates per Count and
@@ -364,6 +491,10 @@ func _value_per_shot(row: Dictionary, stats: Stats, night_seconds: float, shots_
 			return per_shot
 		SimTable.Kind.WASH:
 			return BigMoney.zero()
+		SimTable.Kind.RAMP:
+			# Only a shot with the pace up the corridor pays the climb; the rest carry on past
+			# the mouth and are worth nothing at all.
+			return base.add(add).mul(mult * _climb_chance(stats))
 	return base.add(add).mul(mult)
 
 
@@ -382,7 +513,9 @@ func _clean_from(dirty: BigMoney, stats: Stats, table: SimTable, shots: float,
 			passes = minf(passes, night_seconds / SimTable.WASH_COOLDOWN)
 			var moved := 1.0 - pow(1.0 - f, maxf(passes, 0.0))
 			washed = BigMoney.min_of(dirty.mul(moved), cap)
-		var passive := stats.passive_wash_per_sec()
+		# The fronts wash while their banks are armed; Nussbaum washes regardless
+		# (`auto_launder_per_sec`) — that is what the accountant is for.
+		var passive := stats.passive_wash_per_sec() + stats.auto_launder_per_sec()
 		if passive > 0.0:
 			var by_passive := dirty.mul(clampf(passive * night_seconds, 0.0, 1.0))
 			washed = BigMoney.min_of(washed.add(by_passive), cap)
@@ -417,13 +550,12 @@ func _save_use_chance() -> float:
 
 
 func expected_ball_seconds(stats: Stats) -> float:
-	var scale := 1.0
-	if stats.hardware_unlocked(&"inlane_guides"):
-		scale *= SimNight.GUIDES_BALL_TIME
-	if stats.hardware_unlocked(&"kickback_left"):
-		scale *= SimNight.KICKBACK_BALL_TIME
-	var tilt := profile.tilt_per_ball * float(Stats.BASE_TILT_LEANS) / float(maxi(stats.tilt_leans(), 1))
-	# A tilt cuts the ball off at a uniform point, so it costs half a ball on average.
+	var scale := SimNight.ball_time_scale(stats)
+	var tilt := SimNight.tilt_chance_for(profile, stats)
+	# A tilt cuts the ball off at a uniform point, so it costs half a ball on average — unless
+	# the policy is paid up, in which case it costs ten seconds at half value instead.
+	if stats.flag(&"insurance_policy"):
+		return profile.ball_seconds_mean * scale
 	return profile.ball_seconds_mean * scale * (1.0 - tilt * 0.5)
 
 

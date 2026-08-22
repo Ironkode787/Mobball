@@ -52,10 +52,14 @@ func _on_struck(target: StandupTarget, ball: Ball) -> void:
 		_complete(ball)
 
 
+## `complete_value` of 0 means the bank has no payout of its own — the boss door and the
+## Commission chairs are owned by a mode that pays for them — and a zero-value earn is not a
+## silent no-op: it would still close a switch, extend a combo and file a Jobs hit.
 func _complete(ball: Ball) -> void:
 	AudioDirector.play(&"drop_bank_down")
-	TableScore.earn_big(group, BigMoney.from_float(complete_value),
-			StringName(String(id) + "_complete"), ball)
+	if complete_value > 0.0:
+		TableScore.earn_big(group, BigMoney.from_float(complete_value),
+				StringName(String(id) + "_complete"), ball)
 	_reset_in = reset_seconds
 	bank_completed.emit()
 

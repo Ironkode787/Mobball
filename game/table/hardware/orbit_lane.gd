@@ -60,7 +60,7 @@ func _on_entry(body: Node2D) -> void:
 	if not (body is Ball) or not _present:
 		return
 	_entered_at = _clock
-	TableScore.hit(&"orbit_left_entry", body as Ball)
+	TableScore.hit(StringName(String(id) + "_entry"), body as Ball)
 
 
 func _on_exit(body: Node2D) -> void:

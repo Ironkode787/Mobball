@@ -43,6 +43,10 @@ const SURVIVE_SECONDS := 60.0
 const TILT_HEAT := 5.0
 ## Mirrors `RaidMode.DURATION`.
 const RAID_SECONDS := 45.0
+## Mirrors `NightController.STOREFRONT_POLL`: how often the banks are read for a Collection
+## Round trigger. It matters — a block that is all-armed for less than one poll never starts
+## a round, which is the difference between a Meeting lighting tonight and not.
+const STOREFRONT_POLL := 0.25
 
 ## Longest step the event loop will take with no shot in it. Only bounds how coarsely the
 ## spinner tail, the idle trickle and the storefront timers are sampled — the economy math
@@ -72,9 +76,45 @@ const RAID_HAZARD := 2.5
 ## Ball-save charges are finite, so this only bounds a pathological profile.
 const MAX_BALL_SEGMENTS := 32
 
+# --- M2 specialists and flags (specs/m2-content.md §2/§3) --------------------------
+## Every constant below turns a shipped effect the sim could not otherwise see into a number.
+## They are player-behaviour guesses like everything else above this line, not game rules.
+##
+## Big Sal shortens the kickback's cooldown, so the guard rail is up more of the time. The
+## gain is capped: a kickback that is always ready is still only one outlane.
+const KICKBACK_COOLDOWN_GAIN_MAX := 2.0
+## The Inspector's vacation (`inspector_vacation`) is 20 s of free nudging a Night, and a
+## player spends it on the nudges they would otherwise not dare — so it buys back this share
+## of the Night's tilts.
+const INSPECTOR_TILT_CUT := 0.25
+## The insurance policy (`insurance_policy`) turns a TILT into a limp: the guy keeps playing
+## at half value for ten seconds instead of going inside.
+const INSURANCE_LIMP_SECONDS := 10.0
+const INSURANCE_LIMP_VALUE := 0.5
+## The police scanner (`police_scanner`) is ten seconds of warning before the hardware that
+## raises heat goes live — the player is never caught mid-ramp by a raid.
+const SCANNER_RAID_HAZARD := 0.75
+## The Wiretap (`wiretap_wire`) shows the next Wire number 15 s early and the spinner IS the
+## ticket, so a player who can count segments can dial the last two digits. This is the
+## softest guess in the file: it converts a share of draws into EXACT hits (×80, clean),
+## scaled by discipline, and it is capped well under what a perfect counter could do.
+const WIRETAP_AIM := 0.25
+## Seconds Manny waits before trying a till again when nothing at all is lit — he is standing
+## right there, so he does not burn a whole interval on an empty block.
+const AUTO_COLLECT_RETRY := 1.0
+## How much of the drain clock a second on the Club deck spends. The deck itself cannot drain
+## a ball, but a visit always ends with the return lane feeding a live ball into the right
+## inlane, and that feed is a drain risk like any other. A quarter is the model's read of "one
+## risky moment per trip instead of a continuous one" — and it matters: at zero the Club would
+## make a shark's ball immortal, which is the one thing the geometry definitely does not do.
+const DECK_DRAIN_SHARE := 0.25
+
 var state: SimState
 var profile: SimProfile
 var table: SimTable
+## THE CLUB, when the licence has been bought (specs/m2-content.md §1). Null otherwise, and
+## every call site guards on it — an M1 career must play exactly the Night it played before.
+var club: SimClub = null
 
 var seconds: float = 0.0
 var shots: int = 0
@@ -83,9 +123,11 @@ var wash_passes: int = 0
 ## Wash shots that moved nothing because tonight's laundering cap was already spent.
 var wash_dead: int = 0
 var collects: int = 0
+var auto_collects: int = 0
 var spin_segments: int = 0
 var guys_lost: int = 0
 var tilts: int = 0
+var limps: int = 0
 var raid_result: String = ""
 var by_group: Dictionary = {}
 
@@ -104,9 +146,22 @@ var _fronts: Dictionary = {}
 var _raid_left: float = -1.0
 var _raid_pending: bool = false
 var _shot_rate: float = 1.0
+var _deck_rate: float = 1.0
 var _spin_kick: float = 0.0
 var _last_group: StringName = &""
 var _watch_switches: bool = false
+## Seconds of half-value play left on an insured TILT, and whether tonight's one policy has
+## already been claimed (`muscle.insurance_policy`).
+var _limp_left: float = 0.0
+var _limp_used: bool = false
+## Manny's clock (`auto_collect_interval`).
+var _collect_in: float = 0.0
+## Storefront-poll clock for the Collection Round trigger (`NightController.STOREFRONT_POLL`).
+var _collect_poll: float = 0.0
+## The guy the line-up is currently pointing at — his traits are on the money path.
+var _guy: Dictionary = {}
+var _guy_slot: int = -1
+var _lineup: Array[Dictionary] = []
 
 
 ## Play one whole Night: `start_night` → three guys → `end_night`. Returns the Count summary
@@ -130,37 +185,56 @@ func _run_night() -> Dictionary:
 	_spin_kick = minf(profile.spinner_kick_speed * state.stats.flipper_power(),
 			SimTable.SPIN_MAX_SPEED)
 	_next_shot = _draw_gap()
+	_collect_in = state.stats.auto_collect_interval()
 	for hw in table.storefronts:
 		_fronts[hw] = {"state": &"armed", "down": 0, "timer": 0.0}
 	state.heat.raid_triggered.connect(_on_raid_triggered)
+	# `HeatMeter.raid_triggered` latches. `NightController` only listens during a Night, but
+	# `Game._process` ticks the meter in EVERY state — so a meter that crosses 100 at The
+	# Count (crediting the earn window a Night left behind) latches with nobody connected, and
+	# no raid can ever fire again. Mirrored exactly, and counted, because it is a real bug.
+	if state.heat.is_raid_pending():
+		state.raids_latched += 1
 	_watch_switches = _jobs_watch_switches()
+	if table.deck != null:
+		club = SimClub.new(state, profile, table, _rng)
+		_deck_rate = club.rate()
 
-	var lineup: Array[Dictionary] = []
+	_lineup = []
 	for g in state.bench.available():
-		if lineup.size() >= GUYS_PER_NIGHT:
+		if _lineup.size() >= GUYS_PER_NIGHT:
 			break
-		lineup.append(g)
+		_lineup.append(g)
 
-	if lineup.size() < GUYS_PER_NIGHT:
+	if _lineup.size() < GUYS_PER_NIGHT:
 		state.short_lineups += 1
 
-	for i in lineup.size():
-		var guy: Dictionary = lineup[i]
+	for i in _lineup.size():
+		_guy_slot = i
+		_guy = _lineup[i]
+		state.set_fielded([_guy])
 		state.jobs.begin_ball(i)
 		var alive := _serve()
+		# A Meeting the guy took with him ends here: one ball left is not the crew out
+		# together, and the man still standing is the one who is about to be pinched anyway.
+		if club != null:
+			club.on_night_end()
+		# `_guy` may not be `_lineup[i]` any more — a Family Meeting can promote the survivor
+		# into this slot, and it is the man actually holding the ball who goes inside.
 		if alive >= SURVIVE_SECONDS:
-			state.bench.survived_night(guy)
-		state.bench.pinch(guy, _raid_left > 0.0)
+			state.bench.survived_night(_guy)
+		state.bench.pinch(_guy, _raid_left > 0.0)
 		if _raid_left > 0.0:
 			_end_raid(false)
 		guys_lost += 1
 		state.guys_pinched += 1
 		state.combo.reset()
-		_advance(PINCH_BEAT)
+		state.set_fielded([])
+		_advance(_beat(PINCH_BEAT))
 
 	state.heat.raid_triggered.disconnect(_on_raid_triggered)
 	var summary := state.end_night({
-		"guys_fielded": lineup.size(),
+		"guys_fielded": _lineup.size(),
 		"guys_lost": guys_lost,
 		"tilts": tilts,
 		"raid": raid_result,
@@ -171,8 +245,77 @@ func _run_night() -> Dictionary:
 	summary["sim_wash_passes"] = wash_passes
 	summary["sim_wash_dead"] = wash_dead
 	summary["sim_collects"] = collects
+	summary["sim_auto_collects"] = auto_collects
 	summary["sim_spin_segments"] = spin_segments
 	summary["sim_by_group"] = by_group
+	summary["sim_deck_seconds"] = club.deck_seconds if club != null else 0.0
+	summary["sim_deck_visits"] = club.visits if club != null else 0
+	summary["sim_meeting_seconds"] = club.meeting_seconds if club != null else 0.0
+	summary["sim_limps"] = limps
+	return summary
+
+
+## THE COMMISSION (specs/m2-content.md §5): the Night The Count sent to a fight. The guys are
+## fielded and lost exactly as usual and the Night is exactly as long, but the economy is off
+## — `Game.economy_paused()` suppresses every payout — so the fight pays the purse and the
+## table pays nothing at all. Win or lose is one draw against the profile; a loss costs the
+## Night and nothing else, and The Count offers the rematch (docs/05 §6).
+static func play_boss(p_state: SimState, p_profile: SimProfile, fight_id: StringName,
+		rng: RandomNumberGenerator) -> Dictionary:
+	var n := SimNight.new()
+	n.state = p_state
+	n.profile = p_profile
+	n._rng = rng
+	return n._run_boss_night(fight_id)
+
+
+func _run_boss_night(fight_id: StringName) -> Dictionary:
+	state.start_night()
+	state.commission.begin_fight(fight_id)
+	state.boss_nights += 1
+	if state.boss_first_night.is_empty():
+		state.boss_first_night = {"night": state.night_no, "clock": state.clock}
+	var lineup: Array[Dictionary] = []
+	for g in state.bench.available():
+		if lineup.size() >= GUYS_PER_NIGHT:
+			break
+		lineup.append(g)
+	# No table money means no reason to run the shot loop: what a fight costs is the clock,
+	# the three guys and the Heat that keeps decaying while nobody is earning.
+	for guy in lineup:
+		state.set_fielded([guy])
+		var alive := _draw_ball_seconds()
+		_advance(alive)
+		if alive >= SURVIVE_SECONDS:
+			state.bench.survived_night(guy)
+		state.bench.pinch(guy, false)
+		guys_lost += 1
+		state.guys_pinched += 1
+		state.set_fielded([])
+		_advance(_beat(PINCH_BEAT))
+	var won := _rng.randf() < profile.boss_win_chance(fight_id)
+	var result := state.boss_finished(fight_id, won)
+	var summary := state.end_night({
+		"guys_fielded": lineup.size(),
+		"guys_lost": guys_lost,
+		"tilts": 0,
+		"raid": "",
+		"boss": result,
+	})
+	summary["sim_seconds"] = seconds
+	summary["sim_shots"] = 0
+	summary["sim_wasted"] = 0
+	summary["sim_wash_passes"] = 0
+	summary["sim_wash_dead"] = 0
+	summary["sim_collects"] = 0
+	summary["sim_auto_collects"] = 0
+	summary["sim_spin_segments"] = 0
+	summary["sim_by_group"] = {}
+	summary["sim_deck_seconds"] = 0.0
+	summary["sim_deck_visits"] = 0
+	summary["sim_meeting_seconds"] = 0.0
+	summary["sim_limps"] = 0
+	summary["sim_boss"] = result
 	return summary
 
 
@@ -188,7 +331,8 @@ func _serve() -> float:
 			by_group[&"skill_shot"] = paid if acc == null else acc.add(paid)
 		var span := _draw_ball_seconds()
 		var tilted := _rng.randf() < _tilt_chance()
-		if tilted:
+		var insured := tilted and state.stats.flag(&"insurance_policy") and not _limp_used
+		if tilted and not insured:
 			span *= _rng.randf()
 		var ran := _run(span)
 		alive += ran
@@ -196,29 +340,67 @@ func _serve() -> float:
 			tilts += 1
 			state.tilts += 1
 			state.heat.add_flat(TILT_HEAT)
-			break
+			if not insured:
+				break
+			# `insurance_policy` (T5): the guy limps at half value for ten seconds instead of
+			# going inside. One policy a Night, and the ball is still his.
+			_limp_used = true
+			_limp_left = INSURANCE_LIMP_SECONDS
+			limps += 1
+			continue
+		# The ball is down. During a Family Meeting that is not the end of the guy — the OTHER
+		# man is still working, so one of them is pinched and play carries on (SimClub).
+		if club != null and club.meeting_active():
+			club.end_meeting(true)
+			_take_promotion()
+			continue
 		if ran <= BALL_SAVE_SECONDS and _saves_left > 0:
 			# Drained inside the save window: the charge buys the same guy another ball.
 			_saves_left -= 1
-			_advance(BALL_SAVE_BEAT)
+			_advance(_beat(BALL_SAVE_BEAT))
 			continue
 		break
 	return alive
 
 
+## The survivor of a Meeting takes over the line-up slot of the man who drained
+## (`NightController._promote_survivor`): from here on HE is the guy on the table.
+func _take_promotion() -> void:
+	if club == null or club.promote_to.is_empty():
+		return
+	_guy = club.promote_to
+	club.promote_to = {}
+	if _guy_slot >= 0 and _guy_slot < _lineup.size():
+		_lineup[_guy_slot] = _guy
+	state.set_fielded([_guy])
+
+
 ## Advance `span` seconds of live ball, firing shots as they arrive.
+##
+## `span` is the ball's DRAIN clock, and the Club is only PARTLY on it. The deck has no floor
+## and its return lane delivers everything below the mini-bats to the right inlane
+## (`ClubDeck.RETURN_PATH`), so falling off the Club costs the trip, not the ball — but the
+## trip ends with a live ball dropped into an inlane, and that has to be caught like anything
+## else. Deck seconds therefore spend the drain clock at `DECK_DRAIN_SHARE` of normal rather
+## than not at all, which is why `alive` can exceed the drawn span but not indefinitely.
 func _run(span: float) -> float:
 	var t := 0.0
+	var lived := 0.0
 	while t < span - 1.0e-6:
 		var dt := minf(minf(_next_shot, span - t), MAX_STEP)
 		dt = maxf(dt, 1.0e-6)
 		_advance(dt)
-		t += dt
+		lived += dt
+		t += dt * (DECK_DRAIN_SHARE if _upstairs() else 1.0)
 		_next_shot -= dt
 		if _next_shot <= 1.0e-6:
 			_next_shot = _draw_gap()
 			_shoot()
-	return t
+	return lived
+
+
+func _upstairs() -> bool:
+	return club != null and club.upstairs
 
 
 ## Time passing, with nobody shooting: the clocks the flow lane ticks every physics frame.
@@ -230,13 +412,27 @@ func _advance(dt: float) -> void:
 	state.clock += dt
 	state.heat.tick(dt)
 	state.peak_heat = maxf(state.peak_heat, state.heat.value)
+	state.band_seconds[state.heat.band()] = float(state.band_seconds[state.heat.band()]) + dt
 	state.combo.tick(dt)
 	state.jobs.tick(dt, state.heat.value)
+	_limp_left = maxf(_limp_left - dt, 0.0)
 	_tick_idle(dt)
 	_tick_wash(dt)
+	_tick_crew(dt)
 	_spin_advance(dt)
 	_tick_hardware(dt)
+	_tick_wire(dt)
+	_tick_collection(dt)
 	_wash_cool = maxf(_wash_cool - dt, 0.0)
+	if club != null:
+		var was_up := club.upstairs
+		club.tick(dt)
+		if was_up and not club.upstairs:
+			# Down the return lane and back on the main playfield: a different menu, a
+			# different cadence, and no chain carried across the trip.
+			_take_promotion()
+			_last_group = &""
+			_next_shot = _draw_gap()
 	if _raid_left > 0.0:
 		_raid_left -= dt
 		if _raid_left <= 0.0:
@@ -261,9 +457,71 @@ func _tick_idle(dt: float) -> void:
 ## differ by (1−f·dt)^n vs (1−f·T) — under 0.005 %/s at the shipped 1 %/s rate.
 func _tick_wash(dt: float) -> void:
 	var per_sec := state.stats.passive_wash_per_sec()
-	if per_sec <= 0.0 or not _storefront_armed():
+	if per_sec > 0.0 and _storefront_armed():
+		state.launder(per_sec * dt, state.launder_cap_left())
+	# Nussbaum washes whether or not a shop is open — that is what the accountant is FOR
+	# (`auto_launder_per_sec`, specs/m2-content.md §2). Same per-Night cap as everything else.
+	var auto := state.stats.auto_launder_per_sec()
+	if auto > 0.0:
+		state.launder(auto * dt, state.launder_cap_left())
+
+
+## `NightController._tick_crew`: Manny (`auto_collect_interval`) walks a till every N seconds
+## and hands the money in. He can only work a shop that is actually open — an empty block
+## costs him a beat, not the whole interval, because he is standing right there.
+func _tick_crew(dt: float) -> void:
+	var every := state.stats.auto_collect_interval()
+	if every <= 0.0:
 		return
-	state.launder(per_sec * dt, state.launder_cap_left())
+	_collect_in -= dt
+	if _collect_in > 0.0:
+		return
+	var open_shop := &""
+	for hw: Variant in _fronts:
+		if (_fronts[hw] as Dictionary)["state"] == &"open":
+			open_shop = hw
+			break
+	if open_shop == &"":
+		_collect_in = minf(every, AUTO_COLLECT_RETRY)
+		return
+	_collect_in = every
+	auto_collects += 1
+	_collect_from(open_shop)
+
+
+## `NightController._tick_wire`: every 90 s of play the tote board draws 00–99 and the
+## spinner's session count is the ticket (docs/05 §4).
+func _tick_wire(dt: float) -> void:
+	if not state.stats.hardware_unlocked(&"wire_bank") or not state.wire.tick(dt):
+		return
+	var ticket := state.spin_segments_total
+	if state.stats.flag(&"wiretap_wire") and _rng.randf() < profile.target_discipline * WIRETAP_AIM:
+		# Fifteen seconds of warning and a spinner that moves the ticket one segment at a
+		# time: a player who can count lands the exact number on purpose.
+		ticket = state.wire.peek()
+	state.wire_draw(ticket)
+
+
+## `NightController._tick_collection`: all three banks standing at once starts a 25 s round.
+func _tick_collection(dt: float) -> void:
+	state.collection.tick(dt)
+	_collect_poll -= dt
+	if _collect_poll > 0.0:
+		return
+	_collect_poll = STOREFRONT_POLL
+	if state.collection.active or not _all_storefronts_armed():
+		return
+	if state.collection.on_all_armed():
+		state.collection_rounds += 1
+
+
+func _all_storefronts_armed() -> bool:
+	if _fronts.size() < int(Switches.COVER_SIZE.get(&"storefronts", 3)):
+		return false
+	for hw: Variant in _fronts:
+		if (_fronts[hw] as Dictionary)["state"] != &"armed":
+			return false
+	return true
 
 
 ## The blade, integrated: `Spinner._physics_process` with the segment count solved instead
@@ -313,11 +571,12 @@ func _tick_hardware(dt: float) -> void:
 ## Where the next switch closes. Mostly the ball stays where it is (`profile.cluster`) —
 ## the nest, the bank, the sling pair — and only sometimes does it get moved somewhere else.
 func _pick_shot() -> Dictionary:
+	var menu := table.deck if _upstairs() else table
 	if _last_group != &"" and _last_group != &"laundry" and _rng.randf() < profile.cluster:
-		var same := table.pick_in_group(_last_group, _rng)
+		var same := menu.pick_in_group(_last_group, _rng)
 		if not same.is_empty():
 			return same
-	return table.pick(_rng)
+	return menu.pick(_rng)
 
 
 func _shoot() -> void:
@@ -348,13 +607,50 @@ func _shoot() -> void:
 				_shoot_storefront(&"storefront_laundromat")
 			else:
 				_wash_pass()
+		SimTable.Kind.RAMP:
+			_shoot_staircase(shot)
+		SimTable.Kind.ROULETTE:
+			_earn(&"casino", shot["base_big"], shot["id"])
+			club.roulette()
+		SimTable.Kind.REEL:
+			# The reel pays its courtesy switch only when a target was actually there to drop.
+			if club.reel(_reel_column(shot["id"])):
+				_earn(&"casino", shot["base_big"], shot["id"])
+			else:
+				wasted_shots += 1
+		SimTable.Kind.HIGH_ROLLER:
+			var held := club.high_roller()
+			if held > 0.0:
+				_advance(held)
+			else:
+				wasted_shots += 1
+		SimTable.Kind.BACKROOM:
+			club.backroom()
+
+
+## The Staircase mouth: a SPEED gate, not a switch. A shot with the pace climbs, pays the
+## ramp and opens a deck visit; one without it is simply not taken and the ball carries on up
+## the corridor (`ClubDeck` STAIR_ENTRY_SPEED, and `SimClub.try_climb`).
+func _shoot_staircase(shot: Dictionary) -> void:
+	if club == null or not club.live() or not club.try_climb():
+		wasted_shots += 1
+		return
+	_earn(&"ramps", shot["base_big"], shot["id"])
+	club.enter_deck()
+	_last_group = &""
+	_next_shot = _draw_gap()
+
+
+static func _reel_column(id: StringName) -> int:
+	return maxi(String(id).right(1).to_int() - 1, 0)
 
 
 ## The single money path, plus the switch event the flow lane forwards to Jobs.
 func _earn(group: StringName, base: BigMoney, id: StringName) -> void:
 	if _watch_switches:
 		state.jobs.on_switch(id, group)
-	var got := state.earn_switch(group, base, {"switch": id})
+	var value := base if _limp_left <= 0.0 else base.mul(INSURANCE_LIMP_VALUE)
+	var got := state.earn_switch(group, value, {"switch": id})
 	var acc: BigMoney = by_group.get(group, null)
 	by_group[group] = got if acc == null else acc.add(got)
 
@@ -374,6 +670,8 @@ func _pay_spin(n: int) -> void:
 	if n <= 0:
 		return
 	spin_segments += n
+	# The Wire's ticket is the spinner's count since boot, not since roll call.
+	state.spin_segments_total += n
 	var base := BigMoney.from_float(SimTable.SPINNER_SEGMENT)
 	if _watch_switches:
 		for _i in n:
@@ -428,15 +726,24 @@ func _shoot_storefront(prefer: StringName) -> void:
 		&"open":
 			if hw == &"storefront_laundromat":
 				_wash_pass()
-			var value := SimTable.collect_value(hw, state.stats, state.catalog)
-			_earn(&"storefronts", value, StringName(String(hw) + "_collect"))
-			state.jobs.on_storefront(hw)
-			collects += 1
-			f["state"] = &"cooldown"
-			f["down"] = 0
-			f["timer"] = SimTable.STOREFRONT_REARM_SEC
+			_collect_from(hw)
 		_:
 			wasted_shots += 1
+
+
+## Cash out one open till. The Collection Round watches these: three in one 25 s window and
+## the last one pays its value again, ☆10 lands, and the back room lights up (docs/05 §3).
+func _collect_from(hw: StringName) -> void:
+	var f: Dictionary = _fronts[hw]
+	var value := SimTable.collect_value(hw, state.stats, state.catalog)
+	_earn(&"storefronts", value, StringName(String(hw) + "_collect"))
+	state.jobs.on_storefront(hw)
+	collects += 1
+	f["state"] = &"cooldown"
+	f["down"] = 0
+	f["timer"] = SimTable.STOREFRONT_REARM_SEC
+	if state.collection.on_collected(hw):
+		state.collection_completed(hw, value)
 
 
 ## `NightController._wash_pass`: one pass washes `launder_rate` of held dirty against
@@ -475,12 +782,17 @@ func _end_raid(survived: bool) -> void:
 	_raid_left = -1.0
 	if survived:
 		raid_result = "survived"
-		state.wallet.earn_clean(state.wallet.dirty.mul(SimState.RAID_CLEAN_PAYOUT))
+		state.earn_clean(state.wallet.dirty.mul(SimState.RAID_CLEAN_PAYOUT), &"raid")
 		state.add_respect(SimState.RESPECT_RAID_SURVIVED, &"raid")
 		state.raids_survived += 1
 	else:
 		raid_result = "lost"
-		state.wallet.confiscate_dirty(Rates.RAID_CONFISCATE_FRACTION)
+		# `rain_insurance` (T5): one confiscation a Night is simply not paid.
+		if state.stats.flag(&"rain_insurance") and not state.night_insured:
+			state.night_insured = true
+			state.raids_insured += 1
+		else:
+			state.wallet.confiscate_dirty(Rates.RAID_CONFISCATE_FRACTION)
 		state.raids_lost += 1
 	state.heat.reset_after_raid(survived)
 
@@ -492,20 +804,45 @@ func _end_raid(survived: bool) -> void:
 ## bought. Exponential because pinball drains are close to memoryless once the ball is in
 ## play — the risk per second barely depends on how long you have already survived.
 func _draw_ball_seconds() -> float:
-	var scale := 1.0
-	if state.stats.hardware_unlocked(&"inlane_guides"):
-		scale *= GUIDES_BALL_TIME
-	if state.stats.hardware_unlocked(&"kickback_left"):
-		scale *= KICKBACK_BALL_TIME
+	var scale := ball_time_scale(state.stats)
 	var tail := maxf(profile.ball_seconds_mean - profile.ball_seconds_min, 1.0)
 	var span := (profile.ball_seconds_min + _expo(tail)) * scale
 	if _raid_left > 0.0:
-		span /= RAID_HAZARD
+		span /= _raid_hazard()
 	return span
 
 
+## Everything the Ledger has bought that keeps a ball alive longer, in one place so the
+## projection and the sim cannot disagree about what a guard rail is worth.
+static func ball_time_scale(stats: Stats) -> float:
+	var scale := 1.0
+	if stats.hardware_unlocked(&"inlane_guides"):
+		scale *= GUIDES_BALL_TIME
+	# Each kicker is one outlane bought back, and Big Sal's shorter cooldown means it is ready
+	# more of the time (`kickback_cooldown_mult` runs 1.0 down toward 0).
+	var ready := clampf(1.0 / maxf(stats.kickback_cooldown_mult(), 0.01), 1.0,
+			KICKBACK_COOLDOWN_GAIN_MAX)
+	for side in [&"kickback_left", &"kickback_right"]:
+		if stats.hardware_unlocked(side):
+			scale *= 1.0 + (KICKBACK_BALL_TIME - 1.0) * ready
+	return scale
+
+
+## `police_scanner` (T5): ten seconds of warning before the raid hardware goes live means
+## nobody is caught mid-ramp by the Captain's magnet.
+func _raid_hazard() -> float:
+	return RAID_HAZARD * (SCANNER_RAID_HAZARD if state.stats.flag(&"police_scanner") else 1.0)
+
+
 func _draw_gap() -> float:
-	return _expo(1.0 / maxf(_shot_rate, 0.01))
+	var rate := _deck_rate if _upstairs() else _shot_rate
+	return _expo(1.0 / maxf(rate, 0.01))
+
+
+## A between-balls beat, shortened by Skids (`serve_speed_mult`): the table divides its serve
+## duration by it, so a fast server is more Nights per session, not more money per Night.
+func _beat(sec: float) -> float:
+	return sec / maxf(state.stats.serve_speed_mult(), 0.1)
 
 
 func _expo(mean: float) -> float:
@@ -527,10 +864,18 @@ func _skill_chance() -> float:
 	return minf(profile.skill_shot_p * PLUNGER_SKILL_BONUS, 1.0)
 
 
-## More warnings before the Inspector calls it means proportionally more nudging per tilt.
 func _tilt_chance() -> float:
-	var leans := maxi(state.stats.tilt_leans(), 1)
-	return profile.tilt_per_ball * float(Stats.BASE_TILT_LEANS) / float(leans)
+	return tilt_chance_for(profile, state.stats)
+
+
+## More warnings before the Inspector calls it means proportionally more nudging per tilt, and
+## `inspector_vacation` buys twenty seconds a Night where the warnings do not count at all.
+static func tilt_chance_for(p: SimProfile, stats: Stats) -> float:
+	var leans := maxi(stats.tilt_leans(), 1)
+	var chance := p.tilt_per_ball * float(Stats.BASE_TILT_LEANS) / float(leans)
+	if stats.flag(&"inspector_vacation"):
+		chance *= 1.0 - INSPECTOR_TILT_CUT
+	return chance
 
 
 func _storefront_armed() -> bool:
@@ -566,9 +911,6 @@ func _pick_storefront(prefer: StringName) -> StringName:
 	return all[_rng.randi() % all.size()]
 
 
-## M2 PLACEHOLDER — the casino, the Wire draws and mystery briefcases are not modelled.
-## When they land (specs/m2-empire.md FLOW-2) this is where `profile.risk_appetite` turns
-## into staked dirty and clean winnings; until then the sim reports the ratios WITHOUT the
-## only positive-EV laundry in the design, which makes its clean-side numbers conservative.
-func _casino_stub() -> void:
-	pass
+## STILL NOT MODELLED (M3 content, specs/m3-fall-rise.md): mystery briefcases, smuggling
+## runs, heists, elections, Federal Heat and the RICO raid. The Lucky trait's
+## `briefcase_odds_add` is therefore inert here, exactly as it is in the shipped game.

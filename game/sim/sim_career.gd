@@ -42,8 +42,14 @@ var by_group: Dictionary = {}
 var shots_fired: int = 0
 var wasted_shots: int = 0
 var collects: int = 0
+var auto_collects: int = 0
 var wash_passes: int = 0
 var wash_dead: int = 0
+## The Club, career-wide: seconds spent upstairs, seconds of two-ball Meeting, and how much of
+## a Night each is. `deck_seconds` is live-ball time the drain clock never ran on.
+var deck_seconds: float = 0.0
+var meeting_seconds: float = 0.0
+var limps: int = 0
 
 var _rng := RandomNumberGenerator.new()
 var _last_session_end: float = 0.0
@@ -95,7 +101,14 @@ func _play() -> void:
 			var before_dirty := state.total_dirty
 			var before_clean := state.total_clean_earned
 			var before_play := state.play_clock
-			var summary := SimNight.play(state, profile, _rng)
+			# THE COMMISSION (specs/m2-content.md §5): The Count grows a button when a
+			# rival is waiting, and pressing it makes the NEXT Night the fight. The bot
+			# always presses it — the rank ladder is stuck until it does, and a loss
+			# costs nothing beyond the Night itself.
+			var fight := state.boss_waiting()
+			var summary: Dictionary = SimNight.play_boss(state, profile,
+					StringName(fight["id"]), _rng) if not fight.is_empty() \
+					else SimNight.play(state, profile, _rng)
 			nights_played += 1
 			day_nights += 1
 			night_seconds.append(float(summary["sim_seconds"]))
@@ -159,8 +172,12 @@ func _gather(summary: Dictionary) -> void:
 	shots_fired += int(summary["sim_shots"])
 	wasted_shots += int(summary["sim_wasted"])
 	collects += int(summary["sim_collects"])
+	auto_collects += int(summary["sim_auto_collects"])
 	wash_passes += int(summary["sim_wash_passes"])
 	wash_dead += int(summary["sim_wash_dead"])
+	deck_seconds += float(summary["sim_deck_seconds"])
+	meeting_seconds += float(summary["sim_meeting_seconds"])
+	limps += int(summary["sim_limps"])
 	for g: Variant in summary["sim_by_group"] as Dictionary:
 		var acc: BigMoney = by_group.get(g, null)
 		var add: BigMoney = (summary["sim_by_group"] as Dictionary)[g]

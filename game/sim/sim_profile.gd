@@ -11,7 +11,7 @@ extends RefCounted
 ## Pure RefCounted, no Node, no autoload: the whole autoplayer runs under the bare test runner.
 
 const PATH := "res://game/sim/profiles.json"
-const SCHEMA := 1
+const SCHEMA := 2
 ## Profile order used by `--profile all` and every report table.
 const ORDER: PackedStringArray = ["duffer", "decent", "shark"]
 
@@ -50,9 +50,27 @@ var wash_share: float = 0.2
 var cluster: float = 0.45
 ## Buy a bribe above this heat (0 = never bribes).
 var bribe_at_heat: float = 0.0
-## M2 PLACEHOLDER: casino stake appetite. Recorded and reported, not yet simulated —
-## see SimNight._casino_stub().
+## 0..1 — how far up the High Roller ladder this player holds the ball before letting it go
+## (`Casino.CasinoRules.HIGH_ROLLER_MULT`). Greed is the whole skill of that saucer: every
+## rung multiplies the NEXT casino payout and adds flat Heat, so `risk_appetite` is the one
+## profile number that trades money against the meter directly.
 var risk_appetite: float = 0.4
+
+# --- M2: the Club (specs/m2-content.md §1/§4) ---------------------------------------
+## Chance an attempt at the Staircase mouth actually has the pace to climb. The mouth is a
+## SPEED gate, not a switch (game/table/segments/club_deck.gd) — a soft shot is simply not
+## taken and the ball carries on up the corridor, so this is the single number that decides
+## how often a player sees the deck at all.
+var stair_take: float = 0.5
+## Mean seconds a visit to the deck lasts before the ball comes back down the return lane.
+## Scaled by whether the mini-bats are bought: without `club_flippers` the deck is one lap.
+var deck_seconds_mean: float = 13.0
+## Mean seconds two balls stay out together once a Family Meeting starts — the ×2 window.
+var meeting_seconds_mean: float = 19.0
+## Chance of winning a Commission fight, per fight id (`sammy`, `butcher`). Unknown ids fall
+## back to `boss_win_default`; a fight lost costs the Night and is retried.
+var boss_win: Dictionary = {}
+var boss_win_default: float = 0.5
 
 # --- session / day ----------------------------------------------------------------
 var sessions_per_day: float = 3.0
@@ -122,6 +140,12 @@ func affinity_for(group: StringName) -> float:
 	return float(affinity.get(String(group), 1.0))
 
 
+## Chance this player beats `fight_id` on one attempt (specs/m3-fall-rise.md SIM-2 opening
+## bids). A fight the profile has never heard of is a coin toss rather than a crash.
+func boss_win_chance(fight_id: StringName) -> float:
+	return float(boss_win.get(String(fight_id), boss_win_default))
+
+
 ## Average hours between two session opens over a whole day (the projection's estimate of
 ## how much the Safe collects per session). The actual schedule bunches sessions into a
 ## waking window and puts the long gap overnight — see SimCareer.
@@ -152,6 +176,15 @@ func _ingest(key: String, raw: Variant) -> void:
 	cluster = _num(d, "cluster", cluster, 0.0, 0.95)
 	bribe_at_heat = _num(d, "bribe_at_heat", bribe_at_heat, 0.0, 200.0)
 	risk_appetite = _num(d, "risk_appetite", risk_appetite, 0.0, 1.0)
+	stair_take = _num(d, "stair_take", stair_take, 0.0, 1.0)
+	deck_seconds_mean = _num(d, "deck_seconds_mean", deck_seconds_mean, 0.5, 600.0)
+	meeting_seconds_mean = _num(d, "meeting_seconds_mean", meeting_seconds_mean, 0.5, 600.0)
+	boss_win_default = _num(d, "boss_win_default", boss_win_default, 0.0, 1.0)
+	boss_win = {}
+	var wins: Variant = d.get("boss_win", {})
+	if wins is Dictionary:
+		for f: Variant in wins as Dictionary:
+			boss_win[String(f)] = clampf(float((wins as Dictionary)[f]), 0.0, 1.0)
 	sessions_per_day = _num(d, "sessions_per_day", sessions_per_day, 0.25, 24.0)
 	nights_per_session = int(_num(d, "nights_per_session", float(nights_per_session), 1.0, 100.0))
 	count_seconds = _num(d, "count_seconds", count_seconds, 0.0, 3600.0)

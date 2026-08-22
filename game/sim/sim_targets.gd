@@ -41,6 +41,16 @@ const SKILL_BAND_LO := 3.0
 const SKILL_BAND_HI := 12.0
 ## One build shared across seeds by more than this is a dominant strategy (docs/09 §7).
 const DOMINANT_SHARE := 0.70
+## docs/03 §3 and specs/m2-content.md §1: full Influence investment is supposed to land the
+## wheel at "player-favored 4%". The band is the design's own ±: +2% to +5%.
+const CASINO_EV_LO := 0.02
+const CASINO_EV_HI := 0.05
+## Anything past this is not an edge, it is a faucet.
+const CASINO_EV_FAIL := 0.08
+## docs/03 §4 wants Heat to be a live dial, not a decoration: a career that never spends a
+## tenth of its play above band 0 has the multipliers and the Raid as dead content.
+const HEAT_LIVE_SHARE := 0.10
+const HEAT_LIVE_WARN := 0.02
 
 
 ## `careers`: profile id -> Array[SimCareer] (one per seed).
@@ -59,8 +69,10 @@ static func evaluate(careers: Dictionary, catalog: Upgrades) -> Array[Dictionary
 		rows.append(_rank_by_day(id, runs, 4, R4_DAY, catalog))
 		rows.append(_median_night(id, runs))
 		rows.append(_active_idle(id, runs))
+		rows.append(_heat_live(id, runs))
 		rows.append(_dominant(id, runs))
 	rows.append(_skill_ratio(careers))
+	rows.append(_casino_ev(careers))
 	rows.append(_dead_nodes(careers, catalog))
 	return rows
 
@@ -199,6 +211,60 @@ static func _skill_ratio(careers: Dictionary) -> Dictionary:
 		verdict = FAIL
 	return _row("all", "skilled : unskilled", "≈ ×%d (band ×%d–×%d)" % [int(SKILL_RATIO), int(SKILL_BAND_LO), int(SKILL_BAND_HI)],
 			"×%.1f per hour of play" % got, verdict, "")
+
+
+## Share of live play spent above Heat band 0 — the honest read of "is the risk dial alive".
+static func _heat_live(id: String, runs: Array) -> Dictionary:
+	var values: Array[float] = []
+	for c: Variant in runs:
+		var bands := (c as SimCareer).state.band_seconds
+		var total := 0.0
+		var live := 0.0
+		for i in bands.size():
+			total += bands[i]
+			if i >= 1:
+				live += bands[i]
+		if total > 0.0:
+			values.append(live / total)
+	if values.is_empty():
+		return _row(id, "heat liveliness", "≥ %d%% of play in band 1+" % int(HEAT_LIVE_SHARE * 100.0),
+				"no play", NA, "")
+	var got := _median(values)
+	var verdict := PASS if got >= HEAT_LIVE_SHARE else (WARN if got >= HEAT_LIVE_WARN else FAIL)
+	return _row(id, "heat liveliness", "≥ %d%% of play in band 1+" % int(HEAT_LIVE_SHARE * 100.0),
+			"%.1f%%" % (got * 100.0), verdict,
+			"" if verdict == PASS else "the ×1.5/×2.5/×4 bands and the Raid are near-dead content here")
+
+
+## The wheel's realized edge at the investment the careers actually reached
+## (specs/m2-content.md §1: "≈ +4% player EV at full investment").
+static func _casino_ev(careers: Dictionary) -> Dictionary:
+	var staked := BigMoney.zero()
+	var paid := BigMoney.zero()
+	var built := 0.0
+	var seen := 0
+	for id: Variant in careers:
+		for c: Variant in careers[id] as Array:
+			var s := (c as SimCareer).state
+			if not s.casino_staked.is_positive():
+				continue
+			staked = staked.add(s.casino_staked)
+			paid = paid.add(s.casino_paid)
+			built = maxf(built, Casino.expected_value(s.stats))
+			seen += 1
+	if seen == 0:
+		return _row("all", "casino EV", "+%d%%..+%d%% at max Influence"
+				% [int(CASINO_EV_LO * 100.0), int(CASINO_EV_HI * 100.0)],
+				"never played", NA, "no career reached the Club deck")
+	var real := paid.ratio_to(staked) - 1.0
+	var verdict := PASS if (built >= CASINO_EV_LO and built <= CASINO_EV_HI) \
+			else (FAIL if built > CASINO_EV_FAIL else WARN)
+	return _row("all", "casino EV", "+%d%%..+%d%% at max Influence"
+			% [int(CASINO_EV_LO * 100.0), int(CASINO_EV_HI * 100.0)],
+			"built %+.1f%%, realized %+.1f%% over %s staked" % [built * 100.0, real * 100.0,
+			staked.text()], verdict,
+			"" if verdict == PASS else "the shipped ceiling is Casino.CasinoRules.PAYOUT_MAX "
+			+ "× Stats.CASINO_POCKETS_MAX — see the SIM report")
 
 
 static func _dominant(id: String, runs: Array) -> Dictionary:

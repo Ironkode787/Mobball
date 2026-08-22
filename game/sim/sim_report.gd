@@ -16,6 +16,11 @@ const PRICEABLE: PackedStringArray = [
 	"pocket_money_set", "passive_wash_add", "safe_hours_set", "ball_save_charges",
 	"tilt_leans_add", "flipper_power_mult", "kickback_unlock", "collect_minutes_mult",
 	"unlock_hardware", "feature_flag",
+	# M2 specialists (specs/m2-content.md §2). The rest of the vocabulary —
+	# `bail_discount`, `job_reroll_add`, `job_respect_mult`, `aim_line` — buys Respect,
+	# rerolls or a ghost line, none of which the projection can turn into dollars per Night.
+	"casino_edge_add", "casino_pocket_add", "auto_launder_per_sec", "auto_collect_interval",
+	"serve_speed_mult", "kickback_cooldown_mult", "all_dirty_mult", "heat_decay_mult",
 ]
 
 
@@ -39,6 +44,18 @@ static func console(careers: Dictionary, targets: Array[Dictionary], catalog: Up
 	out.append("")
 	out.append("== TARGETS (docs/03 §9)")
 	out.append(_targets_table(targets, false))
+	out.append("")
+	out.append("== THE CLUB (specs/m2-content.md §1/§4)")
+	out.append(_club_table(careers, false))
+	out.append("")
+	out.append("== WHERE CLEAN COMES FROM")
+	out.append(_clean_table(careers, false))
+	out.append("")
+	out.append("== HEAT (docs/03 §4)")
+	out.append(_heat_table(careers, false))
+	out.append("")
+	out.append("== THE COMMISSION (docs/05 §6)")
+	out.append(_commission_table(careers, false))
 	out.append("")
 	out.append("== FINDINGS")
 	for line in findings(careers, catalog):
@@ -69,6 +86,37 @@ static func markdown(careers: Dictionary, targets: Array[Dictionary], catalog: U
 	out.append("## Targets (docs/03 §9)")
 	out.append("")
 	out.append(_targets_table(targets, true))
+	out.append("")
+	out.append("## The Club")
+	out.append("")
+	out.append("Deck visits, the wheel's book and the Family Meeting's uptime. `EV` is the "
+			+ "REALIZED return per dollar staked over the whole career, against the "
+			+ "`Casino.expected_value(stats)` the end-state build had bought.")
+	out.append("")
+	out.append(_club_table(careers, true))
+	out.append("")
+	out.append("## Where clean comes from")
+	out.append("")
+	out.append("The wash cap (docs/03 §2) binds only on money that was DIRTY first. "
+			+ "`earn_clean` money — casino wins under the Wash, Jackpots, Meeting jackpots, "
+			+ "exact Wire numbers, boss purses — never touches it.")
+	out.append("")
+	out.append(_clean_table(careers, true))
+	out.append("")
+	out.append("## Heat")
+	out.append("")
+	out.append(_heat_table(careers, true))
+	out.append("")
+	out.append("## The Commission")
+	out.append("")
+	out.append(_commission_table(careers, true))
+	out.append("")
+	out.append("## Tier bands, measured")
+	out.append("")
+	out.append("What a Night and a day of clean income actually is, late — the input to the "
+			+ "T6/T7 cost bands (docs/03 §7).")
+	out.append("")
+	out.append(_income_table(careers, true))
 	out.append("")
 	out.append("## Findings")
 	out.append("")
@@ -157,11 +205,68 @@ static func findings(careers: Dictionary, catalog: Upgrades) -> PackedStringArra
 					% [id, c.nights_played, s.guys_pinched]
 					+ "4-guy Bench with a 1-Night sit-out always refills before the next roll "
 					+ "call, so the docs/03 §8 bail sink never fires")
+	out.append_array(_club_findings(careers))
 	var unpriced := _unpriceable(SimTargets.dead_nodes(careers, catalog), catalog)
 	if not unpriced.is_empty():
 		out.append("Of the dead nodes, these have no effect this sim can price (Respect, bench "
 				+ "depth, job slips): %s — they are invisible to an income-maximising bot, "
 				% ", ".join(unpriced) + "which is a limit of the model, not proof they are junk")
+	return out
+
+
+## Derived from the measured Club numbers, one line per thing the M2 wave has to answer.
+static func _club_findings(careers: Dictionary) -> PackedStringArray:
+	var out := PackedStringArray()
+	for id in SimProfile.ids():
+		if not careers.has(id) or (careers[id] as Array).is_empty():
+			continue
+		var c := (careers[id] as Array)[0] as SimCareer
+		var s := c.state
+		if s.casino_spins <= 0:
+			out.append("%s: never reached the Club — no deck, no wheel, no Meeting" % id)
+			continue
+		var built := Casino.expected_value(s.stats)
+		var real := s.casino_paid.ratio_to(s.casino_staked) - 1.0 if s.casino_staked.is_positive() else 0.0
+		var avg_mult := s.casino_mult_sum / maxf(float(s.casino_wins), 1.0)
+		out.append("%s: %d spins staked %s and paid %s — realized EV %+.1f%% against the %+.1f%% "
+				% [id, s.casino_spins, s.casino_staked.text(), s.casino_paid.text(),
+				real * 100.0, built * 100.0]
+				+ "the end-state build had bought (%d/%d pockets at ×%.2f)"
+				% [Casino.player_pockets(s.stats), Casino.CasinoRules.POCKETS,
+				Casino.payout_rate(s.stats)])
+		out.append("%s: a winning spin paid ×%.2f on average against a wheel payout of ×%.2f — "
+				% [id, avg_mult, Casino.payout_rate(s.stats)]
+				+ "%d High Roller holds and %d fired Coolers are the rest of it, and neither is "
+				% [s.high_roller_holds, s.casino_coolers]
+				+ "in `Casino.expected_value`")
+		var casino_clean := _clean_from(s, &"roulette_wheel")
+		if s.total_clean_earned.is_positive():
+			out.append("%s: the wheel alone is %.0f%% of career CLEAN (%s of %s); everything "
+					% [id, casino_clean.ratio_to(s.total_clean_earned) * 100.0,
+					casino_clean.text(), s.total_clean_earned.text()]
+					+ "paid through `earn_clean` is %.0f%%, and none of it touches the wash cap"
+					% (s.total_clean_direct.ratio_to(s.total_clean_earned) * 100.0))
+		var band_live := 0.0
+		var total_band := 0.0
+		for i in s.band_seconds.size():
+			total_band += s.band_seconds[i]
+			if i >= 1:
+				band_live += s.band_seconds[i]
+		out.append("%s: %.0f%% of live play sat in Heat band 1+ (%d raids over %d Nights, "
+				% [id, 100.0 * band_live / maxf(total_band, 1.0),
+				s.raids_survived + s.raids_lost, c.nights_played]
+				+ "%.2f per Night)" % (float(s.raids_survived + s.raids_lost)
+				/ maxf(float(c.nights_played), 1.0)))
+		if s.meetings > 0:
+			out.append("%s: %d Family Meetings, %.1f%% of live play at ×2 (%d back-room "
+					% [id, s.meetings, 100.0 * c.meeting_seconds / maxf(c.active_seconds, 1.0),
+					s.meeting_jackpots] + "jackpots worth %s)" % s.meeting_paid.text())
+		else:
+			out.append("%s: the back room never opened — no Family Meeting all career" % id)
+		if s.boss_nights > 0:
+			out.append("%s: the Commission cost %d Nights (%d fights won); the ☆ were in the "
+					% [id, s.boss_nights, s.boss_wins]
+					+ "bank but the rank was not for %d Nights" % s.rank_gated_nights)
 	return out
 
 
@@ -178,6 +283,169 @@ static func _unpriceable(ids: PackedStringArray, catalog: Upgrades) -> PackedStr
 		if not priced:
 			out.append(id)
 	return out
+
+
+# --- M2 tables ---------------------------------------------------------------------------
+
+
+## The deck's whole book. `EV` is realized: what a dollar staked actually came back as, over
+## the career — the number the design's "+2–5% at max Influence investment" is a claim about.
+static func _club_table(careers: Dictionary, md: bool) -> String:
+	var head := PackedStringArray(["profile", "visits/night", "climb rate", "deck %", "spins",
+			"win %", "staked", "paid", "EV real", "EV wheel", "avg ×", "holds", "coolers",
+			"jackpots", "meetings/night", "meeting %"])
+	var rows: Array[PackedStringArray] = []
+	for id in SimProfile.ids():
+		if not careers.has(id) or (careers[id] as Array).is_empty():
+			continue
+		var c := (careers[id] as Array)[0] as SimCareer
+		var s := c.state
+		var nights := maxf(float(c.nights_played), 1.0)
+		var ev_real := 0.0
+		if s.casino_staked.is_positive():
+			ev_real = s.casino_paid.ratio_to(s.casino_staked) - 1.0
+		rows.append(PackedStringArray([
+			id,
+			"%.2f" % (float(s.deck_visits) / nights),
+			"%.0f%%" % (100.0 * float(s.deck_visits) / maxf(float(s.stair_attempts), 1.0)),
+			"%.0f%%" % (100.0 * c.deck_seconds / maxf(c.active_seconds, 1.0)),
+			str(s.casino_spins),
+			"%.0f%%" % (100.0 * float(s.casino_wins) / maxf(float(s.casino_spins), 1.0)),
+			s.casino_staked.text(), s.casino_paid.text(),
+			"%+.1f%%" % (ev_real * 100.0),
+			"%+.1f%%" % (Casino.expected_value(s.stats) * 100.0),
+			"%.2f" % (s.casino_mult_sum / maxf(float(s.casino_wins), 1.0)),
+			str(s.high_roller_holds), str(s.casino_coolers),
+			str(s.jackpots),
+			"%.2f" % (float(s.meetings) / nights),
+			"%.1f%%" % (100.0 * c.meeting_seconds / maxf(c.active_seconds, 1.0)),
+		]))
+	return _render(head, rows, md)
+
+
+## Every dollar of clean the career ever earned, split by where it came from. The pocket-money
+## grace and the wash are dirty-that-became-clean; everything else never was dirty.
+static func _clean_table(careers: Dictionary, md: bool) -> String:
+	var head := PackedStringArray(["profile", "clean earned", "pocket", "washed", "casino",
+			"jackpot", "meeting", "wire", "boss", "raid", "direct %"])
+	var rows: Array[PackedStringArray] = []
+	for id in SimProfile.ids():
+		if not careers.has(id) or (careers[id] as Array).is_empty():
+			continue
+		var s := ((careers[id] as Array)[0] as SimCareer).state
+		var total := s.total_clean_earned
+		var washed := total.sub_clamped(s.total_clean_direct)
+		rows.append(PackedStringArray([
+			id, total.text(),
+			_pct(s.total_pocket, total),
+			_pct(washed.sub_clamped(s.total_pocket), total),
+			_pct(_clean_from(s, &"roulette_wheel"), total),
+			_pct(_clean_from(s, &"slot_reels"), total),
+			_pct(_clean_from(s, &"meeting"), total),
+			_pct(_clean_from(s, &"wire"), total),
+			_pct(_clean_from(s, &"commission"), total),
+			_pct(_clean_from(s, &"raid"), total),
+			_pct(s.total_clean_direct, total),
+		]))
+	return _render(head, rows, md)
+
+
+## Is the risk system alive? Peak heat is a spike; band seconds are a life.
+static func _heat_table(careers: Dictionary, md: bool) -> String:
+	var head := PackedStringArray(["profile", "peak", "band 0", "band 1", "band 2", "band 3",
+			"raid band", "raids", "survived", "insured", "raids/Night", "latched", "bribes"])
+	var rows: Array[PackedStringArray] = []
+	for id in SimProfile.ids():
+		if not careers.has(id) or (careers[id] as Array).is_empty():
+			continue
+		var c := (careers[id] as Array)[0] as SimCareer
+		var s := c.state
+		var total := 0.0
+		for b in s.band_seconds:
+			total += b
+		var cells := PackedStringArray([id, "%.0f" % s.peak_heat])
+		for b in s.band_seconds:
+			cells.append("%.0f%%" % (100.0 * b / maxf(total, 1.0)))
+		cells.append(str(s.raids_survived + s.raids_lost))
+		cells.append(str(s.raids_survived))
+		cells.append(str(s.raids_insured))
+		cells.append("%.2f" % (float(s.raids_survived + s.raids_lost)
+				/ maxf(float(c.nights_played), 1.0)))
+		cells.append(str(s.raids_latched))
+		cells.append(str(s.bribes_total))
+		rows.append(cells)
+	return _render(head, rows, md)
+
+
+## What the rank gates cost: Nights spent in a fight, and days the ☆ were in the bank but the
+## rank was not (`Commission.rank_cap`).
+static func _commission_table(careers: Dictionary, md: bool) -> String:
+	var head := PackedStringArray(["profile", "fight Nights", "won", "sammy tries",
+			"butcher tries", "purse", "gated Nights", "gated days", "R4 at", "R5 at"])
+	var rows: Array[PackedStringArray] = []
+	for id in SimProfile.ids():
+		if not careers.has(id) or (careers[id] as Array).is_empty():
+			continue
+		var c := (careers[id] as Array)[0] as SimCareer
+		var s := c.state
+		var per_day := float(c.nights_played) / maxf(float(c.days), 1.0)
+		rows.append(PackedStringArray([
+			id, str(s.boss_nights), str(s.boss_wins),
+			str(s.commission.attempts_at(Commission.SAMMY)),
+			str(s.commission.attempts_at(Commission.BUTCHER)),
+			s.boss_purse.text(), str(s.rank_gated_nights),
+			"%.2f" % (float(s.rank_gated_nights) / maxf(per_day, 0.01)),
+			_rank_day(c, 4), _rank_day(c, 5),
+		]))
+	return _render(head, rows, md)
+
+
+## Late-career income, which is what a T6/T7 cost band has to be priced against.
+static func _income_table(careers: Dictionary, md: bool) -> String:
+	var head := PackedStringArray(["profile", "clean day 7", "clean day 10", "clean day 14",
+			"clean/Night d14", "clean held d14", "lifetime clean", "rank d14"])
+	var rows: Array[PackedStringArray] = []
+	for id in SimProfile.ids():
+		if not careers.has(id) or (careers[id] as Array).is_empty():
+			continue
+		var c := (careers[id] as Array)[0] as SimCareer
+		var last: Dictionary = c.rows[c.rows.size() - 1] if not c.rows.is_empty() else {}
+		var nights := maxf(float(last.get("nights", 1)), 1.0)
+		rows.append(PackedStringArray([
+			id, _day_clean(c, 7), _day_clean(c, 10), _day_clean(c, 14),
+			(_day_clean_big(c, 14)).div(nights).text(),
+			(last.get("clean_held", BigMoney.zero()) as BigMoney).text(),
+			c.state.total_clean_earned.text(),
+			"R%d" % int(last.get("rank", 0)),
+		]))
+	return _render(head, rows, md)
+
+
+static func _clean_from(s: SimState, source: StringName) -> BigMoney:
+	var v: Variant = s.clean_direct_from.get(source, null)
+	return v as BigMoney if v is BigMoney else BigMoney.zero()
+
+
+static func _pct(part: BigMoney, whole: BigMoney) -> String:
+	if not whole.is_positive():
+		return "—"
+	return "%.1f%%" % (part.ratio_to(whole) * 100.0)
+
+
+static func _rank_day(c: SimCareer, rank: int) -> String:
+	var t := c.rank_clock(rank)
+	return "—" if t < 0.0 else "day %d" % (int(floor(t / 86400.0)) + 1)
+
+
+static func _day_clean_big(c: SimCareer, day: int) -> BigMoney:
+	for r in c.rows:
+		if int(r["day"]) == day:
+			return r["clean_day"]
+	return BigMoney.zero()
+
+
+static func _day_clean(c: SimCareer, day: int) -> String:
+	return _day_clean_big(c, day).text()
 
 
 # --- tables ---------------------------------------------------------------------------
@@ -213,12 +481,13 @@ static func _profile_line(runs: Array) -> String:
 static func _group_table(c: SimCareer, md: bool) -> String:
 	var head := PackedStringArray(["source", "career dirty", "share"])
 	var total := _career_dirty(c)
-	var keys: Array = c.by_group.keys()
+	var by_group := c.state.total_by_group
+	var keys: Array = by_group.keys()
 	keys.sort_custom(func(a: Variant, b: Variant) -> bool:
-		return (c.by_group[a] as BigMoney).cmp(c.by_group[b] as BigMoney) > 0)
+		return (by_group[a] as BigMoney).cmp(by_group[b] as BigMoney) > 0)
 	var rows: Array[PackedStringArray] = []
 	for g: Variant in keys:
-		var amount: BigMoney = c.by_group[g]
+		var amount: BigMoney = by_group[g]
 		rows.append(PackedStringArray([String(g), amount.text(),
 				"%.1f%%" % (amount.ratio_to(total) * 100.0)]))
 	var idle := c.state.total_idle
@@ -289,8 +558,8 @@ static func _top_group(c: SimCareer) -> Dictionary:
 	var total := _career_dirty(c)
 	var best := BigMoney.zero()
 	var name := ""
-	for g: Variant in c.by_group:
-		var amount: BigMoney = c.by_group[g]
+	for g: Variant in c.state.total_by_group:
+		var amount: BigMoney = c.state.total_by_group[g]
 		if amount.cmp(best) > 0:
 			best = amount
 			name = String(g)

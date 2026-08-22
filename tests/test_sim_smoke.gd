@@ -54,6 +54,112 @@ func _mirrored_constants(t: TestCtx) -> void:
 	t.near(SimTable.WIRE_RESET_SEC, TargetBank.new().reset_seconds, 1e-9, "bank reset mirrors the table")
 	t.eq(SimTable.STOREFRONT_TARGETS, 3, "a storefront bank is three drop targets")
 
+	_m2_constants(t)
+
+
+## M2 (specs/m2-content.md): the Club deck, the casino's rulebook, the Family Meeting and the
+## Commission ladder. Every one of these is a number `game/sim/` copied out of the flow or
+## table lane, and a change on either side has to break this test rather than a tuning report.
+func _m2_constants(t: TestCtx) -> void:
+	# --- the deck's hardware (game/table) ---
+	t.near(SimTable.RAMP_CLIMB, TableScore.RAMP_CLIMB, 1e-9, "staircase pay mirrors the table")
+	t.near(SimTable.CASINO_POCKET, TableScore.CASINO_POCKET, 1e-9, "pocket pay mirrors the table")
+	t.near(SimTable.CASINO_REEL, TableScore.CASINO_REEL, 1e-9, "reel pay mirrors the table")
+	t.eq(SimTable.SLOT_COLUMNS, SlotReels.COLS, "reel columns mirror the slots")
+	t.eq(SimTable.SLOT_ROWS, SlotReels.ROWS, "reel rows mirror the slots")
+	t.near(SimTable.SLOT_RESET_SEC, SlotReels.new().reset_seconds, 1e-9,
+			"reel re-arm mirrors the slots")
+	t.eq(SimTable.ROULETTE_POCKETS, RouletteWheel.POCKETS, "pocket count mirrors the wheel")
+	t.eq(Array(SimTable.HOUSE_POCKETS), Array(RouletteWheel.HOUSE_POCKETS),
+			"the house's pockets mirror the wheel")
+	t.eq(Array(SimTable.HOUSE_GIVE_ORDER), Array(RouletteWheel.HOUSE_GIVE_ORDER),
+			"the give-order mirrors the wheel")
+	t.eq(SimTable.ROULETTE_POCKETS, Casino.CasinoRules.POCKETS, "wheel and rulebook agree")
+	t.eq(RouletteWheel.PLAYER_POCKETS_BASE, Casino.CasinoRules.PLAYER_POCKETS,
+			"the wheel's base pockets are the rulebook's")
+	t.near(SimTable.HIGH_ROLLER_STEP_SEC, HoldSaucer.new().step_seconds, 1e-9,
+			"the ladder's cadence mirrors the saucer")
+	t.eq(Array(Casino.CasinoRules.HIGH_ROLLER_MULT), Array(ClubDeck.HIGH_ROLLER_STEPS),
+			"the ladder the deck builds is the ladder the rulebook prices")
+	t.eq(SimClub.LADDER_TOP, Casino.CasinoRules.HIGH_ROLLER_MULT.size() - 1,
+			"the sim's greed tops out on the last rung of the real ladder")
+
+	# --- the casino's rulebook (game/flow/casino.gd) — read, never re-guessed ---
+	var scratch := Stats.new()
+	scratch.recompute({})
+	t.near(Casino.expected_value(scratch), float(Casino.CasinoRules.PLAYER_POCKETS)
+			/ float(Casino.CasinoRules.POCKETS) * Casino.CasinoRules.PAYOUT - 1.0, 1e-9,
+			"a bare wheel is 5/8 × PAYOUT − 1")
+	t.near(Casino.CasinoRules.STAKE_FRACTION, 0.05, 1e-9, "table stakes are 5% of held dirty")
+	t.eq(Casino.CasinoRules.JACKPOT_COLUMNS, SlotReels.COLS, "a Jackpot is every column")
+	t.eq(SimTable.SLOT_COLUMNS, Casino.CasinoRules.JACKPOT_COLUMNS,
+			"the sim clears the same three columns the rulebook wants")
+	# The pocket give-order and the pocket cap have to agree, or a maxed Loaded Dice asks the
+	# wheel for a pocket it has no rule for.
+	t.ok(Casino.CasinoRules.PLAYER_POCKETS_MAX <= Casino.CasinoRules.POCKETS
+			- (RouletteWheel.HOUSE_POCKETS.size() - RouletteWheel.HOUSE_GIVE_ORDER.size()),
+			"the wheel can give back every pocket the rulebook lets Influence buy")
+	t.eq(Casino.CasinoRules.PLAYER_POCKETS_MAX, Stats.CASINO_POCKETS_MAX,
+			"the pocket ceiling is the same on both sides")
+	t.eq(Casino.CasinoRules.PLAYER_POCKETS, Stats.CASINO_POCKETS_BASE,
+			"the pocket floor is the same on both sides")
+	for pocket in range(Casino.CasinoRules.POCKETS):
+		t.eq(SimTable.pocket_is_house(pocket, Casino.CasinoRules.PLAYER_POCKETS),
+				RouletteWheel.HOUSE_POCKETS.has(pocket),
+				"pocket %d is the house's on a bare wheel, both sides" % pocket)
+	var house_at_max := 0
+	for pocket in range(Casino.CasinoRules.POCKETS):
+		if SimTable.pocket_is_house(pocket, Casino.CasinoRules.PLAYER_POCKETS_MAX):
+			house_at_max += 1
+	t.eq(house_at_max, Casino.CasinoRules.POCKETS - Casino.CasinoRules.PLAYER_POCKETS_MAX,
+			"a fully-bought wheel leaves the house exactly its cap")
+
+	# --- the Family Meeting (game/flow/meeting.gd) ---
+	t.near(FamilyMeeting.DIRTY_MULT, 2.0, 1e-9, "a Meeting doubles all dirty")
+	t.eq(FamilyMeeting.JACKPOTS_TO_LIGHT, 2, "two slots Jackpots light the back room")
+	t.near(SimPolicy.MEETING_JACKPOTS, 1.0, 1e-9,
+			"the projection credits one back-room re-entry per Meeting")
+	t.near(FamilyMeeting.JACKPOT_GROWTH, 1.5, 1e-9, "the back room grows by half each take")
+	t.eq(int(SimPolicy.JACKPOT_HITS), SlotReels.COLS * SlotReels.ROWS,
+			"a Jackpot costs one drop per target in the grid")
+	t.eq(CollectionRound.RESPECT, 10, "a perfect Collection Round is ☆10")
+	t.near(CollectionRound.SECONDS, 25.0, 1e-9, "a Collection Round runs 25 s")
+	t.near(SimNight.STOREFRONT_POLL, NightController.STOREFRONT_POLL, 1e-9,
+			"the block is read at the flow lane's cadence")
+
+	# --- the Commission (game/flow/bosses/commission.gd) ---
+	t.eq(Commission.FIGHTS.size(), 2, "two fights gate the M2 ladder")
+	t.eq(Commission.fight_gating(3).get("id", &""), Commission.SAMMY, "Sammy gates R3→R4")
+	t.eq(Commission.fight_gating(4).get("id", &""), Commission.BUTCHER, "the Butcher gates R4→R5")
+	t.ok(Commission.purse_for(Commission.fight(Commission.SAMMY))
+			.equals_approx(BigMoney.of(5.0, 5), 1e-6), "Sammy's purse is $500K")
+	t.ok(Commission.purse_for(Commission.fight(Commission.BUTCHER))
+			.equals_approx(BigMoney.of(5.0, 6), 1e-6), "the Butcher's purse is $5M")
+	for f in Commission.FIGHTS:
+		var gated := int(f["gates"])
+		t.ok(gated + 1 < Game.RANK_RESPECT.size(), "%s gates a rank the ladder has" % f["id"])
+		for id in SimProfile.ORDER:
+			var p := SimProfile.get_profile(id)
+			t.ok(p != null and p.boss_win.has(String(f["id"])),
+					"%s has a win rate for %s" % [id, f["id"]])
+	# The gate itself: respect alone must not promote past a fight that has not been won.
+	var gate := Commission.new()
+	t.eq(gate.rank_cap(3, 5), 3, "an unbeaten Sammy caps the ladder at R3")
+	gate.mark_beaten(Commission.SAMMY)
+	t.eq(gate.rank_cap(3, 5), 4, "beating Sammy opens exactly one rank")
+	gate.mark_beaten(Commission.BUTCHER)
+	t.eq(gate.rank_cap(3, 5), 5, "both fights won lets the ☆ through")
+
+	# --- specialist vocabulary the sim reads (game/meta/stats.gd) ---
+	for kind in [&"casino_edge_add", &"casino_pocket_add", &"auto_launder_per_sec",
+			&"auto_collect_interval", &"serve_speed_mult", &"kickback_cooldown_mult",
+			&"heat_decay_mult", &"all_dirty_mult", &"job_respect_mult"]:
+		t.ok(Stats.FOLD.has(kind), "Stats still folds `%s`, which the sim reads" % kind)
+	t.near(Stats.CASINO_EDGE_MAX, 0.12, 1e-9, "the edge cap is where the sim thinks it is")
+	t.near(WireDraws.PERIOD, 90.0, 1e-9, "the tote board draws every 90 s")
+	t.near(WireDraws.EXACT_MULT, 80.0, 1e-9, "an exact Wire number pays ×80")
+	t.near(WireDraws.LAST_DIGIT_MULT, 6.0, 1e-9, "a last-digit Wire number pays ×6")
+
 
 func _profiles_load(t: TestCtx) -> void:
 	var all := SimProfile.load_all()

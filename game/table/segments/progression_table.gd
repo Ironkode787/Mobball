@@ -49,6 +49,21 @@ signal ball_searched(at: Vector2)
 signal boss_hit(kind: StringName, hits_left: int, speed: float)
 signal boss_shrugged(kind: StringName, speed: float)
 signal boss_down(kind: StringName)
+## M3 — THE DOCKS (docs/02 §2 R5). See game/table/segments/docks.gd for the shot layout;
+## the smuggling runs that read these are FLOW-3's.
+signal docks_entered()
+signal container_stack_cleared(stack: int)
+signal containers_state(cleared_stacks: Array)
+signal crane_telegraph()
+signal crane_pulled()
+## The cargo ramp put a ball back on the main field. Same role as `deck_returned` upstairs.
+signal cargo_shipped(speed: float)
+## M3 — THE PENTHOUSE (docs/02 §2 R6). Geometry, switches and signals only in TABLE-3.
+signal chair_taken(index: int)
+signal chairs_completed()
+signal sitdown_entered()
+signal penthouse_entered(speed: float)
+signal penthouse_returned()
 
 const BALL_SCENE := preload("res://game/core/ball.tscn")
 const FLIPPER_SCENE := preload("res://game/table/hardware/flipper.tscn")
@@ -109,6 +124,19 @@ const ORBIT_ENTRY_SIZE := Vector2(86.0, 56.0)
 const ORBIT_EXIT_DEG := -120.0
 const ORBIT_EXIT_RADIUS := 449.0
 
+# ---------------------------------------------------------------- the Truck Route (M3)
+## The right-hand loop (docs/02 §2 R5). It cannot be a mirror of the getaway: the shooter
+## lane's divider owns the right-hand wall from y=430 down, so there is no channel to run
+## and no arc to build. What there IS is the corridor outside the payphones — the same lane
+## the Club's staircase hangs off — and the arch above it, so the Truck Route is the *upper*
+## half of an orbit: enter low in the corridor, still be in it at the top of the arch.
+##
+## Deliberately gates only, no new geometry. A guide down that corridor would narrow the
+## plunge path, and the plunge is a tuned M0 number.
+const ORBIT_R_ENTRY_AT := Vector2(893.0, 1052.0)
+const ORBIT_R_ENTRY_SIZE := Vector2(74.0, 56.0)
+const ORBIT_R_EXIT_DEG := -60.0
+
 # ---------------------------------------------------------------- the top lanes
 const ROLLOVER_POST_X: PackedFloat32Array = [290.0, 420.0, 550.0, 680.0]
 const ROLLOVER_POST_TOP := 470.0
@@ -142,9 +170,11 @@ const STOREFRONT_SIGNS: Array[StringName] = [&"LUCKY'S", &"NONNA'S", &"FAT TONY'
 ## Vertical faces have no roof to sit on.
 const BRIBE_AT := Vector2(770.0, 470.0)
 const BRIBE_FACE := Vector2(-1.0, 0.0)
+## The lower-left cop stood at x=400 until M3 put the Docks yard there; it now stands just
+## outside the yard's wall, close enough that nothing can wedge between the two.
 const COP_AT: Array = [
 	Vector2(320.0, 980.0), Vector2(760.0, 950.0),
-	Vector2(400.0, 1290.0), Vector2(660.0, 1290.0),
+	Vector2(470.0, 1296.0), Vector2(660.0, 1290.0),
 ]
 ## Steep enough that the ball outruns rubber friction (0.30) on the way down their backs.
 const COP_RAKE: PackedFloat32Array = [22.0, -22.0, 22.0, -22.0]
@@ -220,6 +250,7 @@ var balls_served: int = 0
 var spinner: Spinner = null
 var wire_bank: TargetBank = null
 var orbit: OrbitLane = null
+var orbit_right: OrbitLane = null
 var kickback: Kickback = null
 var magnet: DrainMagnet = null
 var bribe_target: StandupTarget = null
@@ -236,6 +267,11 @@ var boss_active: bool = false
 ## The upper deck. Always built, dormant until `club_deck` is owned — same rule as every
 ## other piece of furniture on this table.
 var club: ClubDeck = null
+## M3's two new rooms, same rule again: built with the table, dormant until they are bought.
+var docks: Docks = null
+var penthouse: Penthouse = null
+## The crew with the hammers (docs/02 §0). Cosmetic; see hardware/build_in.gd.
+var construction: BuildIn = null
 
 var _walls: WallBuilder = null
 var _gate: StaticBody2D = null
@@ -252,6 +288,8 @@ var _still_for: float = 0.0
 var _search_rng := RandomNumberGenerator.new()
 var _boss_meter_text: String = ""
 var _boss_meter_fill: float = 0.0
+var _built_once: Dictionary = {}             ## node -> true: already stood up at least once
+var _first_refresh: bool = true              ## boot: the table loads its save, it is not built
 
 
 # ================================================================ TableSegment =====
@@ -267,6 +305,10 @@ func bounds() -> Rect2:
 	var r := Rect2(Vector2(PLAY_LEFT, 0.0), Vector2(LANE_RIGHT - PLAY_LEFT, PLAY_BOTTOM))
 	if club != null and club.is_hardware_active():
 		r = r.merge(club.bounds())
+	if penthouse != null and penthouse.is_hardware_active():
+		r = r.merge(penthouse.bounds())
+	if docks != null and docks.is_hardware_active():
+		r = r.merge(docks.bounds())
 	return r
 
 
@@ -293,10 +335,17 @@ func socket(id: StringName) -> Vector2:
 			return Vector2(ClubDeck.DECK_LEFT, ClubDeck.DECK_BOTTOM)
 		&"stair_mouth":
 			return ClubDeck.STAIR_MOUTH
-		# Left half of the sky, deliberately empty: the Docks and the Penthouse dock here
-		# (docs/02 §0). Nothing in M2 may build into it.
+		# Left half of the sky. M2 kept it empty for these two; M3 filled it.
 		&"sky_left":
 			return Vector2(PLAY_LEFT, ClubDeck.DECK_BOTTOM)
+		&"docks":
+			return Docks.QUAY_FROM
+		&"dock_mouth":
+			return Vector2(Docks.LEFT_TOP_FROM.x, (Docks.MOUTH_TOP + Docks.MOUTH_BOTTOM) * 0.5)
+		&"penthouse":
+			return Penthouse.FLOOR_APEX
+		&"penthouse_mouth":
+			return Penthouse.STAIR_MOUTH
 	return Vector2.ZERO
 
 
@@ -319,8 +368,11 @@ func _ready() -> void:
 	_build_flippers()
 	_build_bosses()
 	_build_club()
+	_build_docks()
+	_build_penthouse()
 	_build_drain()
 	_build_plunger()
+	_build_construction()
 	Events.upgrade_purchased.connect(_on_upgrade_purchased)
 	refresh_hardware()
 	queue_redraw()
@@ -526,6 +578,16 @@ func _build_extras() -> void:
 	magnet.drain_point = Vector2(MIRROR_X, DRAIN_Y + 40.0)
 	add_child(magnet)
 
+	# THE TRUCK ROUTE (M3). Two gates on the corridor outside the payphones and the top of
+	# the arch — no new walls, see ORBIT_R_ENTRY_AT.
+	orbit_right = OrbitLane.new()
+	orbit_right.name = "OrbitRight"
+	add_child(orbit_right)
+	orbit_right.configure(&"orbit_right", ORBIT_R_ENTRY_AT, ORBIT_R_ENTRY_SIZE,
+			_polar(ORBIT_EXIT_RADIUS, ORBIT_R_EXIT_DEG), 34.0)
+	orbit_right.orbit_completed.connect(func() -> void: orbit_completed.emit())
+	_register([&"orbit_right"], orbit_right)
+
 
 ## THE COMMISSION (specs/m2-content.md §5). Sammy's sedan and his three goons, the Butcher's
 ## refrigerated truck and its back door. None of it is registered as a piece of furniture:
@@ -637,6 +699,54 @@ func _build_club() -> void:
 		_register(piece["ids"], piece["node"], ClubDeck.ID_DECK)
 
 
+## THE DOCKS (specs/m3-fall-rise.md TABLE-3). Same division as the Club: the yard owns its
+## own geometry and toys, the table re-emits what the session cares about — and the pier is
+## routed straight into the drain path, because a fall there costs a ball.
+func _build_docks() -> void:
+	docks = Docks.new()
+	docks.name = "Docks"
+	add_child(docks)
+	docks.docks_entered.connect(func() -> void: docks_entered.emit())
+	docks.stack_cleared.connect(func(s: int) -> void: container_stack_cleared.emit(s))
+	docks.containers_state.connect(func(c: Array) -> void: containers_state.emit(c))
+	docks.crane_telegraph.connect(func() -> void: crane_telegraph.emit())
+	docks.crane_pulled.connect(func() -> void: crane_pulled.emit())
+	docks.cargo_shipped.connect(func(s: float) -> void: cargo_shipped.emit(s))
+	docks.pier_fall.connect(func(b: Ball) -> void: _lose_ball(b, &"pier_splash"))
+	_register([Docks.ID_DOCKS], docks)
+	for piece: Dictionary in docks.pieces():
+		_register(piece["ids"], piece["node"], Docks.ID_DOCKS)
+
+
+## THE PENTHOUSE (specs/m3-fall-rise.md TABLE-3). Registered under the Club, because the only
+## way into the room is a wireform off the deck's own orbit — see `hardware_unlocked`.
+func _build_penthouse() -> void:
+	penthouse = Penthouse.new()
+	penthouse.name = "Penthouse"
+	add_child(penthouse)
+	penthouse.chair_taken.connect(func(i: int) -> void: chair_taken.emit(i))
+	penthouse.chairs_completed.connect(func() -> void: chairs_completed.emit())
+	penthouse.sitdown_entered.connect(func() -> void: sitdown_entered.emit())
+	penthouse.penthouse_entered.connect(func(s: float) -> void: penthouse_entered.emit(s))
+	penthouse.penthouse_returned.connect(func() -> void: penthouse_returned.emit())
+	_register([Penthouse.ID_PENTHOUSE], penthouse, ClubDeck.ID_DECK)
+	for piece: Dictionary in penthouse.pieces():
+		_register(piece["ids"], piece["node"], Penthouse.ID_PENTHOUSE)
+
+
+## The crew with the hammers. Added last so it draws over everything it is building, and
+## switched off entirely under a headless display so no sim's timing rides on an animation.
+func _build_construction() -> void:
+	construction = BuildIn.new()
+	construction.name = "Construction"
+	construction.enabled = DisplayServer.get_name() != "headless" \
+			and OS.get_environment("KINGPIN_NO_BUILD_ANIM") != "1"
+	add_child(construction)
+
+
+## The storm grate. The Docks' pier is the same event by a different door: it reports through
+## `Docks.pier_fall` into the same `_lose_ball`, so falling off the pier costs a ball in
+## exactly the way draining does — one ball_lost, one Events.ball_drained, one respawn.
 func _build_drain() -> void:
 	var area := Area2D.new()
 	area.name = "Drain"
@@ -650,7 +760,7 @@ func _build_drain() -> void:
 	cs.position = Vector2((PLAY_LEFT + PLAY_RIGHT) * 0.5, DRAIN_Y + DRAIN_HEIGHT * 0.5)
 	area.add_child(cs)
 	add_child(area)
-	area.body_entered.connect(_on_drain_entered)
+	area.body_entered.connect(func(body: Node2D) -> void: _on_drain_entered(body))
 
 
 func _build_plunger() -> void:
@@ -688,6 +798,21 @@ func hardware_unlocked(id: StringName) -> bool:
 	return Game.stats.hardware_unlocked(id)
 
 
+## Should this registered piece be standing on the table right now? One owned id out of the
+## piece's set is enough; its `needs` id (if any) is not optional, and `needs` chains — the
+## Penthouse needs the Club, and a chair needs the Penthouse, so a chair needs both.
+func _needs_met(id: StringName, depth: int = 0) -> bool:
+	if id == &"" or depth > 4:
+		return true
+	if not hardware_unlocked(id):
+		return false
+	for piece: Dictionary in _pieces:
+		var ids: Array[StringName] = piece["ids"]
+		if ids.has(id):
+			return _needs_met(StringName(piece.get("needs", &"")), depth + 1)
+	return true
+
+
 ## Is every piece registered under this id on the playfield right now? "Every", because a
 ## couple of pieces answer to two owners (the left channel guide serves the numbers lane and
 ## the getaway loop), and owning one of those does not put the other one on the table.
@@ -717,11 +842,8 @@ func hardware_node(id: StringName) -> Node:
 	return null
 
 
-## Should this registered piece be standing on the table right now? One owned id out of the
-## piece's set is enough, but its `needs` id (if any) is not optional.
 func hardware_piece_active(piece: Dictionary) -> bool:
-	var needs: StringName = StringName(piece.get("needs", &""))
-	if needs != &"" and not hardware_unlocked(needs):
+	if not _needs_met(StringName(piece.get("needs", &""))):
 		return false
 	for id: StringName in piece["ids"]:
 		if hardware_unlocked(id):
@@ -754,7 +876,23 @@ func hardware_ids() -> Array[StringName]:
 ## purchase, and idempotent, which is what makes save-loading a non-event.
 func refresh_hardware() -> void:
 	for piece: Dictionary in _pieces:
-		Dormant.apply(piece["node"], hardware_piece_active(piece))
+		var node: Node2D = piece["node"]
+		var live := hardware_piece_active(piece)
+		Dormant.apply(node, live)
+		# dormant → active is a *purchase*: send the crew in rather than popping it on. The
+		# first pass of a session is the table loading its own save, not a purchase.
+		if live == _built_once.has(node):
+			continue
+		if live:
+			_built_once[node] = true
+			if construction != null and not _first_refresh:
+				construction.start(node)
+		else:
+			_built_once.erase(node)
+			if construction != null:
+				construction.cancel(node)
+			node.modulate.a = 1.0
+	_first_refresh = false
 	if club != null:
 		club.set_flippers_live(hardware_unlocked(ClubDeck.ID_DECK)
 				and hardware_unlocked(ClubDeck.ID_FLIPPERS))
@@ -1030,12 +1168,25 @@ func _bind_ball() -> void:
 		magnet.set_ball(ball)
 	if club != null:
 		club.set_ball(ball)
+	if docks != null:
+		docks.set_ball(ball)
+	if penthouse != null:
+		penthouse.set_ball(ball)
 
 
-func _on_drain_entered(body: Node2D) -> void:
+func _on_drain_entered(body: Node2D, sound: StringName = &"drain") -> void:
 	if not (body is Ball):
 		return
-	var lost: Ball = body
+	_lose_ball(body as Ball, sound)
+
+
+## One ball, gone. Every way of losing a ball on this machine funnels through here so the
+## flow lane only ever sees one shape of loss, whichever hole it went down.
+func _lose_ball(lost: Ball, sound: StringName = &"drain") -> void:
+	if lost == null or not is_instance_valid(lost):
+		return
+	if not Balls.live().has(lost):
+		return                     # already counted: two zones can overlap for a tick
 	var was_primary := lost == ball
 	if was_primary:
 		# Multiball: the lowest surviving extra becomes the new primary so the flipper/
@@ -1048,7 +1199,7 @@ func _on_drain_entered(body: Node2D) -> void:
 		_bind_ball()
 	Balls.unregister(lost)
 	lost.queue_free()
-	AudioDirector.play(&"drain")
+	AudioDirector.play(sound)
 	Events.ball_drained.emit(lost)
 	ball_lost.emit(lost)
 	if auto_respawn and ball == null:
@@ -1078,8 +1229,15 @@ func _ball_search(delta: float) -> void:
 		_still_for = 0.0
 		return
 	# Upstairs has its own legitimate resting places — a mini-bat cradle, a saucer mid-hold,
-	# a pocket riding the wheel round — and none of them wants a coil under it.
+	# a pocket riding the wheel round, a Sit-Down mid-negotiation, a crate on the hoist — and
+	# none of them wants a coil under it.
 	if club != null and club.search_exempt(ball):
+		_still_for = 0.0
+		return
+	if penthouse != null and penthouse.search_exempt(ball):
+		_still_for = 0.0
+		return
+	if docks != null and docks.search_exempt(ball):
 		_still_for = 0.0
 		return
 	_still_for += delta

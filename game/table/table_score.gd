@@ -19,6 +19,11 @@ const ORBIT := 500.0
 const RAMP_CLIMB := 750.0
 const CASINO_POCKET := 100.0
 const CASINO_REEL := 100.0
+## M3 — the Docks and the Penthouse (specs/m3-fall-rise.md TABLE-3). A crate is a mid-table
+## switch worth roughly a wire target's bank; a Commission chair is the biggest single switch
+## on the machine, because there are only five of them and the room costs a rank to reach.
+const SMUGGLING_CONTAINER := 400.0
+const PENTHOUSE_CHAIR := 2000.0
 
 const GROUP_BUMPERS := &"bumpers"
 const GROUP_SLINGS := &"slings"
@@ -29,6 +34,8 @@ const GROUP_STOREFRONTS := &"storefronts"
 const GROUP_ORBIT := &"orbit"
 const GROUP_RAMPS := &"ramps"
 const GROUP_CASINO := &"casino"
+const GROUP_SMUGGLING := &"smuggling"
+const GROUP_PENTHOUSE := &"penthouse"
 
 const UPGRADES_PATH := "res://game/content/upgrades.json"
 
