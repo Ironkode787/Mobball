@@ -562,6 +562,60 @@
       "cost": "5M", "repeat": null, "requires": ["fronts.casino_wash"],
       "effects": [{"kind": "feature_flag", "target": "comps"}],
       "table_change": "a neon COMPS sign lights over the Club rail — one free stake per Night"
+    },
+
+    {
+      "id": "rackets.docks_concession",
+      "branch": "rackets", "tier": 5,
+      "name": "The Docks Concession",
+      "flavor": "Everything comes in through the docks. Everything.",
+      "cost": "30M", "repeat": null, "requires": ["rackets.getaway_loop"],
+      "reveal": {"rank": 5},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "docks"},
+        {"kind": "unlock_hardware", "target": "containers"},
+        {"kind": "unlock_hardware", "target": "crane"},
+        {"kind": "unlock_hardware", "target": "cargo_ramp"},
+        {"kind": "idle_rate_add", "target": "smuggling", "value": "1.2K"}
+      ],
+      "table_change": "the dockyard gates open below the block — crates, crane, and a pier you can fall off"
+    },
+    {
+      "id": "rackets.night_shipments",
+      "branch": "rackets", "tier": 5,
+      "name": "Night Shipments",
+      "flavor": "The manifest says fish. The fish say nothing.",
+      "cost": "25M", "repeat": {"max": 12, "growth": 1.15}, "requires": ["rackets.docks_concession"],
+      "effects": [{"kind": "value_mult", "target": "smuggling", "value": 1.12, "per_level": true}],
+      "table_change": "more container stacks pile up on the quay"
+    },
+    {
+      "id": "rackets.truck_route",
+      "branch": "rackets", "tier": 5,
+      "name": "The Truck Route",
+      "flavor": "Same city, new roads. Ours now.",
+      "cost": "40M", "repeat": null, "requires": ["rackets.docks_concession"],
+      "effects": [
+        {"kind": "unlock_hardware", "target": "orbit_right"},
+        {"kind": "value_add", "target": "orbit", "value": "3K"}
+      ],
+      "table_change": "the right orbit opens — the trucks run all night"
+    },
+    {
+      "id": "rackets.the_penthouse",
+      "branch": "rackets", "tier": 6,
+      "name": "The Penthouse",
+      "flavor": "Top floor. Long table. Five chairs, and you know whose they are.",
+      "cost": "800M", "repeat": null, "requires": ["rackets.club_license"],
+      "reveal": {"rank": 6},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "penthouse"},
+        {"kind": "unlock_hardware", "target": "commission_chairs"},
+        {"kind": "unlock_hardware", "target": "sitdown_saucer"},
+        {"kind": "unlock_hardware", "target": "penthouse_stairs"},
+        {"kind": "idle_rate_add", "target": "penthouse", "value": "8K"}
+      ],
+      "table_change": "the room above the Club lights up — the calmest, most dangerous place in the city"
     }
   ]
 }

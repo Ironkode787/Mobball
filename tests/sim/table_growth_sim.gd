@@ -22,6 +22,28 @@ const BOUND_MAX := Vector2(1044.0, 1930.0)
 const SOAK_SECONDS := 25.0
 const SEED := 0x4B494E47
 
+## The growth rings M2 and M3 added. They have no Ledger nodes yet (game/content is the
+## orchestrator's lane), so they are staged on top of a T3 career through `force_hardware` —
+## the same door `KINGPIN_TABLE_HARDWARE` opens for screenshots.
+const CLUB_SET: Array[StringName] = [
+	&"club_deck", &"staircase_ramp", &"roulette_wheel", &"slot_reels",
+	&"high_roller_saucer", &"backroom_saucer", &"club_flippers",
+]
+const DOCKS_SET: Array[StringName] = [
+	&"docks", &"containers", &"crane", &"cargo_ramp", &"orbit_right",
+]
+const PENT_SET: Array[StringName] = [
+	&"penthouse", &"commission_chairs", &"sitdown_saucer", &"penthouse_stairs",
+]
+
+const T3_LEDGER: Array = [
+	"muscle.real_plunger", "rackets.trash_2", "rackets.trash_3", "muscle.corner_boys",
+	"muscle.guard_rails", "muscle.chalk_lines", "rackets.numbers_game", "fronts.coin_op",
+	"rackets.the_wire", "influence.beat_cop", "muscle.enforcer_corner",
+	"rackets.protection_laundromat", "rackets.protection_pizzeria",
+	"rackets.protection_pawn", "rackets.getaway_loop", "muscle.steel_toes",
+]
+
 ## Career stages as Ledger node ids. `requires` are closed over by FixtureStats, so these
 ## are the purchases a player would actually make, not a hand-maintained unlock list.
 const FIXTURES := {
@@ -35,25 +57,45 @@ const FIXTURES := {
 		"muscle.guard_rails", "muscle.chalk_lines", "rackets.numbers_game", "fronts.coin_op",
 		"rackets.the_wire", "influence.beat_cop", "muscle.enforcer_corner",
 	],
-	"T3": [
-		"muscle.real_plunger", "rackets.trash_2", "rackets.trash_3", "muscle.corner_boys",
-		"muscle.guard_rails", "muscle.chalk_lines", "rackets.numbers_game", "fronts.coin_op",
-		"rackets.the_wire", "influence.beat_cop", "muscle.enforcer_corner",
-		"rackets.protection_laundromat", "rackets.protection_pizzeria",
-		"rackets.protection_pawn", "rackets.getaway_loop", "muscle.steel_toes",
-	],
+	"T3": T3_LEDGER,
+	# T4-T6 are a Capo's ledger plus the forced ring below: what the *table* does with an
+	# owned set is the thing under test, and the content for these ranks lands separately.
+	"T4": T3_LEDGER,
+	"T5": T3_LEDGER,
+	"T6": T3_LEDGER,
 }
+
+## The ring forced on top of each stage's ledger (see CLUB_SET/DOCKS_SET/PENT_SET).
+const FORCED := {
+	"bare": [], "T1": [], "T2": [], "T3": [],
+	"T4": CLUB_SET,
+	"T5": CLUB_SET + DOCKS_SET,
+	"T6": CLUB_SET + DOCKS_SET + PENT_SET,
+}
+## Untyped: concatenating typed constant arrays yields a plain Array.
+const ALL_FORCEABLE: Array = CLUB_SET + DOCKS_SET + PENT_SET
+
+## Every stage, in career order.
+const STAGES: PackedStringArray = ["bare", "T1", "T2", "T3", "T4", "T5", "T6"]
 
 ## Hardware ids checked at every stage. `storefront_laundromat` is deliberately absent: it
 ## shares its shell with `laundromat_loop`, so the bank is asserted on its own below. The
-## Club's ids are here so the M2 deck stays provably invisible to an M1 career — no stage
-## below expects one of them, and the fixtures would fail if the deck leaked downward.
+## later rings' ids are all here so each one stays provably invisible to the careers below
+## it — no earlier stage expects one, and the fixtures would fail if a ring leaked downward.
 const TRACKED: Array[StringName] = [
 	&"inlane_guides", &"slingshots", &"bumper_2", &"bumper_3", &"rollovers",
 	&"spinner_numbers", &"orbit_left", &"wire_bank", &"laundromat_loop",
 	&"storefront_pizzeria", &"storefront_pawn", &"bribe_target", &"kickback_left",
 	&"club_deck", &"staircase_ramp", &"roulette_wheel", &"slot_reels",
 	&"high_roller_saucer", &"backroom_saucer", &"club_flippers",
+	&"docks", &"containers", &"crane", &"cargo_ramp", &"orbit_right",
+	&"penthouse", &"commission_chairs", &"sitdown_saucer", &"penthouse_stairs",
+]
+
+const T3_LIVE: Array[StringName] = [
+	&"inlane_guides", &"slingshots", &"bumper_2", &"bumper_3", &"rollovers",
+	&"spinner_numbers", &"laundromat_loop", &"wire_bank", &"bribe_target",
+	&"kickback_left", &"orbit_left", &"storefront_pizzeria", &"storefront_pawn",
 ]
 
 const EXPECT := {
@@ -67,11 +109,10 @@ const EXPECT := {
 		&"spinner_numbers", &"laundromat_loop", &"wire_bank", &"bribe_target",
 		&"kickback_left",
 	],
-	"T3": [
-		&"inlane_guides", &"slingshots", &"bumper_2", &"bumper_3", &"rollovers",
-		&"spinner_numbers", &"laundromat_loop", &"wire_bank", &"bribe_target",
-		&"kickback_left", &"orbit_left", &"storefront_pizzeria", &"storefront_pawn",
-	],
+	"T3": T3_LIVE,
+	"T4": T3_LIVE + CLUB_SET,
+	"T5": T3_LIVE + CLUB_SET + DOCKS_SET,
+	"T6": T3_LIVE + CLUB_SET + DOCKS_SET + PENT_SET,
 }
 
 var table: ProgressionTable = null
@@ -141,10 +182,15 @@ func finish() -> void:
 		print("        - %s" % f)
 
 
-## Install a career stage and let the table rebuild itself around it.
+## Install a career stage and let the table rebuild itself around it. The forced ring is
+## cleared first, so a stage is exactly what it says it is however the last one was staged.
 func use(fixture: String) -> FixtureStats:
 	var stats := FixtureStats.new(FIXTURES[fixture])
 	Game.stats = stats
+	table.force_hardware(ALL_FORCEABLE, false)
+	var ring: Array = FORCED[fixture]
+	if not ring.is_empty():
+		table.force_hardware(ring, true)
 	table.refresh_hardware()
 	reset_log()
 	return stats
@@ -255,9 +301,10 @@ func _run() -> void:
 
 ## 1 — each staged owned-set puts exactly the right hardware on the table.
 func _s1_fixtures() -> void:
-	for name: String in ["bare", "T1", "T2", "T3"]:
+	for name: String in STAGES:
 		begin("fixture %s: presence" % name)
 		var stats := use(name)
+		var banked := not (name in ["bare", "T1", "T2"])
 		check(stats.missing_ids.is_empty(),
 				"fixture names ids the content file does not have: %s" % str(stats.missing_ids))
 		var want: Array = EXPECT[name]
@@ -270,14 +317,30 @@ func _s1_fixtures() -> void:
 					"%s should be %s at %s" % [id, "present" if want.has(id) else "absent", name])
 		# the laundromat's shell arrives with the wash loop; its drop bank is the R3 racket
 		var lucky: Storefront = table.storefronts[0]
-		check(lucky.bank_enabled == (name == "T3"),
-				"laundromat bank_enabled should be %s at %s" % [name == "T3", name])
+		check(lucky.bank_enabled == banked,
+				"laundromat bank_enabled should be %s at %s" % [banked, name])
 		check(lucky.wash_enabled == (name != "bare"),
 				"laundromat wash_enabled should be %s at %s" % [name != "bare", name])
 		check(table.plunger.bands_enabled == (name != "bare"),
 				"plunger bands should be %s at %s" % [name != "bare", name])
 		print("        %s: %s" % [name, ", ".join(live) if live.size() > 0 else "(bare alley)"])
 		finish()
+
+	begin("the table grows with each ring")
+	use("T3")
+	var flat := table.bounds()
+	near(flat.size.y, ProgressionTable.PLAY_BOTTOM, 0.001, "an M1 career is one screen tall")
+	use("T4")
+	var with_club := table.bounds()
+	check(with_club.size.y > 2700.0, "the Club should make the table ~2.8 screens tall")
+	use("T6")
+	var whole := table.bounds()
+	near(whole.position.y, Penthouse.ROOM_TOP - Penthouse.WALL_THICK * 0.5, 0.001,
+			"the Penthouse ceiling is the top of a T6 table")
+	check(whole.end.y >= flat.end.y - 0.001, "the empire lost the bottom of the table")
+	print("        T3 %.0f px | T4 %.0f px | T6 %.0f px tall"
+			% [flat.size.y, with_club.size.y, whole.size.y])
+	finish()
 
 	begin("bare alley is walls, flippers, one can and a drain")
 	use("bare")
@@ -291,7 +354,7 @@ func _s1_fixtures() -> void:
 
 ## 2 — dormant means gone: no collider anywhere under a hidden piece.
 func _s2_dormant_is_absent() -> void:
-	for name: String in ["bare", "T1", "T2", "T3"]:
+	for name: String in STAGES:
 		begin("fixture %s: dormant hardware has no collision" % name)
 		use(name)
 		var checked := 0

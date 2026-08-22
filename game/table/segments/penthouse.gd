@@ -59,8 +59,11 @@ const CHAIR_ROW_A_Y := -764.0
 const CHAIR_ROW_B_Y := -644.0
 const CHAIR_ROW_A_X: PackedFloat32Array = [132.0, 276.0, 420.0]
 const CHAIR_ROW_B_X: PackedFloat32Array = [204.0, 348.0]
-const CHAIR_ROW_A_RAKE: PackedFloat32Array = [14.0, -14.0, 14.0]
-const CHAIR_ROW_B_RAKE: PackedFloat32Array = [-14.0, 14.0]
+## A standup is rubber (0.30), not wall (0.14): 14° holds a ball on its back for the rest of
+## the night — a soak found one asleep on a chair for 3.4 s and climbing. 22° is the rake the
+## raid's cop targets already use for the same reason.
+const CHAIR_ROW_A_RAKE: PackedFloat32Array = [22.0, -22.0, 22.0]
+const CHAIR_ROW_B_RAKE: PackedFloat32Array = [-22.0, 22.0]
 ## The long table itself is paint — a collider in the middle of the room would be a shelf.
 const TABLE_AT := Vector2(276.0, -704.0)
 const TABLE_SIZE := Vector2(300.0, 70.0)

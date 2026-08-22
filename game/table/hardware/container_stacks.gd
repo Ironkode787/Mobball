@@ -31,9 +31,13 @@ const CRATE_THICK := 20.0
 ## `CRATE_PITCH` and (`STACK_PITCH` - the crate span) are each well under a ball.
 const CRATE_PITCH := 30.0
 const STACK_PITCH := 81.0
-## The quay's rake. The deck steps down-field with it so the crates read as cargo standing
+## The quay's rake. The deck *steps* down-field with it, so the crates read as cargo standing
 ## on the dock rather than as a bank floating over it.
-const RAKE_DEG := 12.0
+const DECK_RAKE_DEG := 12.0
+## Each crate is tipped harder than the deck it stands on. The deck's step is set by the yard
+## (and by what Lucky's underside leaves room for above it); a crate lid has to outrun the
+## ball's friction on its own account, and 12° only just does.
+const CRATE_RAKE_DEG := 18.0
 
 @export var id: StringName = &"containers"
 
@@ -54,7 +58,8 @@ func configure(p_id: StringName, origin: Vector2) -> void:
 
 func _ready() -> void:
 	_reset_in.resize(STACKS)
-	var rake := deg_to_rad(RAKE_DEG)
+	var step := tan(deg_to_rad(DECK_RAKE_DEG))
+	var rake := deg_to_rad(CRATE_RAKE_DEG)
 	for s in range(STACKS):
 		_reset_in[s] = -1.0
 		for c in range(PER_STACK):
@@ -65,7 +70,7 @@ func _ready() -> void:
 			# Local space: the crate faces up-field (the ball comes down onto the deck) and
 			# is tipped by the deck's own rake, so nothing lands on a level lid.
 			t.configure(StringName("%s_%d%d" % [id, s + 1, c + 1]),
-					Vector2(along, along * tan(rake)), Vector2.UP.rotated(rake), CRATE_LENGTH)
+					Vector2(along, along * step), Vector2.UP.rotated(rake), CRATE_LENGTH)
 			add_child(t)
 			t.dropped.connect(_on_dropped)
 			_targets.append(t)
@@ -149,13 +154,21 @@ func is_hardware_active() -> bool:
 	return _present
 
 
+## How far a standing crate reaches above and below its own centre — what the sim measures
+## the yard's headroom and its under-deck lane against.
+static func half_extent_y() -> float:
+	return (CRATE_LENGTH + CRATE_THICK) * 0.5 * sin(deg_to_rad(CRATE_RAKE_DEG)) \
+			+ CRATE_THICK * 0.5
+
+
 func _draw() -> void:
-	var rake := deg_to_rad(RAKE_DEG)
+	var step := tan(deg_to_rad(DECK_RAKE_DEG))
+	var rake := deg_to_rad(CRATE_RAKE_DEG)
 	for s in range(STACKS):
 		var lit := stack_is_clear(s)
 		for c in range(PER_STACK):
 			var along := float(s) * STACK_PITCH + float(c) * CRATE_PITCH
-			var at := Vector2(along, along * tan(rake))
+			var at := Vector2(along, along * step)
 			var box := Rect2(at - Vector2(CRATE_PITCH * 0.5, CRATE_THICK * 0.9),
 					Vector2(CRATE_PITCH, CRATE_THICK * 1.8))
 			draw_set_transform(at, rake, Vector2.ONE)

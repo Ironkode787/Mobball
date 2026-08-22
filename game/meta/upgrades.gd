@@ -31,12 +31,15 @@ const HARDWARE_IDS: PackedStringArray = [
 	# M2 Club deck (specs/m2-content.md)
 	"club_deck", "staircase_ramp", "roulette_wheel", "slot_reels",
 	"high_roller_saucer", "backroom_saucer", "club_flippers",
+	# M3 Docks & Penthouse (specs/m3-fall-rise.md)
+	"docks", "containers", "crane", "cargo_ramp", "orbit_right",
+	"penthouse", "commission_chairs", "sitdown_saucer", "penthouse_stairs",
 ]
 
 ## Switch groups `Game.earn_switch` pays out to. `all` folds into every other group.
 const VALUE_GROUPS: PackedStringArray = [
 	"all", "bumpers", "slings", "spinner", "rollovers", "wire", "storefronts", "orbit",
-	"ramps", "casino",
+	"ramps", "casino", "smuggling", "penthouse",
 ]
 
 ## Boolean gameplay flags. A new flag needs code that reads it, so adding one here is a

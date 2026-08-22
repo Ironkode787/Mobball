@@ -28,6 +28,10 @@ signal laundromat_pass()
 ## The beat cop took the envelope. Flow owns the cost and calls `Game.heat.bribe()`.
 signal bribe_offered()
 signal orbit_completed()
+## M3 — the Truck Route (docs/02 §2 R5). It also reports through `orbit_completed`, so a
+## consumer that just counts loops is unchanged; this one says *which* loop, because the
+## right-hand one is a smuggling objective and the getaway is not.
+signal truck_route_completed()
 signal rollover_rolled(index: int, was_lit: bool)
 signal storefront_collected(id: StringName, amount: BigMoney)
 ## M2 — THE CLUB (docs/02 §2 R4). The deck's hardware reports through the table so the flow
@@ -341,7 +345,7 @@ func socket(id: StringName) -> Vector2:
 		&"docks":
 			return Docks.QUAY_FROM
 		&"dock_mouth":
-			return Vector2(Docks.LEFT_TOP_FROM.x, (Docks.MOUTH_TOP + Docks.MOUTH_BOTTOM) * 0.5)
+			return Vector2(Docks.LEFT_LOW_FROM.x, (Docks.MOUTH_TOP + Docks.MOUTH_BOTTOM) * 0.5)
 		&"penthouse":
 			return Penthouse.FLOOR_APEX
 		&"penthouse_mouth":
@@ -585,7 +589,9 @@ func _build_extras() -> void:
 	add_child(orbit_right)
 	orbit_right.configure(&"orbit_right", ORBIT_R_ENTRY_AT, ORBIT_R_ENTRY_SIZE,
 			_polar(ORBIT_EXIT_RADIUS, ORBIT_R_EXIT_DEG), 34.0)
-	orbit_right.orbit_completed.connect(func() -> void: orbit_completed.emit())
+	orbit_right.orbit_completed.connect(func() -> void:
+		orbit_completed.emit()
+		truck_route_completed.emit())
 	_register([&"orbit_right"], orbit_right)
 
 

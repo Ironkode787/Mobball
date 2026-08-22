@@ -61,50 +61,57 @@ const GUIDE_THICK := 18.0
 
 const ROOF_FROM := Vector2(157.0, 1146.0)
 const ROOF_TO := Vector2(420.0, 1202.0)
-const LEFT_TOP_FROM := Vector2(157.0, 1146.0)
-const LEFT_TOP_TO := Vector2(157.0, 1192.0)
-## The dock mouth: a 76 px doorway in the yard's left wall, fed by the blade in the lane.
-const MOUTH_TOP := 1192.0
-const MOUTH_BOTTOM := 1268.0
-const LEFT_LOW_FROM := Vector2(157.0, 1268.0)
-const LEFT_LOW_TO := Vector2(157.0, 1372.0)
+## The dock mouth: the yard's left wall simply is not there between the roof and the quay
+## wall. It does not need to be — the blade outside it is the gate. A doorway with a lintel
+## would put its sill *below* the blade's right end, and a ball squirted back out of the yard
+## would then land in the numbers lane above the blade and climb it. With the mouth open to
+## the roof, anything leaving high lands on the solid blade and is tipped straight back in.
+const MOUTH_TOP := 1146.0
+const MOUTH_BOTTOM := 1272.0
+const LEFT_LOW_FROM := Vector2(157.0, 1272.0)
+const LEFT_LOW_TO := Vector2(157.0, 1390.0)
 const RIGHT_FROM := Vector2(420.0, 1202.0)
-const RIGHT_TO := Vector2(420.0, 1394.0)
-const QUAY_FROM := Vector2(166.0, 1330.0)
-const QUAY_TO := Vector2(300.0, 1358.0)
+const RIGHT_TO := Vector2(420.0, 1400.0)
+const QUAY_FROM := Vector2(166.0, 1380.0)
+const QUAY_TO := Vector2(300.0, 1408.0)
 ## The harbour bed. It stops short of the slingshot's tip so a kicked ball still has its sky.
-const BED_FROM := Vector2(296.0, 1394.0)
-const BED_TO := Vector2(420.0, 1394.0)
-const BED_THICK := 16.0
+const BED_FROM := Vector2(312.0, 1397.0)
+const BED_TO := Vector2(420.0, 1397.0)
+const BED_THICK := 13.0
 
 ## The gate off the numbers lane. Raked at 20°, well past wall friction, so a ball coming
 ## home is *tipped* through the mouth rather than merely stopped over it.
-const BLADE_FROM := Vector2(58.0, 1202.0)
-const BLADE_TO := Vector2(150.0, 1236.0)
+##
+## It hangs this low for a reason the geometry will not let you argue with: the numbers lane's
+## own guide stops at y=1180 (M1, and not ours to move), and a ball riding the blade has to
+## pass *under* that guide's rounded end to reach the mouth. Higher up, the 37 px it needs
+## between the two is not there and the ball simply parks in the corner.
+const BLADE_FROM := Vector2(58.0, 1226.0)
+const BLADE_TO := Vector2(150.0, 1260.0)
 const BLADE_THICK := 16.0
 
-const CRATES_ORIGIN := Vector2(191.0, 1244.0)
+const CRATES_ORIGIN := Vector2(191.0, 1276.0)
 
 ## The harbour: the pier edge is the quay's right end, and everything past it is water.
-const WATER_AT := Vector2(355.0, 1345.0)
-const WATER_SIZE := Vector2(108.0, 92.0)
+const WATER_AT := Vector2(355.0, 1362.0)
+const WATER_SIZE := Vector2(108.0, 64.0)
 
 const GANTRY_FROM := Vector2(186.0, 1180.0)
 const GANTRY_TO := Vector2(400.0, 1226.0)
 
 ## The cargo ramp's mouth sits on the quay, before the pier: roll off the deck with any pace
 ## at all and the hoist takes you; dribble, and the water takes you.
-const CARGO_MOUTH_AT := Vector2(240.0, 1310.0)
-const CARGO_MOUTH_SIZE := Vector2(88.0, 60.0)
+const CARGO_MOUTH_AT := Vector2(240.0, 1350.0)
+const CARGO_MOUTH_SIZE := Vector2(88.0, 64.0)
 const CARGO_ENTRY_SPEED := 350.0
 ## A powered hoist, not a wireform: the climb costs far less than the Club's staircase does.
-const CARGO_CLIMB_GRAVITY := 60.0
+const CARGO_CLIMB_GRAVITY := 55.0
 const CARGO_MAX_SPEED := 1200.0
 const CARGO_RELEASE_SPEED := 400.0
 const CARGO_PATH: PackedVector2Array = [
-	Vector2(240.0, 1310.0), Vector2(300.0, 1328.0), Vector2(360.0, 1300.0),
-	Vector2(420.0, 1240.0), Vector2(455.0, 1160.0), Vector2(480.0, 1075.0),
-	Vector2(490.0, 1005.0),
+	Vector2(240.0, 1350.0), Vector2(300.0, 1368.0), Vector2(360.0, 1340.0),
+	Vector2(420.0, 1276.0), Vector2(455.0, 1192.0), Vector2(480.0, 1102.0),
+	Vector2(490.0, 1024.0),
 ]
 
 # ------------------------------------------------------------------ look (docs/07 §1)
@@ -141,7 +148,6 @@ func _build_shell() -> void:
 	_shell.color = Feel.COL_INK.lightened(0.16)
 	add_child(_shell)
 	_shell.bar(ROOF_FROM, ROOF_TO, WALL_THICK)
-	_shell.bar(LEFT_TOP_FROM, LEFT_TOP_TO, GUIDE_THICK)
 	_shell.bar(LEFT_LOW_FROM, LEFT_LOW_TO, GUIDE_THICK)
 	_shell.bar(RIGHT_FROM, RIGHT_TO, WALL_THICK)
 	_shell.bar(QUAY_FROM, QUAY_TO, 20.0)
@@ -241,8 +247,8 @@ func bounds() -> Rect2:
 
 ## The yard's interior, used by the crane to decide what is in reach.
 func yard_rect() -> Rect2:
-	return Rect2(Vector2(LEFT_TOP_FROM.x, ROOF_FROM.y),
-			Vector2(RIGHT_TO.x - LEFT_TOP_FROM.x, BED_TO.y - ROOF_FROM.y))
+	return Rect2(Vector2(LEFT_LOW_FROM.x, ROOF_FROM.y),
+			Vector2(RIGHT_TO.x - LEFT_LOW_FROM.x, BED_TO.y - ROOF_FROM.y))
 
 
 func holds_ball() -> bool:

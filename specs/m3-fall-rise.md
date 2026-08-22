@@ -63,7 +63,8 @@ via target choice).
 full visual/haptic redundancy), The Old Kingpin (your build armed against you — reuses
 jam/armored/tunnel-eats-ball hooks).
 
-**AUDIO-4**: boss audio backlog (boss_start/boss_phase/boss_beaten/wrench_telegraph),
+**AUDIO-4**: boss audio backlog (boss_start/boss_phase/boss_beaten/wrench_telegraph) +
+docks/penthouse backlog (crane_telegraph, container_break, pier_splash, chair_take, sitdown),
 heist/election/empire stingers, RICO wiretap dropout automation, Skip Town's stem-shedding
 sequence (the reverse-growth moment — docs/08 §1), city-2 1927 arrangement (hot jazz combo
 + Victrola crackle per docs/08 §7) as a second stem set the director can swap.

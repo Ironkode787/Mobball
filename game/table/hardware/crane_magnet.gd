@@ -97,10 +97,8 @@ func has_target(b: Ball = null) -> bool:
 
 func pull(b: Ball = null) -> bool:
 	var target := b if b != null else _ball
-	if not has_target(target):
+	if target == null or not has_target(target):
 		return false
-	if target == null:
-		target = _ball
 	var dir := drop_point - target.global_position
 	if dir.length() < 1.0:
 		return false
