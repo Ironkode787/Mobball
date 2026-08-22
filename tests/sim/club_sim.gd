@@ -292,11 +292,27 @@ func _s1_deck_dormancy() -> void:
 	near(table.bounds().position.y, deck.position.y, 0.001, "table bounds grew to the deck")
 	check(table.bounds().size.y > 2700.0,
 			"the table should be ~2.8 screens tall, got %.0f" % table.bounds().size.y)
-	# a piece of the deck with no deck under it is not hardware
+	# A piece of the deck with no deck under it is not hardware — and if the deck goes while
+	# it has the ball, the ball comes downstairs rather than being left standing in the sky.
+	await drop_at(club.roulette.global_position + Vector2(0.0, -150.0), Vector2(0.0, 260.0))
+	for i in range(ticks(3.0)):
+		await step(1)
+		if club.roulette.holds_ball():
+			break
+	check(club.roulette.holds_ball(), "the wheel did not take the ball for the teardown test")
 	table.force_hardware([ClubDeck.ID_DECK], false)
-	await step(2)
+	await step(3)
 	check(not table.hardware_present(&"roulette_wheel"),
 			"the wheel stayed on the table with the deck switched off")
+	check(not club.holds_ball(), "the Club kept the ball after being switched off")
+	var stranded := table.ball
+	check(stranded != null and is_instance_valid(stranded)
+			and stranded.collision_layer == Feel.LAYER_BALL,
+			"the ball was left lifted off the table when the deck went")
+	if stranded != null and is_instance_valid(stranded):
+		check(stranded.global_position.y > 0.0,
+				"the ball was left in the sky at %s" % str(stranded.global_position))
+	table.despawn_ball()
 	table.force_hardware([ClubDeck.ID_DECK], true)
 	await step(2)
 	print("        deck %s | table now %.0f px tall" % [str(deck), table.bounds().size.y])

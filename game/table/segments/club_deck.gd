@@ -387,11 +387,15 @@ func set_flippers_live(live: bool) -> void:
 		flipper_right.set_pressed(false)
 
 
+## Switching the deck off while it has the ball would leave it standing in the sky where the
+## Club used to be. Each holder hands the ball back where it stood; then it is put down
+## downstairs, at the foot of the stairs, whatever was holding it.
 func _release_everything() -> void:
+	var was_holding := holds_ball()
 	for holder: Node in [roulette, high_roller, backroom, staircase, return_lane]:
 		if holder != null and holder.has_method(&"set_hardware_active"):
 			holder.call(&"set_hardware_active", false)
-	if _ball != null and is_instance_valid(_ball) and BallHold.is_held(_ball):
+	if was_holding and _ball != null and is_instance_valid(_ball):
 		BallHold.release(_ball, RETURN_PATH[RETURN_PATH.size() - 1], Vector2.ZERO)
 
 
