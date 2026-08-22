@@ -20,6 +20,11 @@ signal casino_resolved(result: Dictionary)
 signal wire_drawn(result: Dictionary)
 signal meeting_changed(active: bool, lit: bool)
 signal collection_changed(active: bool, collected: int)
+## A Commission fight's shape changed (phase, panels, the Butcher's freezer) — HUD fodder.
+signal boss_changed(state: Dictionary)
+## Manny worked a till without a ball (`auto_collect_interval`). The HUD flashes it, because
+## a specialist earning money off-screen has to be visible or it is not a hire, it is a tax.
+signal auto_collected(id: StringName, amount: BigMoney)
 
 ## ☆ thresholds per rank, docs/02 §1. R1=10 R2=50 R3=150 are M1's ladder; the rest are
 ## here so the ladder is data rather than a special case when M2 lands.
@@ -31,6 +36,9 @@ const RAID_CLEAN_PAYOUT := 0.25
 ## Skill shot cash at R0; scales with rank_scale like every other payout (docs/03 §7).
 const SKILL_SHOT_MANTISSA := 2.0
 const SKILL_SHOT_EXP := 2
+## Cold Storage (Commission spoil, specs/m2-content.md §5): armored hardware banks this much
+## of what it refuses to pay, and hands it over when the armor comes off.
+const COLD_STORAGE_FRACTION := 0.5
 ## Music stems audible per rank (docs/08 §1) — rank 0 already has a band, R7 has all eight.
 const MUSIC_LEVEL_OFFSET := 1
 
@@ -59,6 +67,11 @@ var casino := Casino.new()
 var meeting := FamilyMeeting.new()
 var wire := WireDraws.new()
 var collection := CollectionRound.new()
+## THE COMMISSION (specs/m2-content.md §5): who is waiting, who has been put away, and which
+## rank the ladder is not allowed past yet.
+var commission := Commission.new()
+## The live fight while one is running (typed loosely, same reason as `night`).
+var boss: Node = null
 ## The guys physically on the table right now — one normally, two during a Family Meeting.
 ## Their traits fold into every dirty payout and into the Heat meter's gain scale.
 var fielded: Array[Dictionary] = []
@@ -93,6 +106,12 @@ var night_jobs: Array[String] = []
 var night_skill_shots: int = 0
 var night_best_combo: int = 0
 var night_bribes: int = 0
+## What the Commission paid tonight — the purse and the Butcher's freezer.
+var night_boss: BigMoney = BigMoney.zero()
+## Job rerolls left on the board (the Consigliere, `job_reroll_add`). Refilled every Night.
+var night_rerolls: int = 0
+## The rain-insurance policy is one confiscation a Night, and it is spent here.
+var night_insured: bool = false
 
 ## The meta lane's stores: the authoritative owned-upgrades map and the reveal history.
 ## Both are loaded by path rather than referenced as classes so the flow lane keeps booting
@@ -102,6 +121,10 @@ const LEDGER_STATE_PATH := "res://game/meta/ledger_state.gd"
 const REVEAL_PATH := "res://game/meta/reveal.gd"
 
 var _booted: bool = false
+## Value groups whose hardware is armored right now: they pay nothing, and Cold Storage banks
+## half of what they refuse until the armor comes off.
+var _armored: Dictionary = {}
+var _armored_bank: Dictionary = {}
 var _rng := RandomNumberGenerator.new()
 var _headlines := Headlines.new()
 var _ledger_state: GDScript = null
@@ -157,11 +180,21 @@ func _process(delta: float) -> void:
 ##                in the wallet and pay the Heat *multiplier* like anything else, but they do
 ##                not raise the meter. Everything else on the table is hot.
 ##   `switch`   — the hardware id, for Jobs that count specific switches.
+##
+## Two things can refuse a payout before it is made, and both hand the money somewhere rather
+## than dropping it: **armored** hardware (the Butcher's cold storage) banks its share, and a
+## live **Commission fight** pauses the economy outright — a boss is pure skill (docs/05 §6),
+## so the table earns nothing at all and the fight is told what it refused.
 func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {}) -> BigMoney:
-	var v := base_value.add(stats.value_add(group))
-	v = v.mul(stats.value_mult(group))
-	v = v.mul(heat.multiplier())
-	v = v.mul(mode_multiplier())
+	var v := preview_switch(group, base_value)
+	var armored := is_group_armored(group)
+	if armored:
+		_bank_armored(group, v)
+	if economy_paused():
+		_boss_denied(group, v)
+		return BigMoney.zero()
+	if armored:
+		return BigMoney.zero()
 	if not bool(meta.get("no_combo", false)):
 		v = v.mul(combo.on_hit(group))
 	wallet.earn_dirty(v)
@@ -173,6 +206,16 @@ func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {})
 	night_group[group] = v if not (group_total is BigMoney) else (group_total as BigMoney).add(v)
 	jobs.on_earn(v, group)
 	return v
+
+
+## What a switch WOULD pay right now, without paying it or touching anything. Everything the
+## money path does before the combo — the combo is a chain of shots that landed, so a denied
+## hit must not be able to extend or price one.
+func preview_switch(group: StringName, base_value: BigMoney) -> BigMoney:
+	var v := base_value.add(stats.value_add(group))
+	v = v.mul(stats.value_mult(group))
+	v = v.mul(heat.multiplier())
+	return v.mul(mode_multiplier())
 
 
 ## Everything that multiplies dirty because of who is on the table and what mode is running:
@@ -335,6 +378,143 @@ func collection_completed(id: StringName, base_value: BigMoney) -> BigMoney:
 	return bonus
 
 
+# ============================================================ the Commission =====
+##
+## A boss fight replaces a Night (state stays `&"night"`, the NightController builds a
+## `BossFight` instead of an ordinary rules set). While one is live the economy is off: the
+## table earns nothing, the fight pays a fixed clean purse if it is won, and nothing else
+## moves. See specs/m2-content.md §5 and game/flow/bosses/.
+
+
+## Is a Commission fight suppressing the economy right now?
+func economy_paused() -> bool:
+	return boss != null and is_instance_valid(boss) and bool(boss.get("economy_paused"))
+
+
+## Who is waiting for this career at The Count, or an empty dict. Respect for the next rank
+## has to be in the bank first — the ☆ get you the meeting, the fight gets you the chair.
+func boss_waiting() -> Dictionary:
+	return commission.waiting(rank, respect, RANK_RESPECT)
+
+
+## The Count's "SAMMY'S WAITING" button. The next Night IS the fight.
+func start_boss_night() -> bool:
+	var f := boss_waiting()
+	if f.is_empty() or state == &"night":
+		return false
+	commission.pending = StringName(f["id"])
+	start_night()
+	return true
+
+
+## The fight is over. Victory is the rank-up ceremony: the purse, the spoil, the ☆ and the
+## promotion the respect had already earned but the Commission was holding back.
+func boss_finished(fight_id: StringName, victory: bool) -> Dictionary:
+	var f := Commission.fight(fight_id)
+	var result := {
+		"id": String(fight_id),
+		"name": String(f.get("name", "")),
+		"won": victory,
+		"purse": BigMoney.zero(),
+		"spoil": "",
+		"spoil_name": "",
+		"attempts": commission.attempts_at(fight_id),
+	}
+	if victory and not f.is_empty():
+		commission.mark_beaten(fight_id)
+		var purse := Commission.purse_for(f)
+		result["purse"] = earn_clean(purse, &"commission")
+		night_boss = night_boss.add(result["purse"])
+		result["spoil"] = String(f.get("spoil", ""))
+		result["spoil_name"] = String(f.get("spoil_name", ""))
+		grant_spoil(String(f.get("spoil", "")))
+		add_respect(int(f.get("respect", 0)), &"boss")
+		# The respect gate was already met; the fight was the only thing in the way.
+		_check_rank()
+	commission.last_result = result
+	boss_changed.emit({"id": String(fight_id), "active": false, "won": victory})
+	return result
+
+
+## A fight's own payout (the Butcher's freezer). Clean, and booked on its own line so The
+## Count never files boss money as a Night's takings.
+func boss_payout(amount: BigMoney, _fight_id: StringName = &"") -> BigMoney:
+	var paid := earn_clean(amount, &"boss")
+	night_boss = night_boss.add(paid)
+	return paid
+
+
+func _boss_denied(group: StringName, value: BigMoney) -> void:
+	if boss != null and is_instance_valid(boss) and boss.has_method("on_denied"):
+		boss.call("on_denied", group, value)
+
+
+# --- armored hardware / the Cold Storage spoil --------------------------------
+
+
+## Armor a whole value group: its hardware still bangs and flashes, it just pays nothing.
+## Turning the armor OFF hands over whatever Cold Storage banked while it was on.
+func set_group_armored(group: StringName, on: bool) -> void:
+	if on:
+		_armored[group] = true
+		return
+	if not _armored.has(group):
+		return
+	_armored.erase(group)
+	var owed: Variant = _armored_bank.get(group, null)
+	_armored_bank.erase(group)
+	if owed is BigMoney and (owed as BigMoney).is_positive():
+		earn_clean(owed as BigMoney, &"cold_storage")
+		AudioDirector.play(&"safe_open")
+
+
+func is_group_armored(group: StringName) -> bool:
+	return _armored.has(group)
+
+
+## What Cold Storage is holding for a group right now.
+func armored_bank(group: StringName) -> BigMoney:
+	var v: Variant = _armored_bank.get(group, null)
+	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
+
+
+func _bank_armored(group: StringName, value: BigMoney) -> void:
+	if not has_spoil(Commission.SPOIL_BUTCHER) or value == null or not value.is_positive():
+		return
+	var share := value.mul(COLD_STORAGE_FRACTION)
+	var held: Variant = _armored_bank.get(group, null)
+	_armored_bank[group] = share if not (held is BigMoney) else (held as BigMoney).add(share)
+
+
+# --- spoils -------------------------------------------------------------------
+##
+## Signature upgrades cannot be bought (docs/05 §6), so they are not Ledger nodes — they ride
+## in the same owned map as pseudo-ids (`spoil.sammys_spare`). `Stats.recompute` skips ids the
+## catalog does not know, which is exactly the behaviour a taken-not-bought upgrade needs.
+
+
+func has_spoil(id: String) -> bool:
+	return int(owned.get(id, 0)) > 0
+
+
+func grant_spoil(id: String) -> void:
+	if id.is_empty() or has_spoil(id):
+		return
+	owned[id] = 1
+	_push_owned_to_meta()
+	_recompute_stats()
+	save_now()
+
+
+func spoils() -> PackedStringArray:
+	var out: PackedStringArray = []
+	for id: Variant in owned:
+		if String(id).begins_with(Commission.SPOIL_PREFIX):
+			out.append(String(id))
+	out.sort()
+	return out
+
+
 # ============================================================ career ladder =====
 
 
@@ -363,8 +543,11 @@ func respect_to_next_rank() -> int:
 	return maxi(RANK_RESPECT[next] - respect, 0)
 
 
+## The ☆ say what rank you have earned; the Commission says what rank you are allowed to
+## take. Every step below R3 promotes the moment the stars land, exactly as it did in M1 —
+## R3→R4 and R4→R5 wait for a fight (specs/m2-content.md §5, docs/05 §6).
 func _check_rank() -> void:
-	var want := rank_for_respect(respect)
+	var want := commission.rank_cap(rank, rank_for_respect(respect))
 	if want <= rank:
 		return
 	rank = want
@@ -414,7 +597,7 @@ func new_game(seed_value: int = 0) -> void:
 	night_no = 0
 	owned = {}
 	_push_owned_to_meta()
-	stats.recompute(owned)
+	_recompute_stats()
 	bench = Bench.new(seed_value, stats.bench_slots())
 	jobs = Jobs.new()
 	_wire(jobs.completed, _on_job_completed)
@@ -424,6 +607,10 @@ func new_game(seed_value: int = 0) -> void:
 	meeting = FamilyMeeting.new()
 	wire = WireDraws.new()
 	collection = CollectionRound.new()
+	commission = Commission.new()
+	boss = null
+	_armored.clear()
+	_armored_bank.clear()
 	set_fielded([])
 	safe_pending = BigMoney.zero()
 	last_seen = Time.get_unix_time_from_system()
@@ -444,6 +631,7 @@ func start_night() -> void:
 	bench.night_tick(stats.bench_slots(), rank)
 	jobs.roll(rank, stats, stats.job_slots(), _rng)
 	jobs.begin_night()
+	night_rerolls = maxi(stats.job_rerolls(), 0)
 	combo.reset_night()
 	casino.begin_night(Casino.comps_for(stats))
 	meeting.begin_night()
@@ -451,6 +639,8 @@ func start_night() -> void:
 	wire.begin_night(session_seed, night_no)
 	set_fielded([])
 	_reset_night_tallies()
+	_armored.clear()
+	_armored_bank.clear()
 	state = &"night"
 	Events.night_started.emit(night_no)
 	AudioDirector.music_set_state(&"calm")
@@ -485,7 +675,15 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["wire"] = wire.night_summary()
 	s["meeting"] = meeting.night_summary()
 	s["collection"] = collection.night_summary()
+	# `boss` comes from the NightController — `commission.last_result` is the CAREER's last
+	# fight and would print a week-old front page on an ordinary Night.
+	s["boss_paid"] = night_boss
+	s["insured"] = night_insured
 	s["rank_up"] = bool(s.get("rank_up", int(s.get("rank_before", rank)) < rank))
+	# The board is worked at The Count, so the Consigliere's rerolls are refilled for it here
+	# as well as at roll call — they are per Night, and this is where a Night is read.
+	night_rerolls = maxi(stats.job_rerolls(), 0)
+	s["rerolls"] = night_rerolls
 	s["headline"] = _headlines.pick(s, _rng)
 	if night_dirty.cmp(best_night) > 0:
 		best_night = night_dirty
@@ -518,7 +716,7 @@ func buy_upgrade(id: String, cost: BigMoney) -> bool:
 	if not wallet.spend_clean(cost):
 		return false
 	var level := _mint_level(id)
-	stats.recompute(owned)
+	_recompute_stats()
 	AudioDirector.play(&"stamp_thunk")
 	Events.upgrade_purchased.emit(id, level)
 	return true
@@ -535,11 +733,29 @@ func _mint_level(id: String) -> int:
 	return level
 
 
+## Every recompute of the fold goes through here, so the handful of Stats numbers that other
+## systems have to be TOLD about (rather than asking every frame) are pushed in one place.
+## Right now that is Whispers Cohen's `heat_decay_mult` on the meter's calm decay.
+func _recompute_stats() -> void:
+	stats.recompute(owned)
+	heat.decay_scale = maxf(stats.heat_decay_mult(), 0.0)
+
+
+## What a guy's bail actually costs after Cohen has talked to the bondsman
+## (`bail_discount`, specs/m2-content.md §2). Capped by `Stats.BAIL_DISCOUNT_MAX`.
+func bail_cost(guy: Dictionary) -> BigMoney:
+	if bench == null or guy.is_empty():
+		return BigMoney.zero()
+	var cost := bench.bail_cost(guy)
+	var off := clampf(stats.bail_discount(), 0.0, Stats.BAIL_DISCOUNT_MAX)
+	return cost if off <= 0.0 else cost.mul(1.0 - off)
+
+
 ## Post bail (docs/03 §8) — dirty cash, escalating with his rap sheet.
 func bail_guy(guy: Dictionary) -> bool:
 	if bench == null or guy.is_empty():
 		return false
-	var cost := bench.bail_cost(guy)
+	var cost := bail_cost(guy)
 	if not wallet.can_afford_dirty(cost):
 		return false
 	if not wallet.spend_dirty(cost):
@@ -549,6 +765,22 @@ func bail_guy(guy: Dictionary) -> bool:
 	Events.guy_bailed.emit(guy)
 	save_now()
 	return true
+
+
+## Throw one of tonight's slips back (the Consigliere, `job_reroll_add`). Costs a reroll and
+## returns the slip that replaced it; an empty dict means nothing changed and nothing was
+## spent — a board with no other eligible work is not a board you can shuffle.
+func reroll_job(index: int) -> Dictionary:
+	if night_rerolls <= 0:
+		return {}
+	var swapped := jobs.reroll(index, rank, stats, _rng)
+	if swapped.is_empty():
+		return {}
+	night_rerolls -= 1
+	AudioDirector.play(&"paper_slip")
+	Events.job_assigned.emit(String(swapped.get("id", "")))
+	save_now()
+	return swapped
 
 
 ## The Beat Cop bribe shot: −20 heat for an escalating dirty cost (docs/03 §4).
@@ -627,6 +859,7 @@ func to_dict() -> Dictionary:
 		"meeting": meeting.to_dict(),
 		"wire": wire.to_dict(),
 		"collection": collection.to_dict(),
+		"commission": commission.to_dict(),
 		"safe": {
 			"last_seen": last_seen,
 			"pending": safe_pending.to_dict(),
@@ -655,7 +888,7 @@ func from_dict(d: Dictionary) -> void:
 		for k: Variant in raw_owned:
 			owned[String(k)] = int((raw_owned as Dictionary)[k])
 	_push_owned_to_meta()
-	stats.recompute(owned)
+	_recompute_stats()
 
 	var rng_d: Dictionary = d.get("rng", {})
 	session_seed = SaveGame.to_i64(rng_d.get("seed", 0), 0)
@@ -676,6 +909,11 @@ func from_dict(d: Dictionary) -> void:
 	wire.from_dict(d.get("wire", {}))
 	collection = CollectionRound.new()
 	collection.from_dict(d.get("collection", {}))
+	commission = Commission.new()
+	commission.from_dict(d.get("commission", {}))
+	boss = null
+	_armored.clear()
+	_armored_bank.clear()
 	set_fielded([])
 
 	var safe_d: Dictionary = d.get("safe", {})
@@ -701,6 +939,8 @@ func _reset_night_tallies() -> void:
 	night_skill_shots = 0
 	night_best_combo = 0
 	night_bribes = 0
+	night_boss = BigMoney.zero()
+	night_insured = false
 
 
 ## Fires for our own purchases and for anything the meta lane buys directly — the level
@@ -708,7 +948,7 @@ func _reset_night_tallies() -> void:
 func _on_upgrade_purchased(id: String, level: int) -> void:
 	_pull_owned_from_meta()
 	owned[id] = maxi(level, int(owned.get(id, 0)))
-	stats.recompute(owned)
+	_recompute_stats()
 	_push_owned_to_meta()
 	if bench != null:
 		bench.slots = maxi(bench.slots, stats.bench_slots())

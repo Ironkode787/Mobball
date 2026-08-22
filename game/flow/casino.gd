@@ -37,7 +37,9 @@ class CasinoRules:
 	## house's. Loaded Dice converts one house pocket at max level.
 	const POCKETS := 8
 	const PLAYER_POCKETS := 5
-	const PLAYER_POCKETS_MAX := 6
+	## Ceiling on what Influence can buy off the house, mirroring `Stats.CASINO_POCKETS_MAX`:
+	## the house always keeps one pocket, because a wheel that cannot lose is not a wheel.
+	const PLAYER_POCKETS_MAX := 7
 	## The Cooler: five straight losing spins and the next win pays +50% ("the cooler got
 	## fired"); the `coolers_fired` node doubles the apology.
 	const COOLER_STREAK := 5

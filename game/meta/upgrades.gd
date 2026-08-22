@@ -111,6 +111,9 @@ const EFFECT_SPECS := {
 	&"bail_discount": {"value": &"num", "min": 0.000001, "max": 0.6},
 	&"auto_collect_interval": {"value": &"num", "min": 1.0, "max": 600.0},
 	&"casino_edge_add": {"value": &"num", "min": 0.000001, "max": 0.12},
+	# Pockets are whole things and the house keeps at least one of its three, so the band is
+	# 1..2 per effect and `Stats.CASINO_POCKETS_MAX` holds the ceiling however many are bought.
+	&"casino_pocket_add": {"value": &"int", "min": 1.0, "max": 2.0},
 	&"job_reroll_add": {"value": &"int", "min": 1.0, "max": 10.0},
 	&"job_respect_mult": {"value": &"num", "min": 1.0, "max": 3.0},
 	&"serve_speed_mult": {"value": &"num", "min": 1.0, "max": 3.0},

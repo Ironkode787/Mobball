@@ -130,6 +130,8 @@ static func effect_line(effect: Dictionary) -> String:
 			return "A lit award collects itself every %s%s" % [_secs(num), window]
 		&"casino_edge_add":
 			return "+%s casino edge your way%s" % [_pct(num), each]
+		&"casino_pocket_add":
+			return "+%d wheel pocket%s pays you instead of the house%s" % [int(roundf(num)), _s(num), each]
 		&"job_reroll_add":
 			return "+%d Job reroll%s a Night%s" % [int(roundf(num)), _s(num), each]
 		&"job_respect_mult":

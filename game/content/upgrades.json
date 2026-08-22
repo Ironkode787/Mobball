@@ -472,8 +472,11 @@
       "name": "Loaded Dice",
       "flavor": "They're not loaded. They're just very well informed.",
       "cost": "4M", "repeat": {"max": 8, "growth": 1.4}, "requires": ["fronts.casino_wash"],
-      "effects": [{"kind": "casino_edge_add", "value": 0.01, "per_level": true}],
-      "table_change": "the dice on the Club felt glint a little too knowingly"
+      "effects": [
+        {"kind": "casino_edge_add", "value": 0.01, "per_level": true},
+        {"kind": "casino_pocket_add", "value": 1}
+      ],
+      "table_change": "one house pocket quietly repaints itself in your color"
     },
     {
       "id": "influence.coolers_fired",

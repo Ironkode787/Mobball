@@ -43,6 +43,12 @@ signal deck_returned()
 ## The coils went hunting for a stuck ball. Diagnostic more than gameplay, but the sims
 ## assert on it and a rash of them in telemetry means new geometry has a trap in it.
 signal ball_searched(at: Vector2)
+## M2 — THE COMMISSION (specs/m2-content.md §5). Boss hardware is never bought: like the
+## raid's cop targets it is built dormant and only a live fight stands it up. `kind` is
+## &"sedan" &"truck" &"goon" or &"door"; the flow lane's BossFight owns what each one means.
+signal boss_hit(kind: StringName, hits_left: int, speed: float)
+signal boss_shrugged(kind: StringName, speed: float)
+signal boss_down(kind: StringName)
 
 const BALL_SCENE := preload("res://game/core/ball.tscn")
 const FLIPPER_SCENE := preload("res://game/table/hardware/flipper.tscn")
@@ -146,6 +152,38 @@ const KICKBACK_AT := Vector2(95.0, 1520.0)
 const KICKBACK_SIZE := Vector2(86.0, 56.0)
 const MAGNET_AT := Vector2(490.0, 1810.0)
 
+# ---------------------------------------------------------------- the Commission
+## Sammy's sedan crosses the waist on a rail between the bumper nest and the block: high
+## enough that a bumper cannot shield it, low enough to be reachable off either bat.
+const SEDAN_RAIL_Y := 920.0
+const SEDAN_RAIL_FROM_X := 270.0
+const SEDAN_RAIL_TO_X := 700.0
+const SEDAN_PARK := Vector2(490.0, 940.0)
+const SEDAN_LENGTH := 150.0
+const SEDAN_THICK := 46.0
+## Three goons standing in front of the cans. Raked like the cops so nothing sits on them.
+const GOON_AT: Array = [Vector2(300.0, 760.0), Vector2(680.0, 760.0), Vector2(490.0, 930.0)]
+const GOON_RAKE: PackedFloat32Array = [18.0, -18.0, -18.0]
+## The meat truck rides the getaway channel itself: it is 56 px across in a 108 px lane, so
+## while it is up there the orbit is the Butcher's, not yours.
+const TRUCK_RADIUS := 457.8
+const TRUCK_FROM_DEG := -166.0
+const TRUCK_TO_DEG := -114.0
+const TRUCK_ARC_STEPS := 14
+const TRUCK_PARK := Vector2(490.0, 1180.0)
+const TRUCK_LENGTH := 130.0
+const TRUCK_THICK := 56.0
+## The truck's back door: two rows of three, the back row standing behind the front row's
+## gaps so every panel is reachable without the front row having to drop.
+const DOOR_FRONT_Y := 1330.0
+const DOOR_BACK_Y := 1232.0
+const DOOR_FRONT_X: PackedFloat32Array = [330.0, 490.0, 650.0]
+const DOOR_BACK_X: PackedFloat32Array = [410.0, 570.0, 730.0]
+const DOOR_RAKE := 12.0
+## The Butcher's cold-storage readout, drawn inside the arch where nothing else lives.
+const BOSS_METER_AT := Vector2(540.0, 300.0)
+const BOSS_METER_SIZE := Vector2(420.0, 30.0)
+
 ## The rubber band is meant to be reliable-but-uncontrollable, not broken: below ~0.90 the
 ## ball never clears the shooter lane on this geometry, so a bare alley would earn nothing
 ## at all. One power, and it always feeds the playfield.
@@ -189,6 +227,12 @@ var storefronts: Array[Storefront] = []
 var rollovers: Array[Rollover] = []
 var cop_targets: Array[StandupTarget] = []
 var raid_active: bool = false
+## THE COMMISSION. Built with everything else, dormant until a fight stands it up.
+var boss_sedan: BossTarget = null
+var boss_truck: BossTarget = null
+var boss_goons: Array[StandupTarget] = []
+var boss_door: TargetBank = null
+var boss_active: bool = false
 ## The upper deck. Always built, dormant until `club_deck` is owned — same rule as every
 ## other piece of furniture on this table.
 var club: ClubDeck = null
@@ -206,6 +250,8 @@ var _forced: Dictionary = {}                 ## dev env hook: ids forced unlocke
 var _lit_lane: int = -1
 var _still_for: float = 0.0
 var _search_rng := RandomNumberGenerator.new()
+var _boss_meter_text: String = ""
+var _boss_meter_fill: float = 0.0
 
 
 # ================================================================ TableSegment =====
@@ -271,6 +317,7 @@ func _ready() -> void:
 	_build_storefronts()
 	_build_extras()
 	_build_flippers()
+	_build_bosses()
 	_build_club()
 	_build_drain()
 	_build_plunger()
@@ -478,6 +525,83 @@ func _build_extras() -> void:
 	magnet.position = MAGNET_AT
 	magnet.drain_point = Vector2(MIRROR_X, DRAIN_Y + 40.0)
 	add_child(magnet)
+
+
+## THE COMMISSION (specs/m2-content.md §5). Sammy's sedan and his three goons, the Butcher's
+## refrigerated truck and its back door. None of it is registered as a piece of furniture:
+## boss hardware is not for sale, it stands dormant until a fight asks for it, exactly like
+## the raid's cops.
+func _build_bosses() -> void:
+	boss_sedan = BossTarget.new()
+	boss_sedan.name = "BossSedan"
+	boss_sedan.kind = &"sedan"
+	boss_sedan.color = Feel.COL_INK.lightened(0.16)
+	add_child(boss_sedan)
+	boss_sedan.size_to(SEDAN_LENGTH, SEDAN_THICK)
+	boss_sedan.set_path(PackedVector2Array([
+		Vector2(SEDAN_RAIL_FROM_X, SEDAN_RAIL_Y), Vector2(SEDAN_RAIL_TO_X, SEDAN_RAIL_Y),
+	]))
+	_wire_boss_target(boss_sedan)
+
+	boss_truck = BossTarget.new()
+	boss_truck.name = "BossTruck"
+	boss_truck.kind = &"truck"
+	boss_truck.color = Feel.COL_NEWSPRINT.darkened(0.18)
+	add_child(boss_truck)
+	boss_truck.size_to(TRUCK_LENGTH, TRUCK_THICK)
+	boss_truck.set_path(_truck_path())
+	_wire_boss_target(boss_truck)
+
+	for i in range(GOON_AT.size()):
+		var g := StandupTarget.new()
+		g.name = "Goon%d" % (i + 1)
+		g.configure(StringName("boss_goon_%d" % (i + 1)), GOON_AT[i], Vector2.DOWN, TARGET_LENGTH)
+		g.rotation += deg_to_rad(GOON_RAKE[i])
+		add_child(g)
+		g.struck.connect(_on_goon_struck)
+		boss_goons.append(g)
+		g.set_hardware_active(false)
+
+	boss_door = TargetBank.new()
+	boss_door.name = "BossDoor"
+	boss_door.id = &"boss_door"
+	boss_door.reset_seconds = 1.2
+	add_child(boss_door)
+	for row in range(2):
+		var ys := DOOR_FRONT_Y if row == 0 else DOOR_BACK_Y
+		var xs := DOOR_FRONT_X if row == 0 else DOOR_BACK_X
+		for i in range(xs.size()):
+			var t := StandupTarget.new()
+			t.name = "Door%d%d" % [row + 1, i + 1]
+			t.configure(StringName("boss_door_%d%d" % [row + 1, i + 1]),
+					Vector2(xs[i], ys), Vector2.DOWN, TARGET_LENGTH)
+			t.rotation += deg_to_rad(DOOR_RAKE if i % 2 == 0 else -DOOR_RAKE)
+			boss_door.add_target(t)
+	boss_door.group = &"other"
+	boss_door.target_value = 0.0
+	boss_door.complete_value = 0.0
+	boss_door.bank_completed.connect(func() -> void: boss_down.emit(&"door"))
+	boss_door.target_struck.connect(func(_index: int) -> void:
+		boss_hit.emit(&"door", boss_door.targets().size() - boss_door.marked_count(), 0.0))
+	boss_door.set_hardware_active(false)
+
+
+func _wire_boss_target(t: BossTarget) -> void:
+	t.set_hardware_active(false)
+	t.struck.connect(func(kind: StringName, left: int, speed: float) -> void:
+		boss_hit.emit(kind, left, speed))
+	t.shrugged.connect(func(kind: StringName, speed: float) -> void:
+		boss_shrugged.emit(kind, speed))
+	t.broken.connect(func(kind: StringName) -> void: boss_down.emit(kind))
+
+
+## The truck's beat: the getaway channel itself, sampled so the body lies along the arc.
+func _truck_path() -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in range(TRUCK_ARC_STEPS + 1):
+		var deg := lerpf(TRUCK_FROM_DEG, TRUCK_TO_DEG, float(i) / float(TRUCK_ARC_STEPS))
+		pts.append(_polar(TRUCK_RADIUS, deg))
+	return pts
 
 
 func _build_flippers() -> void:
@@ -691,6 +815,115 @@ func magnet_pull() -> void:
 	magnet.pull(ball)
 
 
+# ========================================================== the Commission =====
+##
+## Same division of labour as the raid: the fight (game/flow/bosses/) owns the phases, the
+## clock and the money; the table owns the hardware and stands it up when asked.
+
+
+## Everything down, meter blank. Called when a fight starts and when it ends.
+func clear_boss() -> void:
+	boss_active = false
+	for t: BossTarget in [boss_sedan, boss_truck]:
+		if t != null:
+			t.set_hardware_active(false)
+			t.arm(0)
+	set_boss_goons(false)
+	set_boss_door(false)
+	set_boss_meter("", 0.0)
+	queue_redraw()
+
+
+## Stand up (or take down) one of the boss vehicles.
+##   mode &"off" — gone.  &"run" — riding its rail/arc.  &"park" — stopped at its mark.
+## `hits` is how many panels are left in it; `speed_gate` is the Butcher's orbit-pace rule.
+func set_boss_target(kind: StringName, mode: StringName, hits: int = 0,
+		speed_gate: float = 0.0) -> void:
+	var t: BossTarget = boss_sedan if kind == &"sedan" else boss_truck
+	if t == null:
+		return
+	if mode == &"off":
+		t.set_hardware_active(false)
+		t.arm(0)
+		return
+	boss_active = true
+	t.arm(hits, speed_gate)
+	if mode == &"park":
+		t.park_at(SEDAN_PARK if kind == &"sedan" else TRUCK_PARK)
+	else:
+		t.set_path(PackedVector2Array([
+			Vector2(SEDAN_RAIL_FROM_X, SEDAN_RAIL_Y), Vector2(SEDAN_RAIL_TO_X, SEDAN_RAIL_Y),
+		]) if kind == &"sedan" else _truck_path())
+		t.set_moving(true)
+	t.set_hardware_active(true)
+	queue_redraw()
+
+
+## Sammy's three goons: while any of them is standing his crew is holding the cans shut.
+func set_boss_goons(on: bool) -> void:
+	if on:
+		boss_active = true
+	for g in boss_goons:
+		g.set_marked(false)
+		g.set_hardware_active(on)
+	queue_redraw()
+
+
+func boss_goons_standing() -> int:
+	var n := 0
+	for g in boss_goons:
+		if g.visible and not g.marked:
+			n += 1
+	return n
+
+
+func set_boss_door(on: bool) -> void:
+	if boss_door == null:
+		return
+	if on:
+		boss_active = true
+	boss_door.set_hardware_active(on)
+	queue_redraw()
+
+
+func boss_door_panels_left() -> int:
+	if boss_door == null:
+		return 0
+	return boss_door.targets().size() - boss_door.marked_count()
+
+
+## The Butcher's cold-storage readout: what the armored cans are holding, as a bar the player
+## can watch fill. `fill` is 0..1; an empty label takes the meter off the table.
+func set_boss_meter(text: String, fill: float) -> void:
+	if _boss_meter_text == text and is_equal_approx(_boss_meter_fill, fill):
+		return
+	_boss_meter_text = text
+	_boss_meter_fill = clampf(fill, 0.0, 1.0)
+	queue_redraw()
+
+
+## A goon is not a payout: Sammy's crew is scenery with a switch on it, and the fight decides
+## what a downed goon means.
+func _on_goon_struck(target: StandupTarget, _ball_hit: Ball) -> void:
+	if target.marked:
+		return
+	target.set_marked(true)
+	AudioDirector.play(&"drop_clack")
+	boss_hit.emit(&"goon", boss_goons_standing(), 0.0)
+	if boss_goons_standing() <= 0:
+		boss_down.emit(&"goon")
+
+
+## Work one storefront till without a ball (Manny, specs/m2-content.md §2). Returns the id it
+## collected, or &"" if no shutters were open. The flow lane owns the clock.
+func auto_collect_one() -> StringName:
+	for s in storefronts:
+		if s.visible and s.is_open():
+			if s.collect_now(ball).is_positive():
+				return s.id
+	return &""
+
+
 ## Is any storefront ready to be worked? The flow lane gates the passive wash on it.
 func storefront_armed() -> bool:
 	var any := false
@@ -859,6 +1092,24 @@ func _ball_search(delta: float) -> void:
 	ball_searched.emit(p)
 
 
+## The Butcher's cold storage, painted on the felt inside the arch: a frost bar with the
+## banked total over it. Nothing else lives up there, so the readout never covers a shot.
+func _draw_boss_meter() -> void:
+	if _boss_meter_text.is_empty():
+		return
+	var r := Rect2(BOSS_METER_AT - BOSS_METER_SIZE * 0.5, BOSS_METER_SIZE)
+	draw_rect(r, Feel.COL_INK.lightened(0.10))
+	draw_rect(Rect2(r.position, Vector2(r.size.x * _boss_meter_fill, r.size.y)),
+			ClubDeck.COL_VIOLET.lerp(Feel.COL_CLEAN, 0.35))
+	draw_rect(r, Feel.COL_BRASS.darkened(0.3), false, 3.0)
+	var font := ThemeDB.fallback_font
+	if font != null:
+		# Unclipped on purpose: a truncated total ("$1.2" for $1.29M) is worse than a label that
+		# runs a little wide on the felt.
+		draw_string(font, BOSS_METER_AT + Vector2(-BOSS_METER_SIZE.x * 0.5, -22.0),
+				_boss_meter_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 30, Feel.COL_NEWSPRINT)
+
+
 ## One-way gate: the arch dumps the ball leftward into the playfield and it must never get
 ## back into the shooter lane. Latched on where the ball came from, and only ever toggled
 ## while the ball is clear of the blade so the flap can't materialise inside it.
@@ -945,6 +1196,8 @@ func _draw() -> void:
 
 	var gate_col := Feel.COL_BRASS if _gate_closed else Feel.COL_BRASS.darkened(0.6)
 	draw_line(Vector2(DIVIDER_X, GATE_TOP), Vector2(DIVIDER_X, GATE_BOTTOM), gate_col, 12.0)
+
+	_draw_boss_meter()
 
 	# the drain is a storm grate lit from below, not a hole (docs/02 §4)
 	draw_line(Vector2(PLAY_LEFT, DRAIN_Y), Vector2(PLAY_RIGHT, DRAIN_Y),

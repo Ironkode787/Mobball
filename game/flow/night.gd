@@ -63,6 +63,12 @@ const MEETING_SPAWN_OFFSET := Vector2(270.0, -260.0)
 const OUTLANE_BAND := 0.25
 ## How often the storefront banks are read for a Collection Round trigger.
 const STOREFRONT_POLL := 0.25
+## Sammy's Spare (specs/m2-content.md §5): the first jam of the Night falls out by itself, and
+## every jam after it is this fraction of its natural length.
+const SPARE_JAM_SCALE := 1.0 / 3.0
+## Beat between the last panel going down and The Count — long enough for the knocker, the
+## fanfare and the man in the limo driving off (docs/00: a boss beaten is a limo, not a body).
+const BOSS_CEREMONY := 2.4
 ## Gap between the tote board's three chimes.
 const WIRE_ARPEGGIO_GAP := 0.09
 
@@ -70,6 +76,9 @@ var table: Node2D = null
 var nudge: NudgeController = null
 var input: InputController = null
 var raid: RaidMode = null
+## The Commission fight this Night IS, when The Count sent us to one (specs/m2-content.md §5).
+## While it is live the economy is off, raids are off, and the table is wearing his hardware.
+var boss: BossFight = null
 
 ## Sim hook: overrides RaidMode's 45 s when positive, so a headless run can exercise both
 ## raid branches without spending a minute and a half of wall clock on them.
@@ -126,6 +135,14 @@ var _reserve_queue: Array[Dictionary] = []
 var _meeting_end_pending: bool = false
 ## Queued one-shots, each waiting `in` seconds after the one before it (the tote arpeggio).
 var _arp: Array[Dictionary] = []
+## Sammy's Spare is one wrench a Night, and this is whether tonight's is still in the boot.
+var _spare_ready: bool = false
+## Inside `_finish()`: a fight decided on the way out must not try to schedule a ceremony.
+var _ending: bool = false
+## Manny's clock (`auto_collect_interval`): seconds until he works a till by himself.
+var _collect_in: float = 0.0
+## The fight's result, folded into the Night summary The Count reads.
+var _boss_result: Dictionary = {}
 
 
 func _ready() -> void:
@@ -163,6 +180,9 @@ func start() -> void:
 	_arp.clear()
 	_reserve_queue.clear()
 	_meeting_end_pending = false
+	_spare_ready = Game.has_spoil(Commission.SPOIL_SAMMY)
+	_collect_in = Game.stats.auto_collect_interval()
+	_boss_result = {}
 	extras = []
 
 	lineup = []
@@ -202,11 +222,35 @@ func start() -> void:
 	# Collection Round has to pay the last shop its value a second time.
 	_connect_table(&"storefront_collected", _on_table_storefront)
 
+	_start_boss()
+
 	# Nights do not always open cold — coming off a survived raid the meter is still at 30.
 	AudioDirector.music_set_state(_music_state())
 	guy_index = -1
 	_next_guy()
 	set_physics_process(true)
+
+
+## THE COMMISSION (specs/m2-content.md §5). The Count sent us to a fight, so this Night is
+## one: the guys are fielded exactly as usual and the Night is exactly as long, but the
+## economy is off and the table has somebody else's hardware standing on it.
+func _start_boss() -> void:
+	var id := Game.commission.pending
+	if id == &"":
+		return
+	var fight := BossFight.make(id)
+	if fight == null:
+		# A boss with no script yet is not a Night-breaker: the pending fight is simply
+		# dropped and the player gets an ordinary Night out of it.
+		Game.commission.pending = &""
+		return
+	Game.commission.begin_fight(id)
+	boss = fight
+	boss.name = "Boss"
+	add_child(boss)
+	boss.finished.connect(_on_boss_finished)
+	Game.boss = boss
+	boss.begin(table, self)
 
 
 ## Tear the Night down without ending it (scene change, app quit).
@@ -218,6 +262,9 @@ func stop() -> void:
 	_set_raid_visual(false)
 	if raid != null and is_instance_valid(raid):
 		raid.abort()
+	if boss != null and is_instance_valid(boss):
+		boss.abort()
+		Game.boss = null
 	_release_night()
 
 
@@ -243,6 +290,7 @@ func _physics_process(delta: float) -> void:
 	Game.jobs.tick(delta, Game.heat.value)
 	_tick_idle(delta)
 	_tick_wash(delta)
+	_tick_crew(delta)
 	_wash_cooldown = maxf(_wash_cooldown - delta, 0.0)
 
 	_tick_balls(delta)
@@ -269,6 +317,8 @@ func _physics_process(delta: float) -> void:
 ## The idle layer ticks during play too (docs/03 §6) — the rackets do not stop earning
 ## just because you are at the table.
 func _tick_idle(delta: float) -> void:
+	if Game.economy_paused():
+		return
 	var rate := Game.stats.idle_rate_total()
 	if rate == null or not rate.is_positive():
 		return
@@ -280,10 +330,37 @@ func _tick_idle(delta: float) -> void:
 
 ## Front businesses wash while their bank is armed (docs/03 §2 v1.5).
 func _tick_wash(delta: float) -> void:
-	var per_sec := Game.stats.passive_wash_per_sec()
-	if per_sec <= 0.0 or not _storefront_armed():
+	if Game.economy_paused():
 		return
-	Game.launder(per_sec * delta, Game.launder_cap_left())
+	var per_sec := Game.stats.passive_wash_per_sec()
+	if per_sec > 0.0 and _storefront_armed():
+		Game.launder(per_sec * delta, Game.launder_cap_left())
+	# Nussbaum washes whether or not a shop is open — that is what the accountant is FOR
+	# (`auto_launder_per_sec`, specs/m2-content.md §2). Same per-Night cap as everything else.
+	var auto := Game.stats.auto_launder_per_sec()
+	if auto > 0.0:
+		Game.launder(auto * delta, Game.launder_cap_left())
+
+
+## The crew working on their own clocks. Manny (`auto_collect_interval`) walks a till every
+## N seconds and hands the money in — visible, because a specialist earning off-screen is a
+## tax, not a hire, so the collect goes out on `Game.auto_collected` for the HUD to flash.
+func _tick_crew(delta: float) -> void:
+	var every := Game.stats.auto_collect_interval()
+	if every <= 0.0 or Game.economy_paused():
+		return
+	_collect_in -= delta
+	if _collect_in > 0.0:
+		return
+	_collect_in = every
+	var before := Game.wallet.dirty
+	var got := StringName(TableAPI.call_if(table, "auto_collect_one", [], &""))
+	if got == &"":
+		# Nothing was lit. He waits a beat rather than a whole interval — he is standing
+		# right there.
+		_collect_in = minf(every, STOREFRONT_POLL * 4.0)
+		return
+	Game.auto_collected.emit(got, Game.wallet.dirty.sub_clamped(before))
 
 
 ## Per-ball clocks: how long each guy has been out, and how long his save window has left.
@@ -482,6 +559,8 @@ func _lose_guy(guy: Dictionary, age: float = 0.0) -> void:
 		Game.mark_reveal_event(&"first_double_pinch")
 	AudioDirector.play(&"guy_pinched")
 	Events.guy_pinched.emit(guy)
+	if boss != null and is_instance_valid(boss) and boss.active:
+		boss.on_guy_lost()
 
 	if Balls.count() > 0:
 		# Multiball: somebody is still working, so the Night does not move on. If the man who
@@ -513,6 +592,11 @@ func _promote_survivor(lost: Dictionary) -> void:
 func _finish() -> void:
 	if not running:
 		return
+	_ending = true
+	# The Night ran out on him. A fight that was already decided (the Butcher's door is down
+	# and only the payout lap was left) still counts as won.
+	if boss != null and is_instance_valid(boss) and boss.active:
+		boss.lose()
 	running = false
 	set_physics_process(false)
 	_close_skill_window()
@@ -536,7 +620,9 @@ func _finish() -> void:
 		"confiscated": _raid_confiscated,
 		"rank_before": _rank_before,
 		"rank_up": Game.rank > _rank_before,
+		"boss": _boss_result.duplicate(),
 	}
+	_ending = false
 	night_finished.emit(summary)
 	Game.end_night(summary)
 
@@ -749,8 +835,14 @@ func _on_ball_launched(ball_node: Node2D, _power: float) -> void:
 
 
 ## The table reports the lane and whether it was the lit one — no id parsing needed.
-func _on_rollover_rolled(_index: int, was_lit: bool) -> void:
-	if not running or not _skill_open:
+func _on_rollover_rolled(index: int, was_lit: bool) -> void:
+	if not running:
+		return
+	# The Butcher counts lanes whether or not a delivery window is open — his ×2 is a whole
+	# fight's worth of top-lane traffic, not one skill shot.
+	if boss != null and is_instance_valid(boss) and boss.active:
+		boss.on_rollover(index, was_lit)
+	if not _skill_open:
 		return
 	_close_skill_window()
 	if was_lit:
@@ -984,6 +1076,10 @@ func _on_table_storefront(id: StringName, amount: BigMoney) -> void:
 func _on_raid_triggered() -> void:
 	if not running or (raid != null and is_instance_valid(raid) and raid.active):
 		return
+	# The Commission does not share a Night with the Inspector: a boss fight is pure skill
+	# (docs/05 §6), and the meter is not even earning while one runs.
+	if boss != null and is_instance_valid(boss) and boss.active:
+		return
 	raid = RaidMode.new()
 	raid.name = "Raid"
 	if raid_duration > 0.0:
@@ -1004,8 +1100,14 @@ func _on_raid_finished(survived: bool) -> void:
 		Game.mark_reveal_event(&"first_raid_survived")
 		AudioDirector.play(&"raid_win")
 	else:
+		# The raid was lost either way — the front page still says so. ★ rain_insurance
+		# (specs/m2-content.md §3) only covers the money, once a Night.
 		_raid_result = "lost"
-		_raid_confiscated = Game.wallet.confiscate_dirty(Rates.RAID_CONFISCATE_FRACTION)
+		if _rain_insured():
+			Game.night_insured = true
+			AudioDirector.play(&"stamp_thunk")
+		else:
+			_raid_confiscated = Game.wallet.confiscate_dirty(Rates.RAID_CONFISCATE_FRACTION)
 		AudioDirector.play(&"raid_lose")
 	Game.heat.reset_after_raid(survived)
 	Events.raid_ended.emit(survived)
@@ -1013,6 +1115,11 @@ func _on_raid_finished(survived: bool) -> void:
 	if raid != null and is_instance_valid(raid):
 		raid.queue_free()
 		raid = null
+
+
+## Is a confiscation covered? One policy, one Night (docs/04 T5 ★rain_insurance).
+func _rain_insured() -> bool:
+	return Game.stats.flag(&"rain_insurance") and not Game.night_insured
 
 
 func _on_band_changed(_band: int) -> void:
@@ -1026,6 +1133,10 @@ func _on_band_changed(_band: int) -> void:
 func _music_state() -> StringName:
 	if raid != null and is_instance_valid(raid) and raid.active:
 		return &"raid"
+	# A fight earns nothing, so the Heat band drifts down through it — the band must not be
+	# allowed to take the room back to `calm` while a Commission boss is on the table.
+	if boss != null and is_instance_valid(boss) and boss.active:
+		return &"hot"
 	return &"hot" if Game.heat.band() >= HOT_BAND else &"calm"
 
 
@@ -1039,6 +1150,76 @@ func _set_raid_visual(on: bool) -> void:
 		table.call("set_raid_active", on)
 		return
 	table.modulate = RaidMode.DARKEN if on else Color.WHITE
+
+
+# ============================================================ the Commission =====
+
+
+## The fight is decided. `Game` pays the purse, hands over the spoil and lets the promotion
+## the ☆ had already earned actually land; this ends the Night on the ceremony.
+func _on_boss_finished(victory: bool) -> void:
+	var id: StringName = &""
+	if boss != null and is_instance_valid(boss):
+		id = boss.id
+		boss.queue_free()
+	boss = null
+	Game.boss = null
+	_boss_result = Game.boss_finished(id, victory)
+	if not victory:
+		return
+	AudioDirector.play(&"knocker")
+	AudioDirector.play(&"rankup_fanfare")
+	_arpeggio([&"chime_a", &"chime_b", &"chime_c", &"headline_sting"], 0.12)
+	if _ending or not running:
+		return
+	# Nothing is left to earn on a paused table: the ceremony IS the end of the Night.
+	_close_skill_window()
+	_beat(&"end", BOSS_CEREMONY)
+
+
+## A boss puts a wrench through one bat. Sammy's Spare is spent here rather than in the fight,
+## because the Spare is the Night's property: it hands back a Lean, and Leans belong to the
+## tilt meter this Night is running (specs/m2-content.md §5). Returns whether a jam landed.
+func jam_flipper(side: StringName, seconds: float) -> bool:
+	var f := _flipper(side)
+	if f == null:
+		return false
+	if _spare_ready:
+		# "the NEXT jam self-clears instantly, +1 free Lean"
+		_spare_ready = false
+		f.unjam()
+		_free_lean()
+		AudioDirector.play(&"kickback")
+		AudioDirector.play(&"chime_b")
+		return false
+	var length := seconds
+	if Game.has_spoil(Commission.SPOIL_SAMMY):
+		length *= SPARE_JAM_SCALE
+	f.jam(length)
+	AudioDirector.play(&"drop_clack")
+	return true
+
+
+func telegraph_flipper(side: StringName, seconds: float) -> void:
+	var f := _flipper(side)
+	if f != null:
+		f.telegraph(seconds)
+
+
+func _flipper(side: StringName) -> Flipper:
+	var f: Variant = TableAPI.prop(table, "flipper_right" if side == &"right" else "flipper_left")
+	return f as Flipper if f is Flipper and is_instance_valid(f as Flipper) else null
+
+
+## One Lean back. A used warning is refunded first; with a clean meter the ceiling goes up
+## instead, so the Spare is worth the same whenever it fires.
+func _free_lean() -> void:
+	if nudge == null or not is_instance_valid(nudge):
+		return
+	if nudge.meter.warnings > 0:
+		nudge.meter.warnings -= 1
+	else:
+		nudge.meter.max_warnings += 1
 
 
 # ================================================================ helpers =====

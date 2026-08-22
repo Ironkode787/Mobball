@@ -15,6 +15,8 @@ const STRIP_H := 168.0
 const HEAT_W := 470.0
 const HEAT_H := 26.0
 const COMBO_FLASH := 1.1
+## How long Manny's collect stays on the mode strip.
+const AUTO_COLLECT_FLASH := 2.5
 ## Where the mode lines hang, and how tall each one is.
 const MODES_TOP := STRIP_H + 16.0
 const MODE_H := 34.0
@@ -36,6 +38,10 @@ var _wire: Label = null
 var _collect: Label = null
 var _meeting: Label = null
 var _casino: Label = null
+var _boss: Label = null
+## Manny's collect, flashed for a beat so an off-screen earner is still visible.
+var _flash: String = ""
+var _flash_left: float = 0.0
 
 
 func _ready() -> void:
@@ -107,6 +113,7 @@ func _ready() -> void:
 	Events.night_started.connect(_on_night)
 	Events.guy_pinched.connect(_on_guy_changed)
 	Events.plunger_charge_changed.connect(_on_charge)
+	Game.auto_collected.connect(_on_auto_collected)
 	refresh()
 
 
@@ -119,11 +126,13 @@ func _build_modes() -> void:
 	_modes.offset_left = 26.0
 	_modes.offset_right = -26.0
 	_modes.offset_top = MODES_TOP
-	_modes.offset_bottom = MODES_TOP + MODE_H * 4.0
+	_modes.offset_bottom = MODES_TOP + MODE_H * 5.0
 	_modes.add_theme_constant_override("separation", 2)
 	_modes.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_modes)
 
+	# The Commission goes first: while a fight is on, it is the only thing on the table.
+	_boss = _add_mode(Feel.COL_DIRTY)
 	_meeting = _add_mode(Feel.COL_BRASS)
 	_collect = _add_mode(Feel.COL_CLEAN)
 	_wire = _add_mode(Feel.COL_NEWSPRINT.darkened(0.2))
@@ -172,6 +181,10 @@ func _process(delta: float) -> void:
 	if _combo_left > 0.0:
 		_combo_left = maxf(_combo_left - delta, 0.0)
 		_combo.modulate.a = clampf(_combo_left / COMBO_FLASH, 0.0, 1.0)
+	if _flash_left > 0.0:
+		_flash_left = maxf(_flash_left - delta, 0.0)
+		if _flash_left <= 0.0:
+			_flash = ""
 	_update_guy()
 	_update_modes()
 
@@ -184,10 +197,24 @@ func _process(delta: float) -> void:
 func _update_modes() -> void:
 	if _modes == null:
 		return
+	_set_mode(_boss, _boss_text())
 	_set_mode(_meeting, _meeting_text())
 	_set_mode(_collect, _collection_text())
 	_set_mode(_wire, _wire_text())
 	_set_mode(_casino, _casino_text())
+
+
+## The fight, when there is one: who, which phase, and what he is doing to you right now.
+## Manny's collect rides the same line when nothing is fighting, because both are "something
+## happened that you did not do with the flippers".
+func _boss_text() -> String:
+	var fight := Game.boss
+	if fight != null and is_instance_valid(fight) and bool(fight.get("active")):
+		var line := String(fight.call("phase_line")) if fight.has_method("phase_line") else ""
+		return "%s   ·   PHASE %d/%d%s" % [String(fight.get("boss_name")),
+				mini(int(fight.get("phase")), int(fight.get("phases"))),
+				int(fight.get("phases")), "" if line.is_empty() else "   ·   " + line]
+	return _flash
 
 
 func _meeting_text() -> String:
@@ -284,6 +311,13 @@ func _on_night(n: int) -> void:
 
 func _on_guy_changed(_guy: Dictionary) -> void:
 	_update_guy()
+
+
+## Manny walked a till while you were busy (`auto_collect_interval`).
+func _on_auto_collected(id: StringName, amount: BigMoney) -> void:
+	var shop := String(id).replace("storefront_", "").to_upper()
+	_flash = "MANNY COLLECTED %s   ·   %s" % [shop, amount.text()]
+	_flash_left = AUTO_COLLECT_FLASH
 
 
 func _on_combo(count: int) -> void:

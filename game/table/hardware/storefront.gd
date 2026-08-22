@@ -150,11 +150,18 @@ func _on_door_entered(body: Node2D) -> void:
 		AudioDirector.play(&"laundromat_wash")
 		TableScore.hit(&"laundromat_loop", ball)
 		washed.emit(id)
-	if not bank_enabled or _state != State.OPEN:
-		return
+	collect_now(ball)
+
+
+## Work the till. Normally a ball through the open door does this; Manny (the flow lane's
+## `auto_collect_interval` specialist, specs/m2-content.md §2) does it without one, which is
+## the whole point of hiring him. Returns what it paid — zero if the shutters were down.
+func collect_now(ball: Node2D = null) -> BigMoney:
+	if not _present or not bank_enabled or _state != State.OPEN:
+		return BigMoney.zero()
 	var amount := TableScore.storefront_collect_value(id)
 	AudioDirector.play(&"storefront_collect")
-	TableScore.earn_big(TableScore.GROUP_STOREFRONTS, amount,
+	var paid := TableScore.earn_big(TableScore.GROUP_STOREFRONTS, amount,
 			StringName(String(id) + "_collect"), ball)
 	Events.storefront_collected.emit(id)
 	collected.emit(id, amount)
@@ -164,6 +171,7 @@ func _on_door_entered(body: Node2D) -> void:
 	_apply_door()
 	_raise_all()
 	queue_redraw()
+	return paid
 
 
 func _close(quiet: bool = false) -> void:

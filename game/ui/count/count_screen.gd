@@ -10,6 +10,8 @@ extends CanvasLayer
 
 signal ledger_pressed
 signal next_night_pressed
+## The Commission is asking (specs/m2-content.md §5). The next Night is the fight.
+signal boss_pressed
 
 ## Seconds each line takes to roll up, and the gap between the bill-counter ticks.
 const LINE_TIME := 0.55
@@ -29,6 +31,7 @@ var _roster: VBoxContainer = null
 var _safe: PanelContainer = null
 var _body: VBoxContainer = null
 var _counter: AudioStreamPlayer = null
+var _board: VBoxContainer = null
 
 
 func _ready() -> void:
@@ -80,6 +83,15 @@ func _build() -> void:
 	_body.add_child(_roster)
 	_build_roster()
 
+	_board = VBoxContainer.new()
+	_board.add_theme_constant_override("separation", 6)
+	_body.add_child(_board)
+	_build_board()
+
+	# The Commission's call sits above the spacer, so it is always on the page: below the
+	# buttons it could be pushed off the bottom of a tall tally.
+	_build_boss_call()
+
 	var grow := Control.new()
 	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	grow.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -98,6 +110,58 @@ func _build() -> void:
 	next.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	next.pressed.connect(func() -> void: next_night_pressed.emit())
 	_buttons.add_child(next)
+
+
+## THE COMMISSION. The ☆ are in the bank and a rival family wants a word: the next Night is
+## the fight, and it stands apart from the ordinary buttons in his own colour so it can never
+## be pressed by muscle memory (docs/05 §6 — the fight is a decision, not a step).
+func _build_boss_call() -> void:
+	var f := Game.boss_waiting()
+	if f.is_empty():
+		return
+	var again := Game.commission.attempts_at(StringName(f["id"])) > 0
+	var call_text := String(f.get("call", "THE COMMISSION IS ASKING"))
+	if again:
+		call_text = "%s   ·   AGAIN" % call_text
+	var b := PaperKit.button(call_text, PaperKit.FONT_BIG, Feel.COL_DIRTY)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.pressed.connect(func() -> void: boss_pressed.emit())
+	_body.add_child(b)
+	_body.add_child(PaperKit.label(
+			"NO EARNING. NO CLOCK. BEAT HIM AND THE RANK IS YOURS.",
+			PaperKit.FONT_SMALL, Feel.COL_INK.lightened(0.35)))
+
+
+## Tonight's work, and the Consigliere's rerolls (`job_reroll_add`). Only drawn when there is
+## a reroll to spend — an un-hired career sees the board it always saw.
+func _build_board() -> void:
+	for c in _board.get_children():
+		c.queue_free()
+	if Game.night_rerolls <= 0:
+		return
+	var slips := Game.jobs.active_jobs()
+	if slips.is_empty():
+		return
+	_board.add_child(PaperKit.label("THE BOARD   ·   %d REROLL%s" % [Game.night_rerolls,
+			"" if Game.night_rerolls == 1 else "S"], PaperKit.FONT_SMALL,
+			Feel.COL_INK.lightened(0.35)))
+	for i in range(slips.size()):
+		var slip: Dictionary = slips[i]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 16)
+		var name_label := PaperKit.label(String(slip.get("name", slip.get("id", "job"))),
+				PaperKit.FONT_SMALL, Feel.COL_INK)
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_label)
+		var b := PaperKit.button("REROLL", PaperKit.FONT_SMALL, Feel.COL_BRASS.darkened(0.2))
+		b.pressed.connect(_on_reroll.bind(i))
+		row.add_child(b)
+		_board.add_child(row)
+
+
+func _on_reroll(index: int) -> void:
+	if not Game.reroll_job(index).is_empty():
+		_build_board()
 
 
 ## The Safe: offline earnings waiting since last session (docs/03 §6).
@@ -136,6 +200,10 @@ func _build_lines() -> void:
 		_add_money_row("BEAT THE RAP", summary.get("raid_payout", BigMoney.zero()), Feel.COL_CLEAN)
 	if _money(summary.get("confiscated", null)).is_positive():
 		_add_money_row("CONFISCATED", summary.get("confiscated", BigMoney.zero()), Feel.COL_DIRTY)
+	if bool(summary.get("insured", false)):
+		_body.add_child(PaperKit.label("THE POLICY COVERED IT — NOTHING WAS TAKEN",
+				PaperKit.FONT_SMALL, Feel.COL_CLEAN))
+	_build_boss_lines()
 	_build_club_lines()
 	_add_money_row("CLEAN BALANCE", summary.get("clean", Game.wallet.clean), Feel.COL_CLEAN)
 	_add_int_row("RESPECT GAINED", int(summary.get("respect", 0)), Feel.COL_BRASS.darkened(0.25))
@@ -143,6 +211,28 @@ func _build_lines() -> void:
 	for name: Variant in summary.get("jobs", []):
 		_body.add_child(PaperKit.label("   " + String(name), PaperKit.FONT_SMALL,
 				Feel.COL_INK.lightened(0.35)))
+
+
+## The Commission's night, when there was one. A win is the loudest line on the page: the
+## purse, the spoil that cannot be bought, and the rank it just unlocked. A loss is one line
+## and no scolding — the rematch is on the button below (docs/05 §6).
+func _build_boss_lines() -> void:
+	var boss: Dictionary = summary.get("boss", {})
+	if boss.is_empty() or String(boss.get("id", "")).is_empty():
+		return
+	var who := String(boss.get("name", "THE COMMISSION"))
+	if bool(boss.get("won", false)):
+		_add_money_row("%s — BEATEN" % who, boss.get("purse", null), Feel.COL_CLEAN)
+		var spoil := String(boss.get("spoil_name", ""))
+		if not spoil.is_empty():
+			_body.add_child(PaperKit.label("   TOOK HIS %s" % spoil, PaperKit.FONT_SMALL,
+					Feel.COL_BRASS))
+		if _money(summary.get("boss_paid", null)).cmp(_money(boss.get("purse", null))) > 0:
+			_add_money_row("   incl. cold storage", summary.get("boss_paid", null),
+					Feel.COL_CLEAN, PaperKit.FONT_SMALL)
+	else:
+		_body.add_child(PaperKit.label("%s IS STILL STANDING" % who, PaperKit.FONT_BODY,
+				Feel.COL_DIRTY))
 
 
 ## The M2 modes, each only when it happened. The casino gets three numbers because a
@@ -227,7 +317,8 @@ func _build_roster() -> void:
 		var name_label := PaperKit.label(String(guy["name"]), PaperKit.FONT_SMALL, Feel.COL_INK)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(name_label)
-		var cost := Game.bench.bail_cost(guy)
+		# Through `Game`, not the Bench: Cohen's discount is the session's, not the roster's.
+		var cost := Game.bail_cost(guy)
 		var b := PaperKit.button("BAIL " + cost.text(), PaperKit.FONT_SMALL, Feel.COL_DIRTY)
 		b.disabled = not Game.wallet.can_afford_dirty(cost)
 		b.pressed.connect(_on_bail.bind(guy))

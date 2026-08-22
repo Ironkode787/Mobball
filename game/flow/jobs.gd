@@ -94,6 +94,28 @@ static func eligible(j: Dictionary, rank: int, stats: Stats) -> bool:
 	return stats.hardware_unlocked(StringName(hw))
 
 
+## Throw one slip back and draw another in its place (the Consigliere's `job_reroll_add`,
+## specs/m2-content.md §2). A finished slip is not rerollable — it is already paid — and if
+## the eligible pool is empty the slip stays where it is and the caller keeps its reroll.
+## Returns the slip that replaced it, or an empty dict if nothing changed.
+func reroll(index: int, rank: int, stats: Stats, rng: RandomNumberGenerator) -> Dictionary:
+	if index < 0 or index >= active.size() or bool(active[index]["done"]):
+		return {}
+	var candidates: PackedStringArray = []
+	for id: String in pool:
+		if done_ids.has(id) or _is_active(id):
+			continue
+		if eligible(pool[id], rank, stats):
+			candidates.append(id)
+	if candidates.is_empty():
+		return {}
+	candidates.sort()
+	var pick := 0 if rng == null else int(rng.randi() % candidates.size())
+	var id := candidates[pick]
+	active[index] = {"id": id, "done": false, "state": _fresh_state(pool[id])}
+	return pool[id]
+
+
 ## Fresh Night: per-Night counters go back to zero, the slips stay.
 func begin_night() -> void:
 	_clock = 0.0

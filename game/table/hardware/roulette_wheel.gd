@@ -24,6 +24,13 @@ signal thrown(pocket: int)
 
 const POCKETS := 8
 const HOUSE_POCKETS: PackedInt32Array = [0, 3, 6]
+## The order the house gives its pockets up in as Loaded Dice buys them (specs/m2-content.md
+## §1 "Open vocabulary item"): the wheel keeps the house's own three and hands back the far
+## side first, so the pockets the player learns to aim at never move under him.
+const HOUSE_GIVE_ORDER: PackedInt32Array = [6, 3, 0]
+## Base player pockets, mirrored from Casino.CasinoRules.PLAYER_POCKETS — this file is table
+## hardware and must not reach into the flow lane's rulebook to draw itself.
+const PLAYER_POCKETS_BASE := 5
 const RADIUS := 96.0
 const WALL_THICK := 16.0
 ## The pockets ride where a ball settles against the inside of the bowl, so a resting ball is
@@ -56,6 +63,10 @@ var _cool: float = 0.0
 var _inside_t: float = 0.0
 var _flash: float = 0.0
 var _last_pocket: int = -1
+## How many pockets pay the player right now. Re-read from `Stats.casino_player_pockets()`
+## every tick through `has_method`, so a build whose meta lane has not grown that getter yet
+## simply keeps the wheel as it was built.
+var _player_pockets: int = PLAYER_POCKETS_BASE
 
 
 func _ready() -> void:
@@ -84,8 +95,42 @@ func pocket_count() -> int:
 	return POCKETS
 
 
+## The wheel as built: three of eight belong to the house.
 static func is_house(pocket: int) -> bool:
 	return HOUSE_POCKETS.has(pocket)
+
+
+## Player pockets after Influence. Read live rather than pushed in, so nothing has to
+## remember to tell the wheel about a purchase.
+func refresh_pockets() -> void:
+	var n := PLAYER_POCKETS_BASE
+	if Game != null and Game.stats != null and Game.stats.has_method("casino_player_pockets"):
+		n = int(Game.stats.call("casino_player_pockets"))
+	var was := _player_pockets
+	_player_pockets = clampi(n, 1, POCKETS - 1)
+	if was != _player_pockets:
+		queue_redraw()
+
+
+func player_pockets() -> int:
+	return _player_pockets
+
+
+func house_pocket_count() -> int:
+	return POCKETS - _player_pockets
+
+
+## Is this pocket the house's on the wheel as it stands tonight? The house keeps the first
+## `house_pocket_count()` of its three, giving them up in `HOUSE_GIVE_ORDER`.
+func is_house_now(pocket: int) -> bool:
+	var keep := clampi(house_pocket_count(), 0, HOUSE_POCKETS.size())
+	for i in range(HOUSE_GIVE_ORDER.size()):
+		if HOUSE_GIVE_ORDER[i] != pocket:
+			continue
+		# index 0 is given up first, so a pocket is still the house's while it is inside
+		# the last `keep` of the give order.
+		return i >= HOUSE_GIVE_ORDER.size() - keep
+	return false
 
 
 func pocket_angle(i: int) -> float:
@@ -110,6 +155,7 @@ func _physics_process(delta: float) -> void:
 	if not _present:
 		return
 	angle = wrapf(angle + SPIN * delta, 0.0, TAU)
+	refresh_pockets()
 	queue_redraw()
 	_cool = maxf(_cool - delta, 0.0)
 	if _flash > 0.0:
@@ -161,7 +207,7 @@ func _take(pocket: int) -> void:
 	BallHold.take(_ball)
 	AudioDirector.play(&"coin_drop")
 	TableScore.earn(TableScore.GROUP_CASINO, TableScore.CASINO_POCKET, id, _ball)
-	landed.emit(pocket, is_house(pocket))
+	landed.emit(pocket, is_house_now(pocket))
 
 
 func _throw() -> void:
@@ -198,8 +244,11 @@ func _draw() -> void:
 	for i in range(POCKETS):
 		var a := pocket_angle(i)
 		var p := Vector2(cos(a), sin(a)) * POCKET_RING
-		var house := is_house(i)
+		var house := is_house_now(i)
 		var col := Feel.COL_DIRTY.darkened(0.25) if house else Feel.COL_INK.darkened(0.2)
+		if not house and is_house(i):
+			# a pocket Loaded Dice bought off the house: marked, so the change is visible
+			col = Feel.COL_BRASS.darkened(0.45)
 		if _held and i == _pocket:
 			col = col.lerp(Feel.COL_NEWSPRINT, 0.35 + _flash * 0.4)
 		draw_circle(p, POCKET_R, col)

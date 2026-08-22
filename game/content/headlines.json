@@ -3,6 +3,22 @@
   "comment": "The Count picks the first matching condition top-to-bottom, then a random variant. Placeholders: {dirty} {clean} {laundered} {guys_lost} {night} {rank_title}.",
   "headlines": [
     {
+      "when": "boss_beaten",
+      "variants": [
+        "{boss} SEEN LEAVING TOWN IN A HURRY; LIMO 'NOT HIS'",
+        "COMMISSION CONFIRMS NEW {rank_title}; DECLINES FURTHER COMMENT",
+        "RIVAL FAMILY'S {spoil} CHANGES HANDS OVERNIGHT"
+      ]
+    },
+    {
+      "when": "boss_lost",
+      "variants": [
+        "{boss} STILL STANDING; LOCAL MAN 'JUST WARMING UP'",
+        "SIT-DOWN ENDS EARLY; BOTH SIDES CLAIM VICTORY",
+        "COMMISSION MEETING ADJOURNED, RESCHEDULED, RESCHEDULED AGAIN"
+      ]
+    },
+    {
       "when": "rank_up",
       "variants": [
         "LOCAL {rank_title} PROMOTED; PIGEONS 'NOT SURPRISED'",

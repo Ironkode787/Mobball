@@ -207,6 +207,7 @@ func _want_count(on: bool) -> void:
 	count.name = "Count"
 	count.ledger_pressed.connect(func() -> void: Game.open_ledger())
 	count.next_night_pressed.connect(func() -> void: Game.start_night())
+	count.boss_pressed.connect(func() -> void: Game.start_boss_night())
 	add_child(count)
 
 

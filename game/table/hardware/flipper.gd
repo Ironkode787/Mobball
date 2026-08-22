@@ -39,6 +39,10 @@ var _up_rot: float = 0.0
 var _strike_sign: float = -1.0
 var _clock: float = 0.0             ## physics-tick time; never wall time (headless sims)
 var _present: bool = true           ## hardware switch — the Club's bats before it is bought
+## Sammy's crew put a wrench through the linkage (specs/m2-content.md §5). Seconds left of
+## the jam, and of the wrench gag that telegraphs it.
+var _jam: float = 0.0
+var _telegraph: float = 0.0
 
 
 func _ready() -> void:
@@ -103,7 +107,7 @@ func set_ball(b: Ball) -> void:
 
 
 func press() -> void:
-	if dead or not _present:
+	if dead or not _present or _jam > 0.0:
 		return
 	match state:
 		State.REST:
@@ -146,6 +150,51 @@ func kill() -> void:
 
 func revive() -> void:
 	dead = false
+	_jam = 0.0
+	_telegraph = 0.0
+
+
+## THE WRENCH (specs/m2-content.md §5). A jam is not a tilt and not dormancy: the bat is
+## bought, present and alive, it simply eats input until the wrench comes out — and it droops
+## on the way in, so a cradled ball is lost with it. Separate from `dead` on purpose; a Night
+## that tilts mid-jam must still clear both independently.
+func jam(seconds: float) -> void:
+	if not _present or seconds <= 0.0:
+		return
+	_jam = maxf(_jam, seconds)
+	_telegraph = 0.0
+	_held = false
+	_buffered_at = -1000.0
+	if state == State.RISING or state == State.HELD:
+		_begin_fall()
+	queue_redraw()
+
+
+func unjam() -> void:
+	_jam = 0.0
+	_telegraph = 0.0
+	queue_redraw()
+
+
+func is_jammed() -> bool:
+	return _jam > 0.0
+
+
+func jam_left() -> float:
+	return _jam
+
+
+## The gag before the wrench: the bat rattles for `seconds` and the player gets to decide
+## what to do with the ball first (spec §5: 2 s of notice, every time).
+func telegraph(seconds: float) -> void:
+	if not _present or seconds <= 0.0:
+		return
+	_telegraph = maxf(_telegraph, seconds)
+	queue_redraw()
+
+
+func is_telegraphed() -> bool:
+	return _telegraph > 0.0
 
 
 ## Dormant hardware (game/table/hardware/dormant.gd). Separate from `dead`, which is the
@@ -215,6 +264,13 @@ func _begin_fall() -> void:
 
 func _physics_process(delta: float) -> void:
 	_clock += delta
+	if _jam > 0.0:
+		_jam = maxf(_jam - delta, 0.0)
+		if _jam <= 0.0:
+			queue_redraw()
+	if _telegraph > 0.0:
+		_telegraph = maxf(_telegraph - delta, 0.0)
+		queue_redraw()
 	_advance(delta)
 	var target := FlipperCurve.rotation_for(side, progress)
 	_ang_vel = wrapf(target - _prev_rotation, -PI, PI) / maxf(delta, 0.00001)
@@ -253,7 +309,7 @@ func _advance(delta: float) -> void:
 ## A press that landed during the return stroke re-fires the instant the bat is home,
 ## as long as it was inside Feel.INPUT_BUFFER of that moment (mobile touch latency budget).
 func _consume_buffer() -> void:
-	if dead:
+	if dead or _jam > 0.0:
 		return
 	if _held:
 		_fire()
@@ -330,6 +386,11 @@ func _draw() -> void:
 	var brass := Feel.COL_BRASS
 	if _glow > 0.0:
 		brass = brass.lerp(Color(1.0, 0.97, 0.8), _glow * 0.7)
+	if _jam > 0.0:
+		brass = brass.lerp(Feel.COL_DIRTY, 0.55).darkened(0.25)
+	elif _telegraph > 0.0:
+		# the wrench gag: the bat rattles a warning before the linkage goes
+		brass = brass.lerp(Feel.COL_DIRTY, 0.35 * (0.5 + 0.5 * sin(_clock * 26.0)))
 	var body := PackedVector2Array([
 		Vector2(0.0, -rp), Vector2(l, -rt), Vector2(l, rt), Vector2(0.0, rp),
 	])
@@ -341,3 +402,10 @@ func _draw() -> void:
 	draw_line(Vector2(0.0, -rp), Vector2(l, -rt), Feel.COL_INK, 3.0)
 	draw_line(Vector2(0.0, rp), Vector2(l, rt), Feel.COL_INK, 3.0)
 	draw_circle(Vector2.ZERO, rp * 0.32, Feel.COL_INK)
+	if _jam > 0.0:
+		# the wrench itself, laid across the linkage
+		var mid := Vector2(l * 0.42, 0.0)
+		draw_line(mid - Vector2(0.0, rp * 1.1), mid + Vector2(0.0, rp * 1.1),
+				Feel.COL_NEWSPRINT.darkened(0.15), 7.0)
+		draw_arc(mid - Vector2(0.0, rp * 1.1), rp * 0.42, PI * 0.2, PI * 1.8, 14,
+				Feel.COL_NEWSPRINT.darkened(0.15), 6.0)

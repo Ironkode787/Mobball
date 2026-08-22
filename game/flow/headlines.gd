@@ -53,6 +53,15 @@ func condition_for(summary: Dictionary) -> String:
 
 static func matches(when: String, s: Dictionary) -> bool:
 	match when:
+		"boss_beaten":
+			# A Commission fight is the biggest front page there is, so it sits above
+			# `rank_up` in file order — a win is always a rank-up as well.
+			var boss: Variant = s.get("boss", {})
+			return boss is Dictionary and bool((boss as Dictionary).get("won", false))
+		"boss_lost":
+			var lost: Variant = s.get("boss", {})
+			return lost is Dictionary and not (lost as Dictionary).get("id", "").is_empty() \
+					and not bool((lost as Dictionary).get("won", false))
 		"rank_up":
 			return bool(s.get("rank_up", false))
 		"raid_survived":
@@ -99,6 +108,10 @@ static func substitute(text: String, s: Dictionary) -> String:
 	out = out.replace("{guys_lost}", str(int(s.get("guys_lost", 0))))
 	out = out.replace("{night}", str(int(s.get("night", 0))))
 	out = out.replace("{rank_title}", rank_title(int(s.get("rank", 0))))
+	var boss: Variant = s.get("boss", {})
+	if boss is Dictionary:
+		out = out.replace("{boss}", String((boss as Dictionary).get("name", "")))
+		out = out.replace("{spoil}", String((boss as Dictionary).get("spoil_name", "")))
 	return out
 
 

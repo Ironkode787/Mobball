@@ -15,8 +15,8 @@ extends RefCounted
 ##     lands in the `all` value_mult bucket); a per_level effect contributes value^level.
 ##   * SUM — value_add / idle_rate_add / launder_cap_add / launder_rate_add /
 ##     passive_wash_add / bench_slot_add / tilt_leans_add / ball_save_charges /
-##     bail_discount / casino_edge_add / job_reroll_add / auto_launder_per_sec; a per_level
-##     effect contributes value × level.
+##     bail_discount / casino_edge_add / casino_pocket_add / job_reroll_add /
+##     auto_launder_per_sec; a per_level effect contributes value × level.
 ##   * MAX — safe_hours_set / pocket_money_set / job_slots_set / aim_line: the highest owned
 ##     wins (they are tiers, not stacks); per_level scales the value by level first.
 ##   * MIN — auto_collect_interval: the shortest owned wins, and 0 means nobody is collecting.
@@ -42,6 +42,11 @@ const BAIL_DISCOUNT_MAX := 0.6
 ## docs/03 §3 and specs/m2-content.md §1: influence buys the edge, never the outcome. The
 ## opening bid is a −7.5% house edge, so +12 points is the far side of player-favored.
 const CASINO_EDGE_MAX := 0.12
+## The wheel as built: five of its eight pockets pay (game/table/hardware/roulette_wheel.gd,
+## Casino.CasinoRules.PLAYER_POCKETS). Loaded Dice buys pockets off the house one at a time
+## and the house always keeps one — a wheel that cannot lose is not a wheel.
+const CASINO_POCKETS_BASE := 5
+const CASINO_POCKETS_MAX := 7
 
 ## Which bucket an effect kind folds into. Public because the Ledger docket previews a level
 ## with `scaled_value` and must use the engine's own shape, not a second copy of it.
@@ -70,6 +75,7 @@ const FOLD := {
 	&"tilt_leans_add": Fold.SUM,
 	&"bail_discount": Fold.SUM,
 	&"casino_edge_add": Fold.SUM,
+	&"casino_pocket_add": Fold.SUM,
 	&"job_reroll_add": Fold.SUM,
 	&"auto_launder_per_sec": Fold.SUM,
 	&"pocket_money_set": Fold.MAX,
@@ -106,6 +112,7 @@ var _heat_decay: float = 1.0
 var _bail_discount: float = 0.0
 var _auto_collect: float = 0.0
 var _casino_edge: float = 0.0
+var _casino_pockets: int = 0
 var _job_respect: float = 1.0
 var _serve_speed: float = 1.0
 var _auto_launder: float = 0.0
@@ -255,6 +262,12 @@ func casino_edge_add() -> float:
 	return minf(_casino_edge, CASINO_EDGE_MAX)
 
 
+## How many of the wheel's eight pockets pay the player. Loaded Dice's pocket half
+## (specs/m2-content.md §1 "Open vocabulary item") — capped so the house always keeps one.
+func casino_player_pockets() -> int:
+	return clampi(CASINO_POCKETS_BASE + _casino_pockets, 1, CASINO_POCKETS_MAX)
+
+
 ## Extra Job rerolls a Night.
 func job_rerolls() -> int:
 	return _job_rerolls
@@ -349,6 +362,7 @@ func _reset() -> void:
 	_bail_discount = 0.0
 	_auto_collect = 0.0
 	_casino_edge = 0.0
+	_casino_pockets = 0
 	_job_respect = 1.0
 	_serve_speed = 1.0
 	_auto_launder = 0.0
@@ -412,6 +426,8 @@ func _apply(effect: Dictionary, level: int) -> void:
 			_auto_collect = secs if _auto_collect <= 0.0 else minf(_auto_collect, secs)
 		&"casino_edge_add":
 			_casino_edge += scaled_value(effect, level)
+		&"casino_pocket_add":
+			_casino_pockets += int(scaled_value(effect, level))
 		&"job_reroll_add":
 			_job_rerolls += int(scaled_value(effect, level))
 		&"job_respect_mult":
