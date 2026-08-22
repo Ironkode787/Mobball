@@ -102,10 +102,16 @@ const INSURANCE_LIMP_VALUE := 0.5
 ## raises heat goes live — the player is never caught mid-ramp by a raid.
 const SCANNER_RAID_HAZARD := 0.75
 ## The Wiretap (`wiretap_wire`) shows the next Wire number 15 s early and the spinner IS the
-## ticket, so a player who can count segments can dial the last two digits. This is the
-## softest guess in the file: it converts a share of draws into EXACT hits (×80, clean),
-## scaled by discipline, and it is capped well under what a perfect counter could do.
-const WIRETAP_AIM := 0.25
+## ticket, so a player who can count segments can dial the last two digits: a soft pass adds
+## v²/(2·FRICTION·π) segments, which at 12–30 rad/s is 1–5 at a time, and 15 s is three or
+## four passes. A player with perfect information and perfect blade control would hit the
+## exact number nearly every draw.
+##
+## THIS IS THE SOFTEST NUMBER IN THE SIM. It converts this share (× discipline) of draws into
+## EXACT hits, which pay ×80 CLEAN, and it is set deliberately far below the mechanical
+## ceiling because it assumes most players never track the count at all. The report prints
+## draws/hits/exacts per profile so the assumption can be audited against the base 1 % rate.
+const WIRETAP_AIM := 0.12
 ## Seconds Manny waits before trying a till again when nothing at all is lit — he is standing
 ## right there, so he does not burn a whole interval on an empty block.
 const AUTO_COLLECT_RETRY := 1.0
@@ -136,6 +142,9 @@ var guys_lost: int = 0
 var tilts: int = 0
 var limps: int = 0
 var raid_result: String = ""
+## True for a Commission Night: the fight is pure skill and the table earns nothing at all
+## (`Game.economy_paused`, docs/05 §6).
+var economy_paused: bool = false
 var by_group: Dictionary = {}
 
 var _rng: RandomNumberGenerator
@@ -148,6 +157,12 @@ var _spin_angle: float = 0.0
 var _spin_dir: float = 1.0
 var _wire_marked: Array[bool] = [false, false, false]
 var _wire_reset: float = -1.0
+## M3 hardware that pays today: crates left standing per container stack, and which of the
+## five Commission chairs are taken. Both re-arm on their own clocks.
+var _crates: Dictionary = {}
+var _crate_reset: Dictionary = {}
+var _chairs: Dictionary = {}
+var _chair_reset: float = -1.0
 ## Per storefront: {"state": &"armed"/&"open"/&"cooldown", "down": int, "timer": float}
 var _fronts: Dictionary = {}
 var _raid_left: float = -1.0
@@ -277,6 +292,7 @@ static func play_boss(p_state: SimState, p_profile: SimProfile, fight_id: String
 
 
 func _run_boss_night(fight_id: StringName) -> Dictionary:
+	economy_paused = true
 	state.start_night()
 	state.commission.begin_fight(fight_id)
 	state.boss_nights += 1
@@ -301,6 +317,8 @@ func _run_boss_night(fight_id: StringName) -> Dictionary:
 		state.set_fielded([])
 		_advance(_beat(PINCH_BEAT))
 	var won := _rng.randf() < profile.boss_win_chance(fight_id)
+	# The purse is not table money — it is paid by the ceremony, after the fight is over.
+	economy_paused = false
 	var result := state.boss_finished(fight_id, won)
 	var summary := state.end_night({
 		"guys_fielded": lineup.size(),
@@ -423,13 +441,16 @@ func _advance(dt: float) -> void:
 	state.combo.tick(dt)
 	state.jobs.tick(dt, state.heat.value)
 	_limp_left = maxf(_limp_left - dt, 0.0)
-	_tick_idle(dt)
-	_tick_wash(dt)
-	_tick_crew(dt)
-	_spin_advance(dt)
-	_tick_hardware(dt)
-	_tick_wire(dt)
-	_tick_collection(dt)
+	# A Commission fight pauses the economy outright (`Game.economy_paused` — the table earns
+	# nothing at all while a boss is up), so every faucet on the clock stops with it.
+	if not economy_paused:
+		_tick_idle(dt)
+		_tick_wash(dt)
+		_tick_crew(dt)
+		_spin_advance(dt)
+		_tick_hardware(dt)
+		_tick_wire(dt)
+		_tick_collection(dt)
 	_wash_cool = maxf(_wash_cool - dt, 0.0)
 	if club != null:
 		var was_up := club.upstairs
@@ -555,6 +576,18 @@ func _tick_hardware(dt: float) -> void:
 		if _wire_reset <= 0.0:
 			_wire_reset = -1.0
 			_wire_marked = [false, false, false]
+	if _chair_reset > 0.0:
+		_chair_reset -= dt
+		if _chair_reset <= 0.0:
+			_chair_reset = -1.0
+			_chairs.clear()
+	for i: Variant in _crate_reset.keys():
+		var left := float(_crate_reset[i]) - dt
+		if left > 0.0:
+			_crate_reset[i] = left
+			continue
+		_crate_reset.erase(i)
+		_crates[i] = SimTable.CRATES_PER_STACK
 	for hw: Variant in _fronts:
 		var f: Dictionary = _fronts[hw]
 		if f["timer"] <= 0.0:
@@ -633,6 +666,10 @@ func _shoot() -> void:
 				wasted_shots += 1
 		SimTable.Kind.BACKROOM:
 			club.backroom()
+		SimTable.Kind.CRATE:
+			_shoot_crate(shot)
+		SimTable.Kind.CHAIR:
+			_shoot_chair(shot)
 
 
 ## The Staircase mouth: a SPEED gate, not a switch. A shot with the pace climbs, pays the
@@ -650,6 +687,42 @@ func _shoot_staircase(shot: Dictionary) -> void:
 
 static func _reel_column(id: StringName) -> int:
 	return maxi(String(id).right(1).to_int() - 1, 0)
+
+
+## A container stack on the quay: two crates deep, each one paying, the stack re-arming on its
+## own clock (`ContainerStacks`). The smuggling MODES are FLOW-3 — this is the switch money
+## the hardware already pays today.
+func _shoot_crate(shot: Dictionary) -> void:
+	var i := _reel_column(shot["id"])
+	var left := int(_crates.get(i, SimTable.CRATES_PER_STACK))
+	if left <= 0:
+		wasted_shots += 1
+		return
+	left -= 1
+	_crates[i] = left
+	_earn(&"smuggling", shot["base_big"], shot["id"])
+	if left <= 0:
+		_crate_reset[i] = SimTable.CRATE_RESET_SEC
+
+
+## One of the five Commission chairs. A chair already taken scores nothing at all (TargetBank
+## returns early), and the bank re-arms once the whole table is seated.
+func _shoot_chair(shot: Dictionary) -> void:
+	var idx := _rng.randi() % SimTable.PENTHOUSE_CHAIRS
+	if _rng.randf() < profile.target_discipline:
+		var live: PackedInt32Array = []
+		for i in SimTable.PENTHOUSE_CHAIRS:
+			if not _chairs.has(i):
+				live.append(i)
+		if not live.is_empty():
+			idx = live[_rng.randi() % live.size()]
+	if _chairs.has(idx):
+		wasted_shots += 1
+		return
+	_chairs[idx] = true
+	_earn(&"penthouse", shot["base_big"], StringName("commission_chairs_%d" % (idx + 1)))
+	if _chairs.size() >= SimTable.PENTHOUSE_CHAIRS:
+		_chair_reset = SimTable.CHAIR_RESET_SEC
 
 
 ## The single money path, plus the switch event the flow lane forwards to Jobs.

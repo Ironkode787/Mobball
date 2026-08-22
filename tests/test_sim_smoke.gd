@@ -162,6 +162,19 @@ func _m2_constants(t: TestCtx) -> void:
 	t.near(WireDraws.EXACT_MULT, 80.0, 1e-9, "an exact Wire number pays ×80")
 	t.near(WireDraws.LAST_DIGIT_MULT, 6.0, 1e-9, "a last-digit Wire number pays ×6")
 
+	# --- M3 geometry that already pays through TableScore (specs/m3-fall-rise.md TABLE-3) ---
+	t.near(SimTable.SMUGGLING_CRATE, TableScore.SMUGGLING_CONTAINER, 1e-9,
+			"a crate pays what the table says")
+	t.near(SimTable.PENTHOUSE_CHAIR, TableScore.PENTHOUSE_CHAIR, 1e-9,
+			"a chair pays what the table says")
+	t.eq(SimTable.CRATE_STACKS, ContainerStacks.STACKS, "three stacks on the quay")
+	t.eq(SimTable.CRATES_PER_STACK, ContainerStacks.PER_STACK, "two crates a stack")
+	t.near(SimTable.CRATE_RESET_SEC, ContainerStacks.new().reset_seconds, 1e-9,
+			"a stack comes back up on the quay's own clock")
+	t.eq(SimTable.PENTHOUSE_CHAIRS,
+			Penthouse.CHAIR_ROW_A_X.size() + Penthouse.CHAIR_ROW_B_X.size(),
+			"five chairs at the long table")
+
 
 func _profiles_load(t: TestCtx) -> void:
 	var all := SimProfile.load_all()

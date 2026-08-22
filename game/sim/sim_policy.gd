@@ -46,6 +46,8 @@ const MENU_HARDWARE: Array[StringName] = [
 	# M2, the Club: the deck is a whole second menu, and every one of these changes it.
 	&"staircase_ramp", &"club_deck", &"roulette_wheel", &"slot_reels", &"high_roller_saucer",
 	&"backroom_saucer", &"club_flippers", &"kickback_right",
+	# M3 geometry that already pays (specs/m3-fall-rise.md TABLE-3).
+	&"containers", &"orbit_right", &"commission_chairs",
 ]
 ## Reel hits a Jackpot costs: three columns, three targets deep, inside one deck visit.
 const JACKPOT_HITS := float(SimTable.SLOT_COLUMNS * SimTable.SLOT_ROWS)
@@ -362,13 +364,17 @@ func _club_projection(table: SimTable, stats: Stats, rank: int, shots: float,
 	var clean := BigMoney.zero()
 	var idle := stats.idle_rate_total()
 
-	# The courtesy switches: the wheel's pocket and every reel target that was there to drop.
+	# The courtesy switches: the wheel's pocket, every reel target that was there to drop, and
+	# the Penthouse chairs upstairs. Banks pay only when something is still standing.
 	for row in table.deck.shots:
 		var base: BigMoney = row["base_big"]
 		if not base.is_positive():
 			continue
 		var n := deck_shots * float(row["weight"]) / maxf(table.deck.total_weight, 0.0001)
 		var value := base.add(stats.value_add(row["group"])).mul(stats.value_mult(row["group"]))
+		var kind := int(row["kind"])
+		if kind == SimTable.Kind.REEL or kind == SimTable.Kind.CHAIR:
+			value = value.mul(_useful_share())
 		dirty = dirty.add(value.mul(n * heat_mult))
 
 	# The bet. Five of eight pockets pay `payout`× the stake; Influence buys pockets and
@@ -495,6 +501,9 @@ func _value_per_shot(row: Dictionary, stats: Stats, night_seconds: float, shots_
 			# Only a shot with the pace up the corridor pays the climb; the rest carry on past
 			# the mouth and are worth nothing at all.
 			return base.add(add).mul(mult * _climb_chance(stats))
+		SimTable.Kind.CRATE:
+			# Two crates a stack, and a shot at a cleared stack hits the quay.
+			return base.add(add).mul(mult * _useful_share())
 	return base.add(add).mul(mult)
 
 

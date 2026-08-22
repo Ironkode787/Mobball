@@ -204,6 +204,15 @@ static func findings(careers: Dictionary, catalog: Upgrades) -> PackedStringArra
 		out.append("%s: ☆%d over %d Nights (%.0f/Night) — %s" % [
 				id, s.respect, c.nights_played,
 				float(s.respect) / maxf(float(c.nights_played), 1.0), _respect_mix(s)])
+		var by_shot := BigMoney.zero()
+		for g: Variant in c.by_group:
+			by_shot = by_shot.add(c.by_group[g])
+		var off_shot := _career_dirty(c).sub_clamped(by_shot).sub_clamped(s.total_idle)
+		if off_shot.is_positive():
+			out.append("%s: %s of career dirty (%s) arrived without a switch closing — mode "
+					% [id, off_shot.text(), _pct(off_shot, _career_dirty(c))]
+					+ "payouts: the Collection Round's double, a Wire draw, a casino win with "
+					+ "the Wash unbought")
 		var top := _top_group(c)
 		if not top.is_empty():
 			out.append("%s: %s alone is %.0f%% of career dirty (%s of %s)" % [

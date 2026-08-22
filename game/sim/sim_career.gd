@@ -38,6 +38,10 @@ var active_seconds: float = 0.0
 ## …and over the last day only, which is the fair comparison against the end-state idle rate.
 var last_day_dirty: BigMoney = BigMoney.zero()
 var last_day_seconds: float = 0.0
+## Career dirty per group as the SHOTS paid it. `state.total_by_group` is the same tally taken
+## off the money path, which also contains payouts no shot produced — a Collection Round's
+## double, a Wire draw, a casino win with the Wash unbought. The gap between the two is
+## exactly "money that arrived without a switch closing", and the report quotes it.
 var by_group: Dictionary = {}
 var shots_fired: int = 0
 var wasted_shots: int = 0

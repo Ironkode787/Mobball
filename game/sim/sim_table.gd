@@ -17,6 +17,10 @@ enum Kind {
 	# M2, the Club (specs/m2-content.md §1): the Staircase downstairs, and the deck's own
 	# menu upstairs. A deck row is only ever picked from `SimTable.deck`.
 	RAMP, ROULETTE, REEL, HIGH_ROLLER, BACKROOM,
+	# M3 geometry that already pays through TableScore (specs/m3-fall-rise.md TABLE-3). The
+	# MODES that make these rooms mean something — smuggling runs, the Sit-Down, claiming
+	# chairs across Nights — are FLOW-3 and not written yet, so these are plain switches.
+	CRATE, CHAIR,
 }
 
 # --- mirrors of Spinner (game/table/hardware/spinner.gd) --------------------------
@@ -40,6 +44,19 @@ const ORBIT := 500.0
 const RAMP_CLIMB := 750.0
 const CASINO_POCKET := 100.0
 const CASINO_REEL := 100.0
+## M3 (TableScore.SMUGGLING_CONTAINER / PENTHOUSE_CHAIR): a crate on the quay and a chair in
+## the Penthouse. Both pay today — `ContainerStacks` and the Penthouse's `TargetBank` call
+## TableScore directly — so the sim has to see them or the T5/T6 nodes read as pure idle.
+const SMUGGLING_CRATE := 400.0
+const PENTHOUSE_CHAIR := 2000.0
+## Three stacks, two crates deep, each stack on its own 6 s re-arm (`ContainerStacks`).
+const CRATE_STACKS := 3
+const CRATES_PER_STACK := 2
+const CRATE_RESET_SEC := 6.0
+## Five chairs around the long table, and the bank re-arms 8 s after the last one goes down.
+## `complete_value` is 0 — claiming the Commission is FLOW-3's, not the bank's.
+const PENTHOUSE_CHAIRS := 5
+const CHAIR_RESET_SEC := 8.0
 ## Mirrors `Storefront.open_seconds` / `rearm_seconds` and `TargetBank.reset_seconds`.
 const STOREFRONT_OPEN_SEC := 6.0
 const STOREFRONT_REARM_SEC := 20.0
@@ -86,6 +103,11 @@ const W_ORBIT := 0.9
 ## CLIMBS is a separate speed gate (`SimProfile.stair_take`) — this is only how often a ball
 ## is pointed at it.
 const W_RAMP := 0.4
+## Per container stack. The yard is behind a one-way gate off the numbers lane, so getting in
+## is an aimed shot; once in, the crates are the only thing there.
+const W_CRATE := 1.3
+## Per chair, upstairs in the Penthouse. Five standups around a long table in a quiet room.
+const W_CHAIR := 0.8
 
 # --- the deck's own menu (upstairs) ------------------------------------------------
 ## The wheel is the deck's sink: the ceiling channel runs out of guide above it, so every lap
@@ -260,6 +282,12 @@ func _build(stats: Stats, profile: SimProfile, catalog: Upgrades) -> void:
 					profile.affinity_for(&"storefronts"))
 	if stats.hardware_unlocked(&"orbit_left"):
 		_add(Kind.ORBIT, &"orbit_left", &"orbit", ORBIT, W_ORBIT, profile.affinity_for(&"orbit"))
+	if stats.hardware_unlocked(&"orbit_right"):
+		_add(Kind.ORBIT, &"orbit_right", &"orbit", ORBIT, W_ORBIT, profile.affinity_for(&"orbit"))
+	if stats.hardware_unlocked(&"containers"):
+		for i in CRATE_STACKS:
+			_add(Kind.CRATE, StringName("containers_%d" % (i + 1)), &"smuggling", SMUGGLING_CRATE,
+					W_CRATE, profile.affinity_for(&"smuggling"))
 	if stats.hardware_unlocked(&"staircase_ramp"):
 		_add(Kind.RAMP, &"staircase_ramp", &"ramps", RAMP_CLIMB, W_RAMP,
 				profile.affinity_for(&"ramps"))
@@ -318,6 +346,12 @@ func _build_deck(stats: Stats, profile: SimProfile) -> void:
 	if stats.hardware_unlocked(&"backroom_saucer"):
 		_add(Kind.BACKROOM, &"backroom_saucer", &"casino", 0.0, W_BACKROOM,
 				profile.affinity_for(&"saucers"))
+	# The Penthouse sits above the Club and its stairs run off the deck, so its chairs are
+	# reachable from a deck visit and from nowhere else.
+	if stats.hardware_unlocked(&"commission_chairs"):
+		for i in PENTHOUSE_CHAIRS:
+			_add(Kind.CHAIR, StringName("commission_chairs_%d" % (i + 1)), &"penthouse",
+					PENTHOUSE_CHAIR, W_CHAIR, profile.affinity_for(&"penthouse"))
 	_index()
 
 
