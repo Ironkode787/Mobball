@@ -349,7 +349,7 @@ func _physics_process(_delta: float) -> void:
 
 
 func _on_staircase_crested(speed: float) -> void:
-	AudioDirector.play(&"skill_shot_ding")
+	AudioDirector.play(&"staircase_crest")
 	TableScore.earn(TableScore.GROUP_RAMPS, TableScore.RAMP_CLIMB, ID_STAIRCASE, _ball, speed)
 	staircase_climbed.emit(speed)
 

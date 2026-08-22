@@ -96,7 +96,7 @@ func _on_dropped(target: DropTarget) -> void:
 	if not column_is_clear(col):
 		return
 	_reset_in[col] = reset_seconds
-	AudioDirector.play(&"drop_bank_down")
+	AudioDirector.play(&"reel_stop")
 	column_cleared.emit(col)
 	state_changed.emit(cleared_columns())
 
