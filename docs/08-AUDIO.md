@@ -124,7 +124,8 @@ The stem-growth *structure* is identical in every city, so the player's audio li
 
 ## 8. Deliverable checklist (audio)
 
-- [ ] `ASSETS.md` manifest with license + credit per file (enforced by import script)
+- [x] Provenance: everything synthesized in-house by `tools/audiogen` (deterministic,
+      byte-identical builds); `assets/audio/MANIFEST.txt` is the manifest. Nothing to license.
 - [ ] Stem stack city 1 (8 stems, loop-cut, level-matched) + state snapshots (calm/hot/raid/count/legit)
 - [ ] ~90 SFX events (list above → event map), velocity layers where physical
 - [ ] Haptics map (7 patterns, [07-ART](07-ART-DIRECTION.md) §7)

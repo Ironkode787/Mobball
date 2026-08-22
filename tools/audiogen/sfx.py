@@ -27,8 +27,8 @@ import numpy as np
 
 from .synth import (
 	SR, add_at, bandpass, biquad, comb_ff, dc_remove, exp_decay, expline, fade_edges,
-	highpass, lowpass, modal, n_of, noise, normalize_peak, perc_env, phase_of, rng,
-	room, sine, sweep_filter, t_axis,
+	lowpass, modal, n_of, noise, normalize_peak, perc_env, phase_of, rng, room, sine,
+	sweep_filter, t_axis,
 )
 
 # Contact time of a real striker is ~0.1 ms; ramping the exciter over that keeps the

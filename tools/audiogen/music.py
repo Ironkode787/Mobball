@@ -27,7 +27,7 @@ from . import theory as th
 from .synth import (
 	SR, add_at, asr_env, bandpass, bl_pulse, bl_saw, blend, chorus, circular_bandpass,
 	comb_ff, db2lin, dc_remove, exp_decay, expline, fm, fold_tail, formants, highpass,
-	karplus_strong, lowpass, modal, n_of, noise, pan, perc_env, phase_of, rms, rng,
+	karplus_strong, lowpass, modal, n_of, noise, pan, perc_env, phase_of, rng,
 	smoothstep, soft_limit, stereo_room, sweep_filter, t_axis, unit, widen,
 )
 
@@ -68,6 +68,16 @@ def periodic_lfo(target_hz: float, phase: float = 0.0, n: int = TOTAL) -> np.nda
 
 def _place(left: np.ndarray, right: np.ndarray, mono: np.ndarray, start: int,
            gain: float = 1.0, position: float = 0.0) -> None:
+	"""Mix a note into the stereo pair, panned.
+
+	A note whose humanised timing lands *before* bar 1 belongs to the end of the loop,
+	not to sample 0: placing it at ``start + N`` lets it ring past the loop end and fold
+	back onto the head, which is where it would be if the loop were really playing. Just
+	clipping it to zero instead leaves the head starting mid-attack — a step at sample 0
+	that reads as a click on every repeat.
+	"""
+	if start < 0:
+		start += N
 	l, r = pan(mono, position)
 	add_at(left, l, start, gain)
 	add_at(right, r, start, gain)
@@ -209,11 +219,14 @@ def stem_drums() -> tuple[np.ndarray, np.ndarray]:
 			vel = 0.85 if beat == 1.0 else 0.66
 			_place(left, right, _kick(kick_n, gen), start, vel * 0.85, 0.0)
 
-	# Brush bed 20 dB under the kit — matched by RMS, since a noise wash and a stick
-	# hit with the same peak are nowhere near the same loudness.
-	bed_gain = rms(left[:N]) * db2lin(-20.0) / (rms(_brush_bed(rng("brush_l"), 0)) + 1e-12)
-	left[:N] += _brush_bed(rng("brush_l"), 0) * bed_gain
-	right[:N] += _brush_bed(rng("brush_r"), 1) * bed_gain
+	# Brush bed 20 dB under the kit's peak: a continuous wash sitting a dozen dB under
+	# the sticks, which is what a pair of brushes on a coated head actually sounds like.
+	bed_l = _brush_bed(rng("brush_l"), 0)
+	bed_r = _brush_bed(rng("brush_r"), 1)
+	kit_peak = float(np.max(np.abs(left[:N])))
+	bed_gain = kit_peak * db2lin(-20.0) / (float(np.max(np.abs(bed_l))) + 1e-12)
+	left[:N] += bed_l * bed_gain
+	right[:N] += bed_r * bed_gain
 
 	left, right = stereo_room(left, right, wet=0.13, rt60=0.85, predelay=0.012, damp_hz=7200.0)
 	return highpass(left, 32.0, 2), highpass(right, 32.0, 2)
@@ -230,7 +243,7 @@ def _vibe_note(f: float, n: int, velocity: float) -> np.ndarray:
 	tone += 0.20 * np.sin(phase_of(f * 4.0, n)) * exp_decay(n, 0.42)
 	tone += 0.10 * np.sin(phase_of(f * 9.2, n)) * exp_decay(n, 0.14)
 	env = perc_env(n, 0.0025, 0.62, 1.0) * asr_env(n, 0.001, 0.08, 2.0)
-	return tone * env * velocity
+	return unit(tone * env, velocity)
 
 
 def stem_vibes() -> tuple[np.ndarray, np.ndarray]:
@@ -278,17 +291,17 @@ def _trumpet_note(f: float, n: int, velocity: float, wah: bool,
 	tone = bl_saw(freq, cap=40)
 	tone = highpass(tone, f * 0.85, order=2)
 	tone = comb_ff(tone, 1.0 / 640.0, 0.55)            # cup of the mute
-	voiced = formants(tone, [(1880.0, 3.4, 1.00), (920.0, 2.4, 0.52), (3320.0, 4.0, 0.34)])
+	voiced = formants(tone, [(1880.0, 3.4, 1.00), (920.0, 2.4, 0.60), (3320.0, 4.0, 0.22)])
 	if wah:
 		# slow bandpass sweep: open, peak, close
 		half = n // 2
 		centre = np.concatenate([expline(half, 520.0, 2250.0),
 		                         expline(n - half, 2250.0, 760.0)])
 		voiced = 0.45 * voiced + 1.15 * sweep_filter(tone, centre, q=3.2, kind="bp")
-	air = bandpass(noise(n, gen), 2200.0, 6500.0, order=2) * 0.045
 	env = asr_env(n, 0.042, 0.075, 1.6) * (1.0 - 0.06 * np.sin(2.0 * np.pi * 5.4 * t))
+	air = bandpass(noise(n, gen), 2200.0, 6500.0, order=2) * env
 	blip = 1.0 + 0.35 * np.exp(-t / 0.02)              # the pip of the tongue
-	return (voiced + air * env) * env * blip * velocity
+	return unit(blend(voiced, air, 0.10) * env * blip, velocity)
 
 
 def stem_trumpet() -> tuple[np.ndarray, np.ndarray]:
@@ -312,14 +325,16 @@ def stem_trumpet() -> tuple[np.ndarray, np.ndarray]:
 
 def _organ_voice(f: float, n: int, velocity: float, gen: np.random.Generator) -> np.ndarray:
 	"""Drawbars 16' 8' 4' 2-2/3' plus the key click of a real contact."""
-	drawbars = [(0.5, 0.85), (1.0, 1.00), (2.0, 0.55), (3.0, 0.32)]
+	# 16' 8' 4' 2-2/3'. The 16' is deliberately restrained: at this voicing it sits
+	# right on top of the upright bass and turns the low mid to mud if you draw it out.
+	drawbars = [(0.5, 0.45), (1.0, 1.00), (2.0, 0.72), (3.0, 0.48)]
 	out = np.zeros(n)
 	for ratio, gain in drawbars:
 		out += gain * np.sin(phase_of(f * ratio, n, phase0=float(gen.uniform(0, 6.28))))
 	click = np.zeros(n)
 	ck = min(n, n_of(0.004))
-	click[:ck] = noise(ck, gen) * np.exp(-np.linspace(0.0, 5.0, ck)) * 0.07
-	return (out * 0.25 + click) * velocity
+	click[:ck] = noise(ck, gen) * np.exp(-np.linspace(0.0, 5.0, ck))
+	return unit(blend(out, click, 0.18), velocity)
 
 
 def stem_organ() -> tuple[np.ndarray, np.ndarray]:
@@ -354,7 +369,7 @@ def stem_organ() -> tuple[np.ndarray, np.ndarray]:
 	right = np.interp(np.clip(np.cumsum(2.0 - doppler), 0, TOTAL - 1.001), base, right)
 
 	left, right = stereo_room(left, right, wet=0.15, rt60=1.0, predelay=0.015, damp_hz=5600.0)
-	return highpass(left, 55.0, 2), highpass(right, 55.0, 2)
+	return highpass(left, 95.0, 2), highpass(right, 95.0, 2)
 
 
 # ================================================================= 06 — barisax
@@ -372,11 +387,11 @@ def _sax_note(f: float, n: int, velocity: float, gen: np.random.Generator) -> np
 	tone = bl_saw(f * vib * scoop, cap=56)
 	tone = lowpass(tone, 2600.0, order=2)
 	voiced = formants(tone, [(470.0, 3.0, 1.00), (1180.0, 4.0, 0.62)]) + 0.35 * tone
-	breath = bandpass(noise(n, gen), 1600.0, 6500.0, order=2)
-	breath *= 0.055 + 0.10 * np.exp(-t / 0.035)
+	breath = bandpass(noise(n, gen), 1400.0, 5200.0, order=2)
+	breath *= 0.4 + 1.0 * np.exp(-t / 0.035)
 	growl = 1.0 + 0.07 * np.sin(2.0 * np.pi * 31.0 * t)
 	env = asr_env(n, 0.028, 0.075, 1.5)
-	return (voiced + breath) * env * growl * velocity
+	return unit(blend(voiced, breath, 0.12) * env * growl, velocity)
 
 
 def stem_barisax() -> tuple[np.ndarray, np.ndarray]:
@@ -457,7 +472,7 @@ def _brass_note(f: float, n: int, velocity: float, gen: np.random.Generator) -> 
 	voiced += 0.4 * out
 	env = asr_env(n, 0.026, 0.12, 1.5)
 	bite = 1.0 + 0.5 * np.exp(-t / 0.03)
-	return voiced * env * bite * velocity
+	return unit(voiced * env * bite, velocity)
 
 
 def _timpani(f: float, n: int, velocity: float, gen: np.random.Generator) -> np.ndarray:
@@ -469,8 +484,8 @@ def _timpani(f: float, n: int, velocity: float, gen: np.random.Generator) -> np.
 	taus = [0.70, 0.50, 0.38, 0.28, 0.20, 0.14]
 	gains = [1.00, 0.60, 0.42, 0.30, 0.20, 0.12]
 	drum = modal(exc, [(f * r, tau, g) for r, tau, g in zip(ratios, taus, gains)])
-	head = lowpass(noise(n, gen), 700.0, order=2) * perc_env(n, 0.001, 0.030, 1.4) * 0.18
-	return (drum + head) * velocity * asr_env(n, 0.001, 0.05, 2.0)
+	head = lowpass(noise(n, gen), 700.0, order=2) * perc_env(n, 0.001, 0.030, 1.4)
+	return unit(blend(drum, head, 0.20) * asr_env(n, 0.001, 0.05, 2.0), velocity)
 
 
 def _choir_note(f: float, n: int, velocity: float, gen: np.random.Generator) -> np.ndarray:
@@ -491,7 +506,7 @@ def _choir_note(f: float, n: int, velocity: float, gen: np.random.Generator) -> 
 	env[:a] = smoothstep(a)
 	r = min(n - a, n_of(0.45))
 	env[n - r:] *= (0.5 + 0.5 * np.cos(np.linspace(0.0, np.pi, r))) ** 1.3
-	return (voiced + breath * env) * env * velocity
+	return unit(blend(voiced, breath * env, 0.10) * env, velocity)
 
 
 def stem_full() -> tuple[np.ndarray, np.ndarray]:
@@ -506,9 +521,9 @@ def stem_full() -> tuple[np.ndarray, np.ndarray]:
 		for i, name in enumerate(voicing):
 			f = th.freq(name, _detune(gen, 3.0))
 			_place(left, right, _brass_note(f, n, 0.95 - 0.05 * i, gen),
-			       start + int(gen.integers(-70, 70)), 0.22, -0.5 + 0.33 * i)
+			       start + int(gen.integers(-70, 70)), 0.52, -0.5 + 0.33 * i)
 		# root an octave down, centred, for the floor of the stab
-		_place(left, right, _brass_note(th.freq(voicing[0]) * 0.5, n, 0.7, gen), start, 0.16, 0.0)
+		_place(left, right, _brass_note(th.freq(voicing[0]) * 0.5, n, 0.7, gen), start, 0.34, 0.0)
 
 	# timpani roll on D through bar 8, crescendo into the turnaround
 	roll_start = th.beat_time(th.bar_beat(8, 1.0))
@@ -521,9 +536,9 @@ def stem_full() -> tuple[np.ndarray, np.ndarray]:
 		t0 = roll_start + (roll_end - roll_start) * frac
 		vel = (0.22 + 0.78 * frac ** 1.4) * (1.0 if s % 2 == 0 else 0.82)
 		start = int(round(t0 * SR)) + int(gen.integers(-120, 120))
-		_place(left, right, _timpani(f_timp, tn, vel, gen), start, 0.30, 0.0)
+		_place(left, right, _timpani(f_timp, tn, vel, gen), start, 0.16, 0.0)
 	# and the hit that lands on the downbeat of the next time around
-	_place(left, right, _timpani(f_timp, n_of(1.1), 1.0, gen), N, 0.34, 0.0)
+	_place(left, right, _timpani(f_timp, n_of(1.1), 1.0, gen), N, 0.20, 0.0)
 
 	# choir "ah" across bars 7-8, resolving over the loop point
 	for bar, extra in ((7, 0.0), (8, 0.45)):
@@ -532,7 +547,7 @@ def stem_full() -> tuple[np.ndarray, np.ndarray]:
 		for i, name in enumerate(th.voicing_of_bar(bar)):
 			f = th.freq(name, _detune(gen, 5.0))
 			_place(left, right, _choir_note(f, n, 0.55 - 0.04 * i, gen),
-			       start, 0.30, -0.45 + 0.30 * i)
+			       start, 0.46, -0.45 + 0.30 * i)
 
 	left, right = widen(left, right, 0.22)
 	left, right = stereo_room(left, right, wet=0.19, rt60=1.25, predelay=0.016, damp_hz=5400.0)
@@ -565,7 +580,16 @@ def render_stem(name: str) -> np.ndarray:
 	stereo = np.stack([fold_tail(left, N), fold_tail(right, N)], axis=1)
 	assert stereo.shape[0] == N, "fold produced the wrong frame count"
 
-	measured = lufs_integrated(stereo, SR)
-	if measured > -180.0:
-		stereo = stereo * db2lin(STEM_LUFS[name] - measured)
-	return limit_peak(stereo, PEAK_CEILING_DB)
+	# Hit the loudness target *through* the limiter: scaling to target and then clipping
+	# the peaks back (which is what a plain peak-normalise does) leaves a transient stem
+	# like the drums 8 dB under everything else. Converges in two or three passes.
+	target = STEM_LUFS[name]
+	for _ in range(6):
+		measured = lufs_integrated(stereo, SR)
+		if measured <= -180.0:
+			break
+		error = target - measured
+		stereo = soft_limit(stereo * db2lin(error), PEAK_CEILING_DB, knee_db=7.0)
+		if abs(error) < 0.1:
+			break
+	return stereo

@@ -11,7 +11,6 @@ nobody is listening to CI.
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 import time
 from pathlib import Path
@@ -26,9 +25,9 @@ if __package__ in (None, ""):                      # allow `python3 tools/audiog
 from . import music, sfx  # noqa: E402
 from . import theory as th  # noqa: E402
 from .analysis import (  # noqa: E402
-	describe, loop_report, lufs_integrated, peak_db, pitch_autocorr, rms_db, sanity,
+	describe, loop_report, lufs_integrated, peak_db, pitch_autocorr, sanity,
 )
-from .synth import SR, db2lin, n_of, rng  # noqa: E402
+from .synth import SR, n_of, rng, soft_limit  # noqa: E402
 
 # libsndfile's compression_level runs 0 (best quality) .. 1 (smallest);
 # Vorbis quality = 1 - compression_level, so this is the spec's ~q0.6.
@@ -42,6 +41,49 @@ LOOP_EDGE_RMS_MIN = 0.02       # both ends must actually be ringing, not faded t
 
 class Failure(Exception):
 	pass
+
+
+# ------------------------------------------------- reproducible Ogg containers
+
+# libsndfile seeds each Ogg bitstream's serial number randomly, so two runs produce
+# byte-different files carrying bit-identical audio. That breaks "running twice produces
+# identical files" and makes every regeneration a noisy diff in git. Rewriting the serial
+# to a fixed value and recomputing each page's checksum fixes it; the result is an
+# ordinary, valid Ogg stream.
+OGG_SERIAL = 0x4B494E47  # "KING"
+
+_OGG_CRC_TABLE: list[int] = []
+for _i in range(256):
+	_r = _i << 24
+	for _ in range(8):
+		_r = ((_r << 1) ^ 0x04C11DB7) & 0xFFFFFFFF if _r & 0x80000000 else (_r << 1) & 0xFFFFFFFF
+	_OGG_CRC_TABLE.append(_r)
+
+
+def _ogg_crc(page: memoryview) -> int:
+	"""Ogg's CRC-32: poly 0x04c11db7, init 0, no reflection, no final xor."""
+	crc = 0
+	table = _OGG_CRC_TABLE
+	for byte in page:
+		crc = ((crc << 8) & 0xFFFFFFFF) ^ table[((crc >> 24) & 0xFF) ^ byte]
+	return crc
+
+
+def canonicalise_ogg(path: Path, serial: int = OGG_SERIAL) -> None:
+	data = bytearray(path.read_bytes())
+	pos = 0
+	end = len(data)
+	while pos < end:
+		if bytes(data[pos:pos + 4]) != b"OggS":
+			raise Failure(f"{path.name}: not an Ogg page at offset {pos}")
+		segments = data[pos + 26]
+		page_len = 27 + segments + sum(data[pos + 27: pos + 27 + segments])
+		data[pos + 14: pos + 18] = serial.to_bytes(4, "little")
+		data[pos + 22: pos + 26] = b"\x00\x00\x00\x00"
+		crc = _ogg_crc(memoryview(data)[pos: pos + page_len])
+		data[pos + 22: pos + 26] = crc.to_bytes(4, "little")
+		pos += page_len
+	path.write_bytes(bytes(data))
 
 
 # ------------------------------------------------------------------ file output
@@ -63,6 +105,7 @@ def write_ogg(path: Path, stereo: np.ndarray) -> tuple[dict, np.ndarray]:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	sf.write(str(path), stereo.astype(np.float32), SR, format="OGG", subtype="VORBIS",
 	         compression_level=VORBIS_COMPRESSION)
+	canonicalise_ogg(path)
 	back, sr = sf.read(str(path), dtype="float64", always_2d=True)
 	if sr != SR:
 		raise Failure(f"{path.name}: wrote {sr} Hz")
@@ -122,8 +165,7 @@ def render_music(out_dir: Path) -> tuple[list[dict], np.ndarray]:
 		      f"LUFS {info['lufs']:6.1f}  centroid {info['centroid_hz']:6.0f} Hz  "
 		      f"seam {info['wrap_ratio']:4.2f}x  {info['bytes'] / 1024:6.1f} KiB")
 
-	from .synth import limit_peak
-	preview = limit_peak(mix, PEAK_CEILING_DB)
+	preview = soft_limit(mix, PEAK_CEILING_DB, knee_db=7.0)
 	info, decoded = write_ogg(out_dir / "99_preview_full.ogg", preview)
 	rows.append(info)
 	print(f"  mix  {'99_preview_full':<12} {info['seconds']:6.3f}s  peak {info['peak_db']:6.2f} dB  "
@@ -174,7 +216,7 @@ def verify_stem_lengths(paths: list[Path]) -> None:
 
 
 def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
-                   tuning: list[tuple[str, float, float, float]], seconds: float) -> None:
+                   tuning: list[tuple[str, float, float, float]]) -> None:
 	lines: list[str] = []
 	add = lines.append
 	add("KINGPIN — generated audio manifest")
@@ -243,7 +285,6 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 	grand = sum(r["bytes"] for r in sfx_rows + music_rows)
 	add(f"TOTAL COMMITTED AUDIO: {grand / 1024 / 1024:.2f} MiB "
 	    f"({len(sfx_rows)} SFX + {len(music_rows)} music files)")
-	add(f"Generated in {seconds:.1f} s.")
 	path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -291,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
 	elapsed = time.time() - started
 	manifest = out / "MANIFEST.txt"
 	if args.only is None:
-		write_manifest(manifest, sfx_rows, music_rows, tuning, elapsed)
+		write_manifest(manifest, sfx_rows, music_rows, tuning)
 		print(f"\nmanifest -> {manifest}")
 	total = sum(r["bytes"] for r in sfx_rows + music_rows)
 	print(f"total committed audio: {total / 1024 / 1024:.2f} MiB in {elapsed:.1f} s")

@@ -46,10 +46,6 @@ def db2lin(db: float) -> float:
 	return float(10.0 ** (db / 20.0))
 
 
-def lin2db(x: float) -> float:
-	return float(20.0 * math.log10(max(abs(x), 1e-12)))
-
-
 def n_of(seconds: float, sr: int = SR) -> int:
 	return int(round(seconds * sr))
 
@@ -74,16 +70,6 @@ def perc_env(n: int, attack: float, tau: float, curve: float = 1.0, sr: int = SR
 	return env
 
 
-def ad_env(n: int, attack: float, decay: float, sr: int = SR) -> np.ndarray:
-	"""Linear-ish attack / smooth decay to zero. Always ends at exactly 0."""
-	a = min(max(1, n_of(attack, sr)), n)
-	d = max(1, n - a)
-	env = np.empty(n)
-	env[:a] = np.linspace(0.0, 1.0, a) ** 1.5
-	env[a:] = np.cos(np.linspace(0.0, np.pi / 2.0, d)) ** 2.0
-	return env
-
-
 def asr_env(n: int, attack: float, release: float, curve: float = 2.0, sr: int = SR) -> np.ndarray:
 	"""Attack / sustain / release with smooth (raised-cosine) shoulders."""
 	a = min(max(1, n_of(attack, sr)), n)
@@ -93,10 +79,6 @@ def asr_env(n: int, attack: float, release: float, curve: float = 2.0, sr: int =
 	if r > 0:
 		env[n - r :] *= (0.5 + 0.5 * np.cos(np.linspace(0.0, np.pi, r))) ** curve
 	return env
-
-
-def line(n: int, v0: float, v1: float) -> np.ndarray:
-	return np.linspace(v0, v1, n)
 
 
 def expline(n: int, v0: float, v1: float) -> np.ndarray:
@@ -144,16 +126,6 @@ def bl_saw(freq: np.ndarray | float, n: int | None = None, phase0: float = 0.0,
 	return out * (2.0 / np.pi)
 
 
-def bl_square(freq: np.ndarray | float, n: int | None = None, phase0: float = 0.0,
-              cap: int = 32, sr: int = SR) -> np.ndarray:
-	ph = phase_of(freq, n, phase0, sr)
-	k_max = _harmonic_limit(freq, cap * 2, sr)
-	out = np.zeros_like(ph)
-	for k in range(1, k_max + 1, 2):
-		out += np.sin(k * ph) / k
-	return out * (4.0 / np.pi)
-
-
 def bl_pulse(freq: np.ndarray | float, n: int, duty: float = 0.3, phase0: float = 0.0,
              cap: int = 40, sr: int = SR) -> np.ndarray:
 	"""Band-limited pulse — two saws offset by the duty cycle."""
@@ -177,22 +149,6 @@ def fm(freq: np.ndarray | float, n: int, ratio: float, index: np.ndarray | float
 
 def noise(n: int, gen: np.random.Generator) -> np.ndarray:
 	return gen.standard_normal(n)
-
-
-def pink(n: int, gen: np.random.Generator) -> np.ndarray:
-	"""Pink-ish noise via a 3-pole Voss/Paul-Kellett filter."""
-	w = gen.standard_normal(n)
-	b = np.array([0.049922035, -0.095993537, 0.050612699, -0.004408786])
-	a = np.array([1.0, -2.494956002, 2.017265875, -0.522189400])
-	out = signal.lfilter(b, a, w)
-	return out / (np.std(out) + 1e-12)
-
-
-def impulse(n: int, at: int = 0, amp: float = 1.0) -> np.ndarray:
-	x = np.zeros(n)
-	if 0 <= at < n:
-		x[at] = amp
-	return x
 
 
 # ---------------------------------------------------------------------- filters
@@ -529,19 +485,6 @@ def normalize_peak(x: np.ndarray, target_db: float = -1.5) -> np.ndarray:
 	return x * (db2lin(target_db) / peak)
 
 
-def limit_peak(x: np.ndarray, ceiling_db: float = -1.5) -> np.ndarray:
-	"""Scale down only if the ceiling is exceeded (preserves a loudness ladder)."""
-	peak = float(np.max(np.abs(x)))
-	ceil = db2lin(ceiling_db)
-	if peak <= ceil or peak < 1e-9:
-		return x
-	return x * (ceil / peak)
-
-
-def rms(x: np.ndarray) -> float:
-	return float(np.sqrt(np.mean(np.square(x)))) if x.size else 0.0
-
-
 def unit(x: np.ndarray, level: float = 1.0) -> np.ndarray:
 	"""Scale to a known peak. Every instrument returns notes normalised this way so a
 	mix gain of 0.5 means "half as loud", not "half of whatever this happened to be"."""
@@ -569,10 +512,6 @@ def soft_limit(x: np.ndarray, ceiling_db: float = -1.5, knee_db: float = 6.0) ->
 	span = ceil - thr
 	y[over] = np.sign(x[over]) * (thr + span * np.tanh((a[over] - thr) / span))
 	return y
-
-
-def soft_clip(x: np.ndarray, drive: float = 1.0) -> np.ndarray:
-	return np.tanh(x * drive) / math.tanh(max(drive, 1e-6))
 
 
 def pan(x: np.ndarray, position: float = 0.0):
