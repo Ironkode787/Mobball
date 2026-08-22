@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "jobs": [
+    {
+      "id": "send_a_message",
+      "name": "Send a Message",
+      "desc": "Hit 6 bumpers inside 5 seconds.",
+      "respect": 5,
+      "check": "bumper_burst",
+      "params": {"count": 6, "window": 5.0},
+      "min_rank": 0
+    },
+    {
+      "id": "milk_run",
+      "name": "The Milk Run",
+      "desc": "Make 3 spinner passes with one guy.",
+      "respect": 8,
+      "check": "switch_count_one_ball",
+      "params": {"group": "spinner", "count": 3},
+      "min_rank": 1,
+      "requires_hardware": "spinner_numbers"
+    },
+    {
+      "id": "keep_it_quiet",
+      "name": "Keep It Quiet",
+      "desc": "Bank $2K dirty this Night without passing Heat 40.",
+      "respect": 10,
+      "check": "earn_under_heat",
+      "params": {"amount": "2K", "heat_max": 40},
+      "min_rank": 1
+    },
+    {
+      "id": "clean_hands",
+      "name": "Clean Hands",
+      "desc": "Launder $1K in a single Night.",
+      "respect": 10,
+      "check": "launder_total",
+      "params": {"amount": "1K"},
+      "min_rank": 1,
+      "requires_hardware": "laundromat_loop"
+    },
+    {
+      "id": "no_loose_ends",
+      "name": "No Loose Ends",
+      "desc": "Ring every rollover lane at least once tonight.",
+      "respect": 6,
+      "check": "switch_cover",
+      "params": {"group": "rollovers"},
+      "min_rank": 1,
+      "requires_hardware": "rollovers"
+    },
+    {
+      "id": "old_debts",
+      "name": "Old Debts",
+      "desc": "Keep your first guy alive for 3 minutes.",
+      "respect": 15,
+      "check": "ball_survival",
+      "params": {"seconds": 180},
+      "min_rank": 1
+    },
+    {
+      "id": "place_your_bets",
+      "name": "Place Your Bets",
+      "desc": "Knock down all 3 payphones twice tonight.",
+      "respect": 12,
+      "check": "bank_completions",
+      "params": {"group": "wire_bank", "count": 2},
+      "min_rank": 2,
+      "requires_hardware": "wire_bank"
+    },
+    {
+      "id": "shake_the_block",
+      "name": "Shake the Block",
+      "desc": "Collect all 3 storefronts with one guy.",
+      "respect": 20,
+      "check": "collect_all_one_ball",
+      "params": {"group": "storefronts"},
+      "min_rank": 3,
+      "requires_hardware": "storefront_pawn"
+    },
+    {
+      "id": "the_long_way",
+      "name": "The Long Way Around",
+      "desc": "Run the Getaway Loop 3 times with one guy.",
+      "respect": 15,
+      "check": "switch_count_one_ball",
+      "params": {"group": "orbit", "count": 3},
+      "min_rank": 3,
+      "requires_hardware": "orbit_left"
+    },
+    {
+      "id": "cool_head",
+      "name": "Cool Head",
+      "desc": "Bribe Officer Dooley while above Heat 70.",
+      "respect": 12,
+      "check": "bribe_above_heat",
+      "params": {"heat_min": 70},
+      "min_rank": 2,
+      "requires_hardware": "bribe_target"
+    }
+  ]
+}

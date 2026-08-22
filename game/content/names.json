@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "first": [
+    "Sal", "Enzo", "Frankie", "Vito", "Rocco", "Paulie", "Nico", "Carmine", "Lou", "Angelo",
+    "Bruno", "Dom", "Gino", "Marco", "Tony", "Joey", "Vinnie", "Mikey", "Sonny", "Rico",
+    "Rosa", "Franny", "Gia", "Lucia", "Connie", "Marie", "Tessa", "Dot", "Viv", "Stella",
+    "Moe", "Ziggy", "Otis", "Felix", "Ike", "Ernie", "Walt", "Gus", "Hal", "Bernie"
+  ],
+  "nick": [
+    "Two Shoes", "the Wrench", "Knuckles", "Little", "Big", "Fast", "Slow", "Lucky",
+    "the Fish", "Peanuts", "the Owl", "Two Flips", "Feets", "the Whisper", "Marbles",
+    "the Saint", "Snake Eyes", "the Umbrella", "Half-Dollar", "the Plumber", "Noodles",
+    "the Professor", "Sixpence", "the Milkman", "Rooftop", "Downtown", "the Comma",
+    "Meatball", "the Receipt", "Nickels"
+  ],
+  "last": [
+    "Moretti", "Falcone", "Bellini", "Costa", "Rizzo", "Greco", "Marino", "Conti",
+    "Lombardi", "Ferrara", "De Luca", "Romano", "Gallo", "Ricci", "Bruno",
+    "Kowalski", "O'Mara", "Doyle", "Brennan", "Sullivan", "Novak", "Weiss",
+    "Fontaine", "Baptiste", "Ortega", "Alvarez", "Kaminski", "Horowitz", "Papadakis", "Lindqvist"
+  ],
+  "nick_chance": 0.35,
+  "traits_m2": [
+    {"id": "heavy", "name": "Heavy", "desc": "+mass, smashes gates, slower"},
+    {"id": "lucky", "name": "Lucky", "desc": "+5% briefcase odds"},
+    {"id": "slippery", "name": "Slippery", "desc": "one free outlane escape per Night"},
+    {"id": "loud", "name": "Loud", "desc": "+10% dirty, +10% Heat"},
+    {"id": "careful", "name": "Careful", "desc": "-15% Heat"},
+    {"id": "fast", "name": "Fast", "desc": "+velocity cap, +value, harder to control"},
+    {"id": "old_timer", "name": "Old-Timer", "desc": "+Respect from Jobs"}
+  ]
+}

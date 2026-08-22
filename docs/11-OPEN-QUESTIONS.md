@@ -1,5 +1,24 @@
 # 11 — Open Questions & Proposals
 
+## DECISION RECORD (2026-08-22 — boss sign-off: "Agreed")
+
+The recommendations below were accepted as a package. Standing decisions:
+
+| # | Decision |
+|---|----------|
+| Q1 | Title: **KINGPIN — A Pinball Racket** (repo remains Mobball) |
+| Q2 | **Premium** (~€5), cosmetic city-skin packs later. No ads, no IAP progression |
+| Q3 | **Bench lite ships in the MVP** (M1); full Bench in M2 |
+| Q4 | **Eras-per-city confirmed** (1972 → 1927 → 1984 → 1899 → 1999) |
+| Q5 | Nudge: **gesture default, accelerometer opt-in** |
+| Q6 | Tone as designed (Teen, satire, fictional-currency gambling only) |
+| Q7 | **Godot 4.5** signed off |
+| NEW | **All audio is composed & synthesized in-house** (tools/audiogen) — no sourced samples anywhere. docs/08 amended. Art still uses the open-license pipeline of docs/07 |
+
+Original questions kept below for the record.
+
+---
+
 Decisions I'd like your call on before/during M0. My recommendation is marked ►.
 
 ## Q1 — Title

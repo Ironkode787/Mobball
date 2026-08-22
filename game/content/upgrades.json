@@ -1,0 +1,323 @@
+{
+  "schema": 1,
+  "nodes": [
+    {
+      "id": "muscle.real_plunger",
+      "branch": "muscle", "tier": 0,
+      "name": "A Real Plunger",
+      "flavor": "The rubber band goes back in the drawer. Progress.",
+      "cost": "50", "repeat": null, "requires": [],
+      "effects": [{"kind": "feature_flag", "target": "plunger_bands"}],
+      "table_change": "a brass plunger replaces the rubber band — launch power becomes chargeable"
+    },
+    {
+      "id": "rackets.trash_2",
+      "branch": "rackets", "tier": 0,
+      "name": "Second Trash Can",
+      "flavor": "Twice the garbage, twice the glory.",
+      "cost": "80", "repeat": null, "requires": [],
+      "effects": [{"kind": "unlock_hardware", "target": "bumper_2"}],
+      "table_change": "a second dented can joins the alley"
+    },
+    {
+      "id": "rackets.trash_3",
+      "branch": "rackets", "tier": 0,
+      "name": "Third Trash Can",
+      "flavor": "The classic triangle. Now it's a racket.",
+      "cost": "150", "repeat": null, "requires": ["rackets.trash_2"],
+      "effects": [{"kind": "unlock_hardware", "target": "bumper_3"}],
+      "table_change": "the bumper nest is complete"
+    },
+    {
+      "id": "muscle.corner_boys",
+      "branch": "muscle", "tier": 0,
+      "name": "Corner Boys",
+      "flavor": "Two guys, two folding chairs, remarkable reflexes.",
+      "cost": "220", "repeat": null, "requires": [],
+      "effects": [{"kind": "unlock_hardware", "target": "slingshots"}],
+      "table_change": "slingshots appear above the flippers"
+    },
+    {
+      "id": "muscle.guard_rails",
+      "branch": "muscle", "tier": 0,
+      "name": "Guard Rails",
+      "flavor": "Welded by a guy who owes us.",
+      "cost": "300", "repeat": null, "requires": ["muscle.corner_boys"],
+      "effects": [{"kind": "unlock_hardware", "target": "inlane_guides"}],
+      "table_change": "inlane guides tame the outlanes"
+    },
+    {
+      "id": "rackets.can_deposits",
+      "branch": "rackets", "tier": 0,
+      "name": "Can Deposits",
+      "flavor": "Every can pays a little more. Ask us how.",
+      "cost": "120", "repeat": {"max": 20, "growth": 1.15}, "requires": ["rackets.trash_2"],
+      "effects": [{"kind": "value_mult", "target": "bumpers", "value": 1.25, "per_level": true}],
+      "table_change": "the cans dent deeper and glow greedier"
+    },
+    {
+      "id": "muscle.fresh_rubbers",
+      "branch": "muscle", "tier": 0,
+      "name": "Fresh Rubbers",
+      "flavor": "Red ones. The fast kind.",
+      "cost": "200", "repeat": {"max": 3, "growth": 1.6}, "requires": [],
+      "effects": [{"kind": "flipper_power_mult", "value": 1.05, "per_level": true}],
+      "table_change": "flipper rubbers get fresher and angrier"
+    },
+    {
+      "id": "muscle.chalk_lines",
+      "branch": "muscle", "tier": 0,
+      "name": "Chalk Lines",
+      "flavor": "Somebody chalked the lanes. Now they count.",
+      "cost": "180", "repeat": null, "requires": [],
+      "effects": [{"kind": "unlock_hardware", "target": "rollovers"}],
+      "table_change": "rollover lanes light up at the top arch"
+    },
+
+    {
+      "id": "rackets.numbers_game",
+      "branch": "rackets", "tier": 1,
+      "name": "The Numbers Game",
+      "flavor": "A bicycle wheel, a chalkboard, and suddenly everyone's a mathematician.",
+      "cost": "2.5K", "repeat": null, "requires": ["rackets.trash_3"],
+      "reveal": {"rank": 1},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "spinner_numbers"},
+        {"kind": "idle_rate_add", "target": "numbers", "value": "2"}
+      ],
+      "table_change": "a bicycle-wheel spinner appears in the left lane"
+    },
+    {
+      "id": "rackets.fast_fingers",
+      "branch": "rackets", "tier": 1,
+      "name": "Fast Fingers",
+      "flavor": "The wheel spins faster when Feets does the spinning.",
+      "cost": "1.8K", "repeat": {"max": 15, "growth": 1.15}, "requires": ["rackets.numbers_game"],
+      "effects": [{"kind": "value_mult", "target": "spinner", "value": 1.3, "per_level": true}],
+      "table_change": "playing cards appear in the spokes"
+    },
+    {
+      "id": "rackets.paper_route",
+      "branch": "rackets", "tier": 1,
+      "name": "Paper Route",
+      "flavor": "More slips on the board. More work. More everything.",
+      "cost": "1.5K", "repeat": null, "requires": [],
+      "reveal": {"rank": 1},
+      "effects": [{"kind": "job_slots_set", "value": 3}],
+      "table_change": "a third paper slip joins the job board"
+    },
+    {
+      "id": "fronts.coin_op",
+      "branch": "fronts", "tier": 1,
+      "name": "Coin-Op Washer",
+      "flavor": "It washes socks. Among other things.",
+      "cost": "4K", "repeat": null, "requires": [],
+      "reveal": {"dirty_held": "10K"},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "laundromat_loop"},
+        {"kind": "launder_rate_add", "value": 0.08},
+        {"kind": "launder_cap_add", "value": "2K"}
+      ],
+      "table_change": "Lucky's window lights up; the wash loop opens"
+    },
+    {
+      "id": "fronts.bigger_safe",
+      "branch": "fronts", "tier": 1,
+      "name": "Bigger Safe",
+      "flavor": "The old one was a shoebox. A literal shoebox.",
+      "cost": "3K", "repeat": {"max": 2, "growth": 2.5}, "requires": ["fronts.coin_op"],
+      "effects": [{"kind": "safe_hours_set", "value": 4, "per_level": true}],
+      "table_change": "the back-room safe visibly grows"
+    },
+    {
+      "id": "muscle.second_wind",
+      "branch": "muscle", "tier": 1,
+      "name": "Second Wind",
+      "flavor": "Everybody gets one. Tonight, anyway.",
+      "cost": "5K", "repeat": null, "requires": ["muscle.fresh_rubbers"],
+      "effects": [{"kind": "ball_save_charges", "value": 1}],
+      "table_change": "a chalk outline marks where the ball comes back"
+    },
+    {
+      "id": "muscle.brass_balls",
+      "branch": "muscle", "tier": 1,
+      "name": "Brass Balls",
+      "flavor": "Say it out loud. Feels good, right?",
+      "cost": "8K", "repeat": null, "requires": [],
+      "reveal": {"rank": 1},
+      "effects": [{"kind": "value_mult", "target": "all", "value": 1.05}],
+      "table_change": "the guys go brass — everything shines a little"
+    },
+    {
+      "id": "crew.bench_depth",
+      "branch": "crew", "tier": 1,
+      "name": "Bench Depth",
+      "flavor": "Good guys are hard to find. Adequate guys, we got.",
+      "cost": "6K", "repeat": {"max": 2, "growth": 1.8}, "requires": [],
+      "reveal": {"rank": 1},
+      "effects": [{"kind": "bench_slot_add", "value": 1, "per_level": true}],
+      "table_change": "more guys loiter in the alley art"
+    },
+    {
+      "id": "influence.coffee_fund",
+      "branch": "influence", "tier": 1,
+      "name": "Inspector's Coffee Fund",
+      "flavor": "He takes it black, with two sugars and a twenty.",
+      "cost": "2K", "repeat": {"max": 3, "growth": 2.0}, "requires": [],
+      "reveal": {"event": "first_tilt"},
+      "effects": [{"kind": "tilt_leans_add", "value": 1, "per_level": true}],
+      "table_change": "the Inspector's chair gets visibly comfier"
+    },
+
+    {
+      "id": "rackets.the_wire",
+      "branch": "rackets", "tier": 2,
+      "name": "The Wire",
+      "flavor": "Three payphones, one tote board, zero honest numbers.",
+      "cost": "25K", "repeat": null, "requires": ["rackets.numbers_game"],
+      "reveal": {"rank": 2},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "wire_bank"},
+        {"kind": "idle_rate_add", "target": "wire", "value": "12"}
+      ],
+      "table_change": "payphone targets and the tote board wire in"
+    },
+    {
+      "id": "rackets.bigger_book",
+      "branch": "rackets", "tier": 2,
+      "name": "Bigger Book",
+      "flavor": "More bets, more lightbulbs, more everything.",
+      "cost": "15K", "repeat": {"max": 12, "growth": 1.15}, "requires": ["rackets.the_wire"],
+      "effects": [{"kind": "value_mult", "target": "wire", "value": 1.4, "per_level": true}],
+      "table_change": "the tote board sprouts lightbulbs"
+    },
+    {
+      "id": "rackets.street_tax",
+      "branch": "rackets", "tier": 2,
+      "name": "Street Tax",
+      "flavor": "The corner boys hold out their hats now.",
+      "cost": "12K", "repeat": null, "requires": ["muscle.corner_boys"],
+      "reveal": {"rank": 2},
+      "effects": [{"kind": "value_add", "target": "slings", "value": "10"}],
+      "table_change": "the corner boys collect on every kick"
+    },
+    {
+      "id": "fronts.industrial_washers",
+      "branch": "fronts", "tier": 2,
+      "name": "Industrial Washers",
+      "flavor": "Steam means clean. Ask anybody.",
+      "cost": "30K", "repeat": {"max": 2, "growth": 1.7}, "requires": ["fronts.coin_op"],
+      "effects": [
+        {"kind": "launder_rate_add", "value": 0.04, "per_level": true},
+        {"kind": "launder_cap_add", "value": "8K", "per_level": true}
+      ],
+      "table_change": "steam rises from the laundromat roof"
+    },
+    {
+      "id": "fronts.creative_accounting",
+      "branch": "fronts", "tier": 2,
+      "name": "Creative Accounting",
+      "flavor": "The books balance. Both sets.",
+      "cost": "20K", "repeat": null, "requires": ["fronts.coin_op"],
+      "effects": [{"kind": "pocket_money_set", "value": "1K"}],
+      "table_change": "a suspiciously tidy ledger appears on the counter"
+    },
+    {
+      "id": "influence.beat_cop",
+      "branch": "influence", "tier": 2,
+      "name": "Beat Cop on the Take",
+      "flavor": "Officer Dooley prefers unmarked bills and glazed.",
+      "cost": "40K", "repeat": null, "requires": ["influence.coffee_fund"],
+      "reveal": {"rank": 2},
+      "effects": [{"kind": "bribe_unlock"}],
+      "table_change": "the donut-shop window lights when you can afford him"
+    },
+    {
+      "id": "muscle.enforcer_corner",
+      "branch": "muscle", "tier": 2,
+      "name": "The Enforcer's Corner",
+      "flavor": "Big Sal stands there now. Things bounce off Big Sal.",
+      "cost": "60K", "repeat": null, "requires": ["muscle.guard_rails"],
+      "effects": [{"kind": "kickback_unlock", "target": "left"}],
+      "table_change": "Big Sal posts up by the left outlane"
+    },
+
+    {
+      "id": "rackets.protection_laundromat",
+      "branch": "rackets", "tier": 3,
+      "name": "Protection: Lucky's Laundromat",
+      "flavor": "Nice wash cycle. Shame if it stopped.",
+      "cost": "150K", "repeat": null, "requires": ["fronts.coin_op"],
+      "reveal": {"rank": 3},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "storefront_laundromat"},
+        {"kind": "idle_rate_add", "target": "protection", "value": "60"}
+      ],
+      "table_change": "Lucky's becomes a drop-target storefront you collect from"
+    },
+    {
+      "id": "rackets.protection_pizzeria",
+      "branch": "rackets", "tier": 3,
+      "name": "Protection: Nonna's Pizzeria",
+      "flavor": "Nonna insists. Nonna is very persuasive.",
+      "cost": "200K", "repeat": null, "requires": ["rackets.protection_laundromat"],
+      "effects": [
+        {"kind": "unlock_hardware", "target": "storefront_pizzeria"},
+        {"kind": "idle_rate_add", "target": "protection", "value": "90"}
+      ],
+      "table_change": "Nonna's opens — garlic bread and collections"
+    },
+    {
+      "id": "rackets.protection_pawn",
+      "branch": "rackets", "tier": 3,
+      "name": "Protection: Fat Tony's Pawn",
+      "flavor": "Everything's for sale. Especially the alibi.",
+      "cost": "250K", "repeat": null, "requires": ["rackets.protection_pizzeria"],
+      "effects": [
+        {"kind": "unlock_hardware", "target": "storefront_pawn"},
+        {"kind": "idle_rate_add", "target": "protection", "value": "120"}
+      ],
+      "table_change": "Fat Tony's window fills with other people's stuff"
+    },
+    {
+      "id": "rackets.muscle_on_block",
+      "branch": "rackets", "tier": 3,
+      "name": "Muscle on the Block",
+      "flavor": "The block grows floors. Floors mean rent. Rent means us.",
+      "cost": "180K", "repeat": {"max": 15, "growth": 1.15}, "requires": ["rackets.protection_laundromat"],
+      "effects": [{"kind": "collect_minutes_mult", "value": 1.35, "per_level": true}],
+      "table_change": "the storefronts visibly add floors"
+    },
+    {
+      "id": "rackets.getaway_loop",
+      "branch": "rackets", "tier": 3,
+      "name": "The Getaway Loop",
+      "flavor": "Around the block in four seconds flat, tires optional.",
+      "cost": "350K", "repeat": null, "requires": [],
+      "reveal": {"rank": 3},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "orbit_left"},
+        {"kind": "value_add", "target": "orbit", "value": "500"}
+      ],
+      "table_change": "the left orbit opens — skid marks included"
+    },
+    {
+      "id": "muscle.steel_toes",
+      "branch": "muscle", "tier": 3,
+      "name": "Steel Toes",
+      "flavor": "For kicking. Doors. Mostly doors.",
+      "cost": "400K", "repeat": null, "requires": ["muscle.fresh_rubbers"],
+      "effects": [{"kind": "flipper_power_mult", "value": 1.1}],
+      "table_change": "chrome caps on the flipper bats"
+    },
+    {
+      "id": "fronts.pizzeria_books",
+      "branch": "fronts", "tier": 3,
+      "name": "Pizzeria Books",
+      "flavor": "CASH ONLY. The sign is load-bearing.",
+      "cost": "300K", "repeat": null, "requires": ["rackets.protection_pizzeria"],
+      "effects": [{"kind": "passive_wash_add", "value": 0.01}],
+      "table_change": "a CASH ONLY sign appears in Nonna's window"
+    }
+  ]
+}

@@ -11,7 +11,11 @@ Audio carries half this game's fantasy and most of its "sensory overload" promis
    A skilled player can play eyes-closed-ish; at full overload the mix stays legible because
    meanings never collide (P4).
 
-All assets real/sampled, open-licensed, tracked in `ASSETS.md` with per-file license + credit.
+> **AMENDED (decision record, docs/11):** all audio is now **composed and synthesized
+> in-house** by `tools/audiogen` (Python DSP: Karplus-Strong strings, FM/additive
+> instruments, exciter→resonator foley). We own every byte; nothing is sourced. The design
+> intent below (what things sound like, the stem system, "every sound is a stat") stands
+> unchanged; the sourcing strategy sections are superseded by `specs/audio-pipeline.md`.
 
 ---
 
