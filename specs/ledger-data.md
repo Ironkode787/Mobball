@@ -32,7 +32,7 @@ Design context: docs/04-UPGRADE-TREE.md, costs per docs/03-ECONOMY.md §7.
 |------|--------|---------|
 | `unlock_hardware` | `target` | table hardware id becomes present/active |
 | `feature_flag` | `target` | boolean gameplay flag (e.g. `plunger_bands`) |
-| `value_mult` | `target`, `value`, `per_level` | multiplies switch-group value (`bumpers`, `slings`, `spinner`, `wire`, `storefronts`, `all`) — per_level effects stack multiplicatively per owned level |
+| `value_mult` | `target`, `value`, `per_level` | multiplies switch-group value (`bumpers`, `slings`, `spinner`, `wire`, `storefronts`, `orbit`, `rollovers`, `all`) — per_level effects stack multiplicatively per owned level. **Fold rule:** `Stats.value_mult(group)` returns group × all already folded; `value_mult("all")` returns only the fold — consumers apply it exactly once |
 | `value_add` | `target`, `value` | adds flat dirty value to a switch group |
 | `idle_rate_add` | `target`, `value` | adds dirty/sec to a named racket's idle rate |
 | `launder_rate_add` | `value` | + wash fraction per laundromat-loop pass |

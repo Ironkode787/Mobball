@@ -1,0 +1,444 @@
+class_name LedgerBoard
+extends Control
+## The corkboard: a pannable sheet of cards joined by red string.
+##
+## This node is the *window* — it clips, it owns the drag/zoom input, and it never moves.
+## Inside it are two painted layers: a fixed cork ground (so a zoomed-out board never shows
+## a hole) and the sheet, which carries the map lines, the branch headers, the string edges
+## and every card, and is what actually pans.
+##
+## Layout is deterministic: branch = column band, tier = row, ties broken by file order.
+## Nothing reflows when a card is revealed, so the board a player learns stays learned.
+
+signal card_tapped(id: String)
+
+const MARGIN := Vector2(96.0, 128.0)
+const PITCH_X := LedgerCard.W + 40.0
+const PITCH_Y := 400.0
+const BRANCH_GAP := 84.0
+## Movement (in screen px) past which a press is a pan, not a tap.
+const TAP_SLOP := 14.0
+## Zoom rungs: readable, mid, and "show me the whole conspiracy" (computed to fit the
+## board's width, so it stays honest as content grows).
+const ZOOM_STEPS: PackedFloat64Array = [1.0, 0.62, 0.0]
+
+var catalog: Upgrades = null
+
+var _sheet: Control = null
+var _ground: Control = null
+var _font: Font = null
+
+var _cards: Dictionary = {}
+var _slots: Dictionary = {}
+var _bands: Array[Dictionary] = []
+var _rows: Array[Dictionary] = []
+var _edges: Array[Dictionary] = []
+var _content := Vector2.ZERO
+
+var _pan := Vector2.ZERO
+var _zoom := ZOOM_STEPS[0]
+var _dragging := false
+var _drag_travel := 0.0
+var _selected := ""
+## Centre request that arrived before the board had a size — re-applied on first layout.
+var _pending_center := ""
+
+
+class Painter:
+	extends Control
+	var paint: Callable
+
+	func _draw() -> void:
+		if paint.is_valid():
+			paint.call(self)
+
+
+func _ready() -> void:
+	_font = get_theme_default_font()
+	clip_contents = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	_ground = Painter.new()
+	(_ground as Painter).paint = _paint_ground
+	_ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ground.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_ground)
+	_sheet = Painter.new()
+	(_sheet as Painter).paint = _paint_sheet
+	_sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_sheet)
+	resized.connect(_on_resized)
+
+
+# --- construction -------------------------------------------------------------
+
+
+## Builds one card per catalog node and freezes their positions.
+func build(from_catalog: Upgrades) -> void:
+	catalog = from_catalog
+	for child in _sheet.get_children():
+		_sheet.remove_child(child)
+		child.queue_free()
+	_cards.clear()
+	_layout()
+	for n in catalog.nodes:
+		var card := LedgerCard.new()
+		_sheet.add_child(card)
+		card.setup(n)
+		card.position = _slots.get(String(n["id"]), Vector2.ZERO)
+		card.visible = false
+		_cards[String(n["id"])] = card
+	_sheet.size = _content
+	_apply_view()
+
+
+func _layout() -> void:
+	_slots.clear()
+	_bands.clear()
+	_rows.clear()
+	if catalog == null or catalog.nodes.is_empty():
+		_content = size
+		return
+
+	var min_tier := 99
+	var max_tier := 0
+	var counts: Dictionary = {}
+	var widest: Dictionary = {}
+	for n in catalog.nodes:
+		var branch := String(n["branch"])
+		var tier := int(n["tier"])
+		min_tier = mini(min_tier, tier)
+		max_tier = maxi(max_tier, tier)
+		var key := "%s:%d" % [branch, tier]
+		var c := int(counts.get(key, 0)) + 1
+		counts[key] = c
+		widest[branch] = maxi(int(widest.get(branch, 0)), c)
+
+	var x := MARGIN.x
+	var starts: Dictionary = {}
+	for branch in Upgrades.BRANCHES:
+		if not widest.has(branch):
+			continue
+		var slots := int(widest[branch])
+		starts[branch] = x
+		_bands.append({
+			"branch": branch,
+			"x": x - 30.0,
+			"w": float(slots) * PITCH_X - (PITCH_X - LedgerCard.W) + 60.0,
+		})
+		x += float(slots) * PITCH_X + BRANCH_GAP
+
+	var used: Dictionary = {}
+	for n in catalog.nodes:
+		var branch := String(n["branch"])
+		var tier := int(n["tier"])
+		var key := "%s:%d" % [branch, tier]
+		var idx := int(used.get(key, 0))
+		used[key] = idx + 1
+		# Centred inside the band, not left-packed: a tier with one node sits under the
+		# tier with five instead of hugging the left edge, which is what turns a spreadsheet
+		# into a cluster of index cards.
+		var slack := float(int(widest[branch]) - int(counts[key])) * PITCH_X * 0.5
+		_slots[String(n["id"])] = Vector2(
+			float(starts[branch]) + slack + float(idx) * PITCH_X,
+			MARGIN.y + float(tier - min_tier) * PITCH_Y
+		)
+
+	for tier in range(min_tier, max_tier + 1):
+		_rows.append({"tier": tier, "y": MARGIN.y + float(tier - min_tier) * PITCH_Y})
+
+	_content = Vector2(
+		x - BRANCH_GAP + MARGIN.x,
+		MARGIN.y + float(max_tier - min_tier) * PITCH_Y + LedgerCard.H + MARGIN.y
+	)
+
+
+# --- refresh ------------------------------------------------------------------
+
+
+## Re-reads the whole board from the meta layer. Cheap enough to call on every change:
+## 31 cards, no allocation beyond the edge list.
+func refresh(states: Dictionary, owned: Dictionary, rank: int, clean: BigMoney) -> void:
+	if catalog == null:
+		return
+	for n in catalog.nodes:
+		var id := String(n["id"])
+		var card: LedgerCard = _cards.get(id, null)
+		if card == null:
+			continue
+		var state := int(states.get(id, Reveal.State.HIDDEN))
+		var face := LedgerCard.Face.HIDDEN
+		if state == Reveal.State.REVEALED:
+			face = LedgerCard.Face.REVEALED
+		elif state == Reveal.State.FACEDOWN:
+			face = LedgerCard.Face.FACEDOWN
+		card.set_state(
+			face, int(owned.get(id, 0)), catalog.next_cost(id, owned),
+			catalog.block_for(id, owned, rank, clean)
+		)
+		card.set_selected(id == _selected)
+	_build_edges(states)
+	_sheet.queue_redraw()
+
+
+func set_selected(id: String) -> void:
+	if _selected == id:
+		return
+	var prev: LedgerCard = _cards.get(_selected, null)
+	if prev != null:
+		prev.set_selected(false)
+	_selected = id
+	var next: LedgerCard = _cards.get(id, null)
+	if next != null:
+		next.set_selected(true)
+
+
+## A string is drawn only when both ends are on the board — the whole point of a face-down
+## card is that you can see the string arriving at it.
+func _build_edges(states: Dictionary) -> void:
+	_edges.clear()
+	for n in catalog.nodes:
+		var id := String(n["id"])
+		var child_state := int(states.get(id, Reveal.State.HIDDEN))
+		if child_state == Reveal.State.HIDDEN:
+			continue
+		var parents: PackedStringArray = n["requires"]
+		for parent in parents:
+			if int(states.get(parent, Reveal.State.HIDDEN)) == Reveal.State.HIDDEN:
+				continue
+			var a: Vector2 = _slots.get(parent, Vector2.ZERO)
+			var b: Vector2 = _slots.get(id, Vector2.ZERO)
+			var from := a + Vector2(LedgerCard.W * 0.5, LedgerCard.H)
+			var to := b + Vector2(LedgerCard.W * 0.5, 0.0)
+			if absf(a.y - b.y) < 4.0:
+				# Same tier: run the string around the sides instead of through the cards.
+				var left_first := a.x <= b.x
+				from = a + Vector2(LedgerCard.W if left_first else 0.0, LedgerCard.H * 0.5)
+				to = b + Vector2(0.0 if left_first else LedgerCard.W, LedgerCard.H * 0.5)
+			_edges.append({
+				"from": from,
+				"to": to,
+				"faded": child_state == Reveal.State.FACEDOWN,
+			})
+
+
+# --- view ---------------------------------------------------------------------
+
+
+func content_size() -> Vector2:
+	return _content
+
+
+func zoom() -> float:
+	return _zoom
+
+
+func cycle_zoom() -> void:
+	var i := 0
+	for s in ZOOM_STEPS.size():
+		if is_equal_approx(_zoom, _zoom_step(s)):
+			i = s
+			break
+	set_zoom(_zoom_step((i + 1) % ZOOM_STEPS.size()))
+
+
+## A zero rung means "fit the whole width", which only the live board size knows.
+func _zoom_step(i: int) -> float:
+	var z := ZOOM_STEPS[i]
+	if z > 0.0:
+		return z
+	if _content.x <= 0.0 or size.x <= 0.0:
+		return 0.38
+	return clampf(size.x / _content.x, 0.18, 1.0)
+
+
+func set_zoom(z: float) -> void:
+	var focus := (size * 0.5 - _pan) / _zoom
+	_zoom = clampf(z, 0.2, 2.0)
+	_pan = size * 0.5 - focus * _zoom
+	_apply_view()
+
+
+## Puts a card in the middle of the window (the compass, and every docket selection).
+func center_on(id: String, animate: bool = true) -> void:
+	if not _slots.has(id):
+		return
+	if size.x < 2.0 or size.y < 2.0:
+		# open() can land before the first layout pass; finish the job in _on_resized.
+		_pending_center = id
+		return
+	var target := size * 0.5 - (Vector2(_slots[id]) + Vector2(LedgerCard.W, LedgerCard.H) * 0.5) * _zoom
+	target = _clamp_pan(target)
+	if not animate or not is_inside_tree():
+		_pan = target
+		_apply_view()
+		return
+	var tw := create_tween()
+	tw.tween_method(_set_pan, _pan, target, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _set_pan(v: Vector2) -> void:
+	_pan = v
+	_apply_view()
+
+
+func _clamp_pan(p: Vector2) -> Vector2:
+	var visual := _content * _zoom
+	var out := p
+	out.x = (size.x - visual.x) * 0.5 if visual.x <= size.x else clampf(p.x, size.x - visual.x, 0.0)
+	# Vertically the board hangs from the top rather than floating in the middle: tier 0 is
+	# the top row, and zooming out should not drop the whole ladder into the centre of a wall.
+	out.y = 0.0 if visual.y <= size.y else clampf(p.y, size.y - visual.y, 0.0)
+	return out
+
+
+func _apply_view() -> void:
+	if _sheet == null:
+		return
+	_pan = _clamp_pan(_pan)
+	_sheet.scale = Vector2(_zoom, _zoom)
+	_sheet.position = _pan
+
+
+func _on_resized() -> void:
+	_apply_view()
+	if _ground != null:
+		_ground.queue_redraw()
+	if _pending_center != "":
+		var id := _pending_center
+		_pending_center = ""
+		center_on(id, false)
+
+
+# --- input --------------------------------------------------------------------
+
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
+			set_zoom(_zoom * 1.12)
+			accept_event()
+		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
+			set_zoom(_zoom / 1.12)
+			accept_event()
+		elif mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				_dragging = true
+				_drag_travel = 0.0
+				_pending_center = ""
+			else:
+				_dragging = false
+				if _drag_travel < TAP_SLOP:
+					_tap_at(mb.position)
+			accept_event()
+	elif event is InputEventMouseMotion and _dragging:
+		var mm := event as InputEventMouseMotion
+		_drag_travel += mm.relative.length()
+		_pan += mm.relative
+		_apply_view()
+		accept_event()
+
+
+func _tap_at(where: Vector2) -> void:
+	var local := (where - _pan) / _zoom
+	for i in range(_sheet.get_child_count() - 1, -1, -1):
+		var card: LedgerCard = _sheet.get_child(i)
+		if not card.visible:
+			continue
+		if Rect2(card.position, card.size).has_point(local):
+			card_tapped.emit(card.id)
+			return
+
+
+# --- painting -----------------------------------------------------------------
+
+
+## Cork stays put behind everything: it is the wall, not the board.
+func _paint_ground(c: Control) -> void:
+	var r := Rect2(Vector2.ZERO, c.size)
+	c.draw_rect(r, LedgerStyle.CORK)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4477
+	for i in 140:
+		var p := Vector2(rng.randf() * c.size.x, rng.randf() * c.size.y)
+		c.draw_circle(p, rng.randf_range(24.0, 90.0), Color(LedgerStyle.CORK_LIGHT, 0.16))
+	for i in 1800:
+		var p := Vector2(rng.randf() * c.size.x, rng.randf() * c.size.y)
+		var col := LedgerStyle.CORK_SPECK if rng.randf() < 0.55 else LedgerStyle.INK
+		c.draw_circle(p, rng.randf_range(1.4, 4.2), Color(col, rng.randf_range(0.20, 0.65)))
+	# Vignette: four inset bars is cheaper than a gradient and reads the same at this size.
+	for i in 6:
+		var t := float(i) / 6.0
+		var inset := t * 46.0
+		c.draw_rect(Rect2(inset, inset, c.size.x - inset * 2.0, c.size.y - inset * 2.0),
+			Color(0.0, 0.0, 0.0, 0.05 * (1.0 - t)), false, 46.0 - inset)
+
+
+func _paint_sheet(c: Control) -> void:
+	_paint_map(c)
+	_paint_bands(c)
+	_paint_strings(c)
+
+
+## The 1970s transit map under the glass (docs/07 §4) — suggested, not drawn: a few long
+## faint runs and district blocks so the cork is not a void behind the cards.
+func _paint_map(c: Control) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 991
+	for i in 9:
+		var y := rng.randf() * _content.y
+		var col := LedgerStyle.NEON_TEAL if i % 3 == 0 else LedgerStyle.BRASS
+		var pts := PackedVector2Array()
+		var x := 0.0
+		while x < _content.x:
+			pts.append(Vector2(x, y + sin(x * 0.0016 + float(i)) * 90.0))
+			x += 160.0
+		c.draw_polyline(pts, Color(col, 0.05), 6.0)
+	for i in 14:
+		var p := Vector2(rng.randf() * _content.x, rng.randf() * _content.y)
+		var s := Vector2(rng.randf_range(180.0, 520.0), rng.randf_range(120.0, 300.0))
+		c.draw_rect(Rect2(p, s), Color(LedgerStyle.NEWSPRINT, 0.022))
+
+
+func _paint_bands(c: Control) -> void:
+	for row: Dictionary in _rows:
+		var y := float(row["y"]) - 46.0
+		c.draw_rect(Rect2(0.0, y, _content.x, LedgerCard.H + 92.0),
+			Color(LedgerStyle.NEWSPRINT, 0.018))
+		var label := "TIER %d  ·  RANK R%d" % [int(row["tier"]), int(row["tier"])]
+		var lx := 24.0
+		while lx < _content.x:
+			c.draw_string(_font, Vector2(lx, y + 30.0), label, HORIZONTAL_ALIGNMENT_LEFT,
+				-1.0, 20, Color(LedgerStyle.BRASS, 0.35))
+			lx += 1180.0
+	for band: Dictionary in _bands:
+		var branch := String(band["branch"])
+		var col := LedgerStyle.branch_color(branch)
+		var x := float(band["x"])
+		var w := float(band["w"])
+		c.draw_rect(Rect2(x, 22.0, w, _content.y - 44.0), Color(col, 0.022))
+		c.draw_rect(Rect2(x, 22.0, w, _content.y - 44.0), Color(col, 0.10), false, 2.0)
+		c.draw_string(_font, Vector2(x + 18.0, 78.0), LedgerStyle.branch_title(branch),
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 46, Color(col, 0.30))
+
+
+## Red string with a midpoint sag — a quadratic bezier, sampled, with a dark twin under it
+## so it reads as thread rather than a vector line.
+func _paint_strings(c: Control) -> void:
+	for edge: Dictionary in _edges:
+		var a: Vector2 = edge["from"]
+		var b: Vector2 = edge["to"]
+		var sag := 26.0 + a.distance_to(b) * 0.16
+		var ctrl := (a + b) * 0.5 + Vector2(0.0, sag)
+		var pts := PackedVector2Array()
+		for i in 19:
+			var t := float(i) / 18.0
+			pts.append(a.lerp(ctrl, t).lerp(ctrl.lerp(b, t), t))
+		var shadow := PackedVector2Array()
+		for p in pts:
+			shadow.append(p + Vector2(3.0, 5.0))
+		var alpha := 0.45 if bool(edge["faded"]) else 0.92
+		c.draw_polyline(shadow, Color(0.0, 0.0, 0.0, 0.30 * alpha), 4.0)
+		c.draw_polyline(pts, Color(LedgerStyle.DIRTY, alpha), 3.0)
+		c.draw_circle(a, 4.5, Color(LedgerStyle.DIRTY.darkened(0.3), alpha))
+		c.draw_circle(b, 4.5, Color(LedgerStyle.DIRTY.darkened(0.3), alpha))

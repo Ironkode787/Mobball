@@ -33,9 +33,11 @@ docs/04 + specs/ledger-data.md (upgrades), docs/05 §1–2 (jobs, raids).
   `job_assigned(id)`, `job_completed(id, respect)`, `laundered(amount)`, `combo_changed(n)`,
   `skill_shot`, `guy_pinched(guy)`, `guy_bailed(guy)`, `dirty_earned(amount, group)`.
 - **Hardware visibility contract:** every optional hardware node in the table registers an id
-  (`bumper_2`, `slingshots`, `inlane_guides`, `rollovers`, `spinner_numbers`, `wire_bank`,
-  `laundromat_loop`, `storefront_laundromat/pizzeria/pawn`, `orbit_left`, `kickback_left`,
-  `bribe_target`) and shows/enables itself iff `Game.stats.hardware_unlocked(id)`
+  (`bumper_2`, `bumper_3`, `slingshots`, `inlane_guides`, `rollovers`, `spinner_numbers`,
+  `wire_bank`, `laundromat_loop`, `storefront_laundromat/pizzeria/pawn`, `orbit_left`,
+  `kickback_left`, `bribe_target`; `kickback_unlock`/`bribe_unlock` effects bridge to the
+  `kickback_left`/`bribe_target` hardware ids inside Stats) and shows/enables itself iff
+  `Game.stats.hardware_unlocked(id)`
   (re-checked on `Events.upgrade_purchased`). The M0 debug table + feel sims keep working
   via a `debug_all_hardware` flag that bypasses the check.
 
