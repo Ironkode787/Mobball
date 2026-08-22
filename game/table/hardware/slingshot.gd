@@ -5,10 +5,13 @@ extends StaticBody2D
 
 @export var id: StringName = &"sling"
 @export var value: int = Feel.SLING_VALUE
+## Economy group these corner boys pay into (specs/ledger-data.md `value_mult` targets).
+@export var group: StringName = &"slings"
 
 var points: PackedVector2Array = PackedVector2Array()
 var face_normal: Vector2 = Vector2.UP
 
+var _present: bool = true
 var _cooldown: float = 0.0
 var _pulse: float = 0.0
 var _band: Area2D = null
@@ -60,6 +63,7 @@ func _ready() -> void:
 	add_child(_band)
 	_band.body_entered.connect(_on_ball_entered)
 	_band.body_exited.connect(_on_ball_exited)
+	_apply_collision()
 
 
 func _process(delta: float) -> void:
@@ -104,8 +108,22 @@ func _kick(ball: Ball) -> void:
 	_pulse = 1.0
 	queue_redraw()
 	AudioDirector.play(&"sling_hit")
-	Events.switch_hit.emit(id, ball, Feel.SLING_IMPULSE)
-	Events.scored.emit(id, value)
+	TableScore.earn(group, float(value), id, ball, Feel.SLING_IMPULSE)
+
+
+## Corner Boys are an upgrade: until they are hired the kicker triangles are not there.
+func set_hardware_active(active: bool) -> void:
+	_present = active
+	visible = active
+	_inside.clear()
+	_apply_collision()
+
+
+func _apply_collision() -> void:
+	collision_layer = Feel.LAYER_HARDWARE if _present else 0
+	if _band != null:
+		_band.collision_layer = Feel.LAYER_ZONES if _present else 0
+		_band.collision_mask = Feel.LAYER_BALL if _present else 0
 
 
 func _draw() -> void:

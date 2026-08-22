@@ -6,29 +6,62 @@ extends Node
 ## Everything under assets/audio/ is synthesised by tools/audiogen — no samples, no
 ## licences. Regenerate with `python3 tools/audiogen/generate.py`.
 ##
-## Two Godot 4.5 details this file depends on, both verified headless:
+## Three Godot 4.5 details this file depends on, all verified headless:
 ##   * AudioStreamSynchronized.set_sync_stream_volume() takes DECIBELS, not a linear
 ##     gain. Passing 0.0 expecting silence gives full level instead; -80 is silence.
 ##     Volume changes apply live during playback, which is what makes the fades work.
 ##   * An imported .ogg loads with loop = false. The flag has to be set on the loaded
 ##     resource, otherwise the stack plays through once and stops.
+##   * load() hands out one shared instance per path, so mutating a stream (loop_mode,
+##     loop_end) changes it for every voice already holding it. The looping variants of
+##     bill_counter/siren are duplicate()s for exactly that reason.
 
 # --- assets ---------------------------------------------------------------------
 const SFX_DIR := "res://assets/audio/sfx/"
 const MUSIC_DIR := "res://assets/audio/music/city1/"
 
 ## City-1 stem stack, in the order they fade in as the empire grows (docs/08 §1).
+## These eight are what `music_set_level` moves; index order is load-bearing below.
 const STEMS: PackedStringArray = [
 	"01_bass", "02_drums", "03_vibes", "04_trumpet",
 	"05_organ", "06_barisax", "07_strings", "08_full",
 ]
 
-## Every §4 event. Used for warm-up and by tests/test_audio_assets.gd.
+## State layers (specs/audio-wave2.md §2). Same length, same key, same tempo, and they
+## live on the SAME AudioStreamSynchronized — that is the only way they can drop in
+## mid-bar without a flam. `music_set_level` never touches them; `music_set_state` does.
+const STATE_STEMS: PackedStringArray = ["09_tense", "10_raid_drums"]
+
+## The Count's piano is deliberately NOT in the synchronized stack: it is a different
+## tempo and a different loop length, and it plays when the band does not.
+const COUNT_PIANO := "count_piano"
+
+const IDX_BASS := 0
+const IDX_DRUMS := 1
+const IDX_TENSE := 8
+const IDX_RAID_DRUMS := 9
+## Heat thins the comfort instruments (docs/08 §4): vibes, organ, strings.
+const HOT_DUCKED: PackedInt32Array = [2, 4, 6]
+
+## Every event with an asset. Used for warm-up and by tests/test_audio_assets.gd.
 const EVENTS: PackedStringArray = [
+	# specs/audio-pipeline.md §4
 	"flipper_up", "flipper_down", "bumper_hit", "sling_hit", "plunger_pull",
 	"plunger_launch", "ball_spawn", "drain", "nudge_thump", "tilt_warning", "tilt",
 	"knocker", "cash_tick", "chime_a", "chime_b", "chime_c", "wall_tap",
+	# specs/audio-wave2.md §1 — mechanics
+	"rollover_click", "spinner_tick", "drop_clack", "drop_bank_down", "drop_bank_reset",
+	"kickback", "orbit_whoosh",
+	# specs/audio-wave2.md §1 — fiction
+	"storefront_collect", "laundromat_wash", "bribe_paid", "guy_pinched", "bail_paid",
+	"safe_open", "stamp_thunk", "paper_slip", "job_done", "skill_shot_ding",
+	"combo_2", "combo_3", "combo_4", "headline_sting", "rankup_fanfare", "bill_counter",
+	"coin_drop", "siren", "raid_start", "raid_win", "raid_lose",
 ]
+
+## Assets built as seamless loops rather than one-shots. Pass `{"loop": true}` to
+## `play()` and the voice repeats until you stop it (keep the returned player).
+const LOOPABLE_EVENTS: PackedStringArray = ["bill_counter", "siren"]
 
 # --- voices ---------------------------------------------------------------------
 const MAX_VOICES := 24
@@ -44,6 +77,17 @@ const EVENT_PITCH_JITTER := {
 	&"chime_a": 0.008, &"chime_b": 0.008, &"chime_c": 0.008,
 	&"tilt_warning": 0.010, &"tilt": 0.010, &"knocker": 0.020,
 	&"cash_tick": 0.060,
+	# The combo family is tuned to the chimes an octave up; detuning it would undo the
+	# only reason those three pitches were chosen. Same for anything with brass in it.
+	&"combo_2": 0.005, &"combo_3": 0.005, &"combo_4": 0.005,
+	&"skill_shot_ding": 0.006, &"rankup_fanfare": 0.004, &"headline_sting": 0.005,
+	&"job_done": 0.010, &"raid_win": 0.010, &"raid_lose": 0.010,
+	&"storefront_collect": 0.020,
+	# Loops: pitch is playback rate, so jitter would change how long a loop takes to
+	# come round. The Count's bill counter has to stay in time with itself.
+	&"bill_counter": 0.0, &"siren": 0.0,
+	# These fire many times a second, so they get more variety, not less.
+	&"spinner_tick": 0.090, &"rollover_click": 0.070, &"coin_drop": 0.050,
 }
 
 # --- buses ----------------------------------------------------------------------
@@ -54,32 +98,65 @@ const BUS_FICTION := &"Fiction"
 const BUS_UI := &"UI"
 
 ## The machine is a physical object in the room; the story is not (docs/08 §2).
+## Everything the *fiction* makes — money, paper, police, brass — goes to Fiction;
+## everything the *machine* makes stays on Mechanics.
 const FICTION_EVENTS: PackedStringArray = [
 	"chime_a", "chime_b", "chime_c", "knocker", "cash_tick",
+	"storefront_collect", "laundromat_wash", "bribe_paid", "guy_pinched", "bail_paid",
+	"safe_open", "stamp_thunk", "paper_slip", "job_done", "skill_shot_ding",
+	"combo_2", "combo_3", "combo_4", "headline_sting", "rankup_fanfare", "bill_counter",
+	"coin_drop", "siren", "raid_start", "raid_win", "raid_lose",
 ]
 
 ## All eight stems at unity sum to about +1 dBFS, so the music bus carries the trim
 ## that keeps the full stack under the ceiling and leaves room for the table on top.
 const MUSIC_BUS_DB := -4.0
 
+## Master ceiling (docs/08 §6). Four buses summing at once cannot be proved to stay
+## under 0 dBFS by level ladders alone; this catches the coincidences.
+const MASTER_CEILING_DB := -0.5
+
 # --- music ----------------------------------------------------------------------
 const MUSIC_FADE_SECONDS := 1.5
 const SILENT_DB := -80.0
 const AUDIBLE_DB := 0.0
 
+## specs/audio-wave2.md §2. `music_set_state` composes WITH `music_set_level`: calm and
+## hot are the level mix (hot adds the ostinato and thins three comfort stems), raid
+## overrides it outright, and count ducks the lot and puts the piano on top.
+const STATE_CALM := &"calm"
+const STATE_HOT := &"hot"
+const STATE_RAID := &"raid"
+const STATE_COUNT := &"count"
+const MUSIC_STATES: PackedStringArray = ["calm", "hot", "raid", "count"]
+
+const HOT_DUCK_DB := -4.0
+const RAID_DUCK_DB := -60.0
+## The raid is a hard cut, so it moves fast; The Count is a held breath, so it does not.
+const RAID_FADE_SECONDS := 0.4
+const COUNT_FADE_SECONDS := 1.0
+const PIANO_DB := 0.0
+
 var _missing_logged: Dictionary = {}
 var _sfx: Dictionary = {}                       # StringName -> AudioStream
+var _sfx_looping: Dictionary = {}               # StringName -> looping copy
 var _voices: Array[AudioStreamPlayer] = []
 var _voice_started: PackedFloat64Array = []
 var _rng := RandomNumberGenerator.new()
 
 var _music_player: AudioStreamPlayer
 var _music_sync: AudioStreamSynchronized
+var _all_stems: PackedStringArray = []          # STEMS + STATE_STEMS
 var _stem_slot: PackedInt32Array = []           # stem index -> slot in the sync, or -1
 var _stem_db: PackedFloat32Array = []
 var _stem_target_db: PackedFloat32Array = []
 var _music_level := 0
+var _music_state: StringName = STATE_CALM
 var _music_stopping := false
+var _fade_seconds := MUSIC_FADE_SECONDS
+var _piano_player: AudioStreamPlayer
+var _piano_db := SILENT_DB
+var _piano_target_db := SILENT_DB
 var _initialised := false
 
 
@@ -106,10 +183,12 @@ func _ensure_init() -> void:
 
 ## Fire a one-shot sound effect.
 ## opts: `pitch_jitter` (octaves, default 0.05), `pitch_scale` (explicit, skips jitter),
-## `volume_db`, `bus`. Returns the voice it grabbed, or null if the asset is missing.
+## `volume_db`, `bus`, `loop` (LOOPABLE_EVENTS only — keep the returned player and
+## stop() it yourself). Returns the voice it grabbed, or null if the asset is missing.
 func play(event: StringName, opts: Dictionary = {}) -> AudioStreamPlayer:
 	_ensure_init()
-	var stream: AudioStream = _sfx_stream(event)
+	var stream: AudioStream = (_looping_stream(event) if bool(opts.get("loop", false))
+		else _sfx_stream(event))
 	if stream == null:
 		return null
 
@@ -138,9 +217,18 @@ func stop_all() -> void:
 ## Start the stem stack. Idempotent: calling it while playing does nothing.
 func music_start() -> void:
 	_ensure_init()
-	if not _build_music():
-		return
+	var built := _build_music()
+	if _music_state == STATE_COUNT:
+		_build_piano()
 	_music_stopping = false
+	# Clearing _music_stopping changes what every target should be, and _build_music
+	# only recomputes on the first call — so recompute here too, or a start after a
+	# faded stop comes back up silent.
+	_recompute_targets()
+	if not built:
+		if _piano_player != null:
+			set_process(true)
+		return
 	if not _music_player.playing and _music_player.is_inside_tree():
 		_music_player.play()
 	set_process(true)
@@ -148,14 +236,14 @@ func music_start() -> void:
 
 ## `level` = how many stems are audible, 0 through STEMS.size(). Level n means the
 ## first n stems of the stack; the rest fade out. Fades take MUSIC_FADE_SECONDS.
+## The current state still has the last word: setting a level during a raid or The
+## Count is remembered and applied when that state ends.
 func music_set_level(level: int) -> void:
 	_ensure_init()
 	_music_level = clampi(level, 0, STEMS.size())
-	if _music_sync == null:
-		return
-	for i in STEMS.size():
-		_stem_target_db[i] = AUDIBLE_DB if i < _music_level else SILENT_DB
 	_music_stopping = false
+	_fade_seconds = MUSIC_FADE_SECONDS
+	_recompute_targets()
 	set_process(true)
 
 
@@ -168,28 +256,62 @@ func is_music_playing() -> bool:
 	return _music_player != null and _music_player.playing
 
 
-## CONTRACT STUB (specs/audio-wave2.md §2): state mixes over the synced stack.
-## calm | hot | raid | count. The audio workstream's wave-2 delivery replaces this
-## no-op with the real per-state mix; gameplay may call it freely today.
-func music_set_state(_state: StringName) -> void:
-	pass
+## specs/audio-wave2.md §2 — calm | hot | raid | count.
+##
+## Every state is a set of volume targets over ONE always-running synchronized player.
+## Nothing here stops or restarts it, and nothing reseeks it: the eight-bar stack and
+## the two state layers stay sample-locked through every transition, so the raid kit
+## drops in exactly on the bar it was already playing on. Stopping the player and
+## starting a different one is the obvious implementation and it flams every time.
+##
+## Idempotent (re-entering the same state does nothing) and safe before music_start(),
+## before the assets exist, and headless.
+func music_set_state(state: StringName) -> void:
+	_ensure_init()
+	if not MUSIC_STATES.has(String(state)):
+		if not _missing_logged.has(state):
+			_missing_logged[state] = true
+			print("[audio] unknown music state: ", state)
+		return
+	if state == _music_state:
+		return
+	_fade_seconds = _fade_seconds_for(_music_state, state)
+	_music_state = state
+	_music_stopping = false
+	if state == STATE_COUNT:
+		_build_piano()
+	_recompute_targets()
+	set_process(true)
+
+
+## Currently requested state (not the same as "done fading").
+func music_state() -> StringName:
+	return _music_state
 
 
 ## Fade the stack out and stop it. `fade` false stops immediately.
 func music_stop(fade: bool = true) -> void:
 	_ensure_init()
-	if _music_player == null:
+	if _music_player == null and _piano_player == null:
 		return
 	_music_level = 0
 	if not fade:
-		_apply_stem_db_now(SILENT_DB)
-		_music_player.stop()
 		_music_stopping = false
+		_apply_stem_db_now(SILENT_DB)
+		if _music_player != null:
+			_music_player.stop()
+		if _piano_player != null:
+			_piano_db = SILENT_DB
+			_piano_target_db = SILENT_DB
+			_piano_player.volume_db = SILENT_DB
+			_piano_player.stop()
 		set_process(false)
 		return
-	for i in STEMS.size():
-		_stem_target_db[i] = SILENT_DB
+	# _music_stopping overrides every target, so the state survives the stop: a later
+	# music_start() comes back up in whatever state the game is actually in.
 	_music_stopping = true
+	_fade_seconds = MUSIC_FADE_SECONDS
+	_recompute_targets()
 	set_process(true)
 
 
@@ -213,6 +335,27 @@ func _ensure_buses() -> void:
 		AudioServer.set_bus_name(idx, bus)
 		AudioServer.set_bus_send(idx, BUS_MASTER)
 	set_bus_volume_db(BUS_MUSIC, MUSIC_BUS_DB)
+	_ensure_master_limiter()
+
+
+## Limiter on master, per docs/08 §6 — the phone-speaker safety net.
+##
+## The four families are mixed to sit together, not to be summed with a calculator:
+## the raid mix alone peaks around -1 dBFS after the music trim, and a knocker landing
+## on the same sample would put the sum over. Every family's peak ladder is set on the
+## assumption that this exists, so it is created here rather than left to a project
+## setting somebody else owns.
+func _ensure_master_limiter() -> void:
+	var master := AudioServer.get_bus_index(BUS_MASTER)
+	if master < 0:
+		return
+	for i in AudioServer.get_bus_effect_count(master):
+		if AudioServer.get_bus_effect(master, i) is AudioEffectHardLimiter:
+			return
+	var limiter := AudioEffectHardLimiter.new()
+	limiter.ceiling_db = MASTER_CEILING_DB
+	limiter.release = 0.10
+	AudioServer.add_bus_effect(master, limiter)
 
 
 func _build_voice_pool() -> void:
@@ -250,6 +393,26 @@ func _sfx_stream(event: StringName) -> AudioStream:
 		_missing_logged[event] = true
 		print("[audio] no asset yet for event: ", event)
 	return null
+
+
+## A looping copy of a LOOPABLE_EVENTS asset, built once and cached.
+##
+## The copy matters: the cached stream is shared by every voice, so flipping loop_mode
+## on it would leave a siren looping the next time anything played it as a one-shot.
+func _looping_stream(event: StringName) -> AudioStream:
+	if _sfx_looping.has(event):
+		return _sfx_looping[event]
+	var base: AudioStream = _sfx_stream(event)
+	if base == null:
+		return null
+	if not (base is AudioStreamWAV):
+		return base
+	var wav: AudioStreamWAV = (base as AudioStreamWAV).duplicate()
+	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	wav.loop_begin = 0
+	wav.loop_end = int(round(base.get_length() * float(wav.mix_rate)))
+	_sfx_looping[event] = wav
+	return wav
 
 
 func _take_voice() -> AudioStreamPlayer:
@@ -290,11 +453,15 @@ func _build_music() -> bool:
 	if _music_sync != null:
 		return true
 
+	_all_stems = PackedStringArray()
+	_all_stems.append_array(STEMS)
+	_all_stems.append_array(STATE_STEMS)
+
 	# A stem that is missing gets slot -1 and is simply skipped; the rest still play,
 	# so a half-built assets/ folder costs you instruments, not the score.
 	var slots: PackedInt32Array = []
 	var streams: Array[AudioStream] = []
-	for stem in STEMS:
+	for stem in _all_stems:
 		var path := MUSIC_DIR + stem + ".ogg"
 		var stream: AudioStream = load(path) if ResourceLoader.exists(path) else null
 		if stream == null:
@@ -323,20 +490,100 @@ func _build_music() -> bool:
 	_stem_slot = slots
 	_stem_db = PackedFloat32Array()
 	_stem_target_db = PackedFloat32Array()
-	for i in STEMS.size():
+	for i in _all_stems.size():
 		_stem_db.append(SILENT_DB)
-		_stem_target_db.append(AUDIBLE_DB if i < _music_level else SILENT_DB)
+		_stem_target_db.append(SILENT_DB)
 
 	_music_player = AudioStreamPlayer.new()
 	_music_player.name = "Music"
 	_music_player.bus = BUS_MUSIC
 	_music_player.stream = _music_sync
 	add_child(_music_player)
+	_recompute_targets()
 	return true
 
 
+## The Count's piano gets its own player: different length, different tempo, and it has
+## to keep running while the synchronized stack sits at -80 dB underneath it.
+func _build_piano() -> bool:
+	if _piano_player != null:
+		return true
+	var path := MUSIC_DIR + COUNT_PIANO + ".ogg"
+	var stream: AudioStream = load(path) if ResourceLoader.exists(path) else null
+	if stream == null:
+		if not _missing_logged.has(&"__piano"):
+			_missing_logged[&"__piano"] = true
+			print("[audio] no asset yet for ", path)
+		return false
+	if stream is AudioStreamOggVorbis:
+		stream.loop = true
+		stream.loop_offset = 0.0
+	_piano_player = AudioStreamPlayer.new()
+	_piano_player.name = "CountPiano"
+	_piano_player.bus = BUS_MUSIC
+	_piano_player.stream = stream
+	_piano_player.volume_db = SILENT_DB
+	add_child(_piano_player)
+	return true
+
+
+## The whole mix table, in one place: every target is a pure function of the requested
+## level and the requested state, so the two compose instead of fighting and any order
+## of calls lands on the same mix.
+func _stem_target_for(index: int) -> float:
+	if _music_stopping:
+		return SILENT_DB
+	match _music_state:
+		STATE_COUNT:
+			return SILENT_DB
+		STATE_RAID:
+			# Overrides the level mix outright: however big the empire got, a raid is
+			# bass, the halftime kit and the ostinato, and nothing else.
+			if index == IDX_BASS or index == IDX_TENSE or index == IDX_RAID_DRUMS:
+				return AUDIBLE_DB
+			if index == IDX_DRUMS:
+				return SILENT_DB
+			return RAID_DUCK_DB
+		STATE_HOT:
+			if index == IDX_TENSE:
+				return AUDIBLE_DB
+			if index == IDX_RAID_DRUMS or index >= STEMS.size():
+				return SILENT_DB
+			if index >= _music_level:
+				return SILENT_DB
+			return HOT_DUCK_DB if HOT_DUCKED.has(index) else AUDIBLE_DB
+		_:
+			if index >= STEMS.size():
+				return SILENT_DB
+			return AUDIBLE_DB if index < _music_level else SILENT_DB
+
+
+func _recompute_targets() -> void:
+	if _music_sync != null:
+		for i in _stem_target_db.size():
+			_stem_target_db[i] = _stem_target_for(i)
+	if _piano_player == null:
+		return
+	_piano_target_db = (PIANO_DB if _music_state == STATE_COUNT and not _music_stopping
+		else SILENT_DB)
+	if _piano_target_db > SILENT_DB and not _piano_player.playing \
+			and _piano_player.is_inside_tree():
+		_piano_player.volume_db = _piano_db
+		_piano_player.play()
+
+
+func _fade_seconds_for(from_state: StringName, to_state: StringName) -> float:
+	if from_state == STATE_COUNT or to_state == STATE_COUNT:
+		return COUNT_FADE_SECONDS
+	if from_state == STATE_RAID or to_state == STATE_RAID:
+		return RAID_FADE_SECONDS
+	return MUSIC_FADE_SECONDS
+
+
 func _apply_stem_db_now(db: float) -> void:
-	for i in STEMS.size():
+	if _music_sync == null:
+		return
+	for i in _stem_db.size():
 		_stem_db[i] = db
 		_stem_target_db[i] = db
 		if _stem_slot[i] >= 0:
@@ -344,27 +591,38 @@ func _apply_stem_db_now(db: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if _music_sync == null:
+	if _music_sync == null and _piano_player == null:
 		set_process(false)
 		return
 	# A linear ramp in dB is an exponential ramp in amplitude — the shape a fader has,
 	# and the one that makes a stem arrive rather than suddenly appear.
-	var step: float = (AUDIBLE_DB - SILENT_DB) * delta / MUSIC_FADE_SECONDS
+	var step: float = (AUDIBLE_DB - SILENT_DB) * delta / maxf(_fade_seconds, 0.01)
 	var moving := false
-	for i in STEMS.size():
-		var current: float = _stem_db[i]
-		var target: float = _stem_target_db[i]
-		if is_equal_approx(current, target):
-			continue
-		current = move_toward(current, target, step)
-		_stem_db[i] = current
-		if _stem_slot[i] >= 0:
-			_music_sync.set_sync_stream_volume(_stem_slot[i], current)
-		if not is_equal_approx(current, target):
+	if _music_sync != null:
+		for i in _stem_db.size():
+			var current: float = _stem_db[i]
+			var target: float = _stem_target_db[i]
+			if is_equal_approx(current, target):
+				continue
+			current = move_toward(current, target, step)
+			_stem_db[i] = current
+			if _stem_slot[i] >= 0:
+				_music_sync.set_sync_stream_volume(_stem_slot[i], current)
+			if not is_equal_approx(current, target):
+				moving = true
+	if _piano_player != null and not is_equal_approx(_piano_db, _piano_target_db):
+		_piano_db = move_toward(_piano_db, _piano_target_db, step)
+		_piano_player.volume_db = _piano_db
+		if not is_equal_approx(_piano_db, _piano_target_db):
 			moving = true
 	if moving:
 		return
+	# Faded all the way out: nothing left to hear, so stop paying for it.
+	if _piano_player != null and _piano_player.playing \
+			and is_equal_approx(_piano_target_db, SILENT_DB):
+		_piano_player.stop()
 	if _music_stopping:
-		_music_player.stop()
+		if _music_player != null:
+			_music_player.stop()
 		_music_stopping = false
 	set_process(false)

@@ -21,6 +21,8 @@ note-placement could hide.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from . import theory as th
@@ -47,7 +49,16 @@ STEM_LUFS = {
 	"06_barisax": -25.0,
 	"07_strings": -26.5,
 	"08_full": -23.0,
+	# Wave 2. The ostinato is quieter than anything it plays under (spec §2: "sits UNDER
+	# the band") but has to still carry a raid, where it is one of only three things
+	# left; the raid kit replaces the brushes and is the loudest thing in the stack.
+	"09_tense": -24.0,
+	"10_raid_drums": -19.0,
 }
+
+# The Count's piano is not in the synchronized stack and never plays with the band, so
+# it is levelled as a solo instrument rather than as a layer.
+COUNT_PIANO_LUFS = -21.5
 
 PEAK_CEILING_DB = -1.5
 
@@ -67,17 +78,17 @@ def periodic_lfo(target_hz: float, phase: float = 0.0, n: int = TOTAL) -> np.nda
 
 
 def _place(left: np.ndarray, right: np.ndarray, mono: np.ndarray, start: int,
-           gain: float = 1.0, position: float = 0.0) -> None:
+           gain: float = 1.0, position: float = 0.0, loop_n: int = N) -> None:
 	"""Mix a note into the stereo pair, panned.
 
 	A note whose humanised timing lands *before* bar 1 belongs to the end of the loop,
-	not to sample 0: placing it at ``start + N`` lets it ring past the loop end and fold
-	back onto the head, which is where it would be if the loop were really playing. Just
-	clipping it to zero instead leaves the head starting mid-attack — a step at sample 0
-	that reads as a click on every repeat.
+	not to sample 0: placing it at ``start + loop_n`` lets it ring past the loop end and
+	fold back onto the head, which is where it would be if the loop were really playing.
+	Just clipping it to zero instead leaves the head starting mid-attack — a step at
+	sample 0 that reads as a click on every repeat.
 	"""
 	if start < 0:
-		start += N
+		start += loop_n
 	l, r = pan(mono, position)
 	add_at(left, l, start, gain)
 	add_at(right, r, start, gain)
@@ -554,6 +565,236 @@ def stem_full() -> tuple[np.ndarray, np.ndarray]:
 	return highpass(left, 40.0, 2), highpass(right, 40.0, 2)
 
 
+# ================================================================== 09 — tense
+
+
+def _tense_string(f: float, n: int, velocity: float, gen: np.random.Generator) -> np.ndarray:
+	"""Low strings, staccato: the bow bites, the note speaks, the bow leaves.
+
+	Three things make this read as menace rather than as a short note — the friction
+	burst at the attack (that is the bow catching the string, and without it a staccato
+	note is just an envelope), the filter closing over the note's length, and the fact
+	that it never resolves anywhere.
+	"""
+	tone = np.zeros(n)
+	for cents in (-8.0, 0.0, 8.0):
+		tone += bl_saw(f * (2.0 ** ((cents + _detune(gen, 2.5)) / 1200.0)), n, cap=24)
+	tone /= 3.0
+	bite = bandpass(noise(n, gen), 950.0, 4400.0, order=2) * perc_env(n, 0.0012, 0.016, 1.7)
+	voiced = sweep_filter(tone, expline(n, 1450.0, 460.0), q=0.85, kind="lp")
+	env = asr_env(n, 0.014, 0.085, 1.9)
+	return unit(blend(voiced, bite, 0.16) * env, velocity)
+
+
+def _muted_tick(n: int, gen: np.random.Generator, f0: float, tau: float) -> np.ndarray:
+	"""Stick on a muted rim. Nothing under a kilohertz, nothing that rings."""
+	exc = np.zeros(n)
+	k = max(3, n_of(0.0005))
+	exc[:k] = noise(k, gen) * np.hanning(k)
+	exc = bandpass(exc, 1600.0, 11000.0, order=2)
+	return unit(modal(exc, [
+		(f0, tau, 0.60),
+		(f0 * 1.93, tau * 0.62, 0.85),
+		(f0 * 3.41, tau * 0.36, 0.50),
+		(f0 * 5.80, tau * 0.20, 0.24),
+	]))
+
+
+def stem_tense() -> tuple[np.ndarray, np.ndarray]:
+	gen = rng("stem_tense")
+	left, right = _buf(), _buf()
+
+	for bar in range(1, th.BARS + 1):
+		for beat, name, dur, vel in th.TENSE_BARS[bar - 1]:
+			f = th.freq(name, _detune(gen, 2.0))
+			start, length = th.beat_span(th.bar_beat(bar, beat), dur)
+			n = length + n_of(0.24)
+			jitter = int(gen.integers(-70, 70))
+			_place(left, right, _tense_string(f, n, vel, gen), start + jitter, 0.52, -0.14)
+			# an octave double, well under it, so the pedal has an edge on a phone
+			_place(left, right, _tense_string(f * 2.0, n, vel * 0.55, gen),
+			       start + jitter, 0.20, 0.16)
+		for beat in th.TENSE_TICK_BEATS:
+			vel = th.TENSE_TICK_ACCENT.get(beat, 0.55)
+			start = th.beat_sample(th.bar_beat(bar, beat)) + int(gen.integers(-90, 90))
+			f0 = 2380.0 if beat in th.TENSE_TICK_ACCENT else 2610.0
+			# Down-beats one side, swung off-beats the other: two hands, one clock.
+			off_beat = beat % 1.0 != 0.0
+			_place(left, right, _muted_tick(n_of(0.09), gen, f0, 0.0075),
+			       start, vel * 0.22, 0.34 if off_beat else -0.30)
+
+	# The room the Heat mix wants is a small one (docs/08 §4: "the room gets smaller"),
+	# so this stem gets less reverb than anything else in the stack, not more.
+	left, right = stereo_room(left, right, wet=0.07, rt60=0.45, predelay=0.009, damp_hz=3400.0)
+	return highpass(left, 42.0, 2), highpass(right, 42.0, 2)
+
+
+# ============================================================ 10 — raid drums
+
+
+def _big_kick(n: int, gen: np.random.Generator, velocity: float = 1.0) -> np.ndarray:
+	"""Not the brush kit's felt beater: a hard beater on a big open drum."""
+	drop = n_of(0.055)
+	f = np.full(n, 44.0)
+	f[:drop] = expline(drop, 165.0, 44.0)
+	body = np.sin(phase_of(f)) * perc_env(n, 0.0012, 0.135, 0.95)
+	click = bandpass(noise(n, gen), 1400.0, 5200.0, order=2) * perc_env(n, 0.0004, 0.0055, 1.8)
+	skin = lowpass(noise(n, gen), 900.0, order=2) * perc_env(n, 0.0008, 0.020, 1.3)
+	return unit(blend(blend(body, skin, 0.28), click, 0.16), velocity)
+
+
+def _raid_snare(n: int, gen: np.random.Generator, velocity: float = 1.0) -> np.ndarray:
+	"""Splashy: a wide-open snare with the strainer loose, and a splash cymbal on it.
+
+	The wires are a separate layer with their own, longer envelope — a snare where the
+	buzz decays with the shell is a tom with an attitude, not a snare.
+	"""
+	exc = np.zeros(n)
+	k = max(3, n_of(0.0012))
+	exc[:k] = noise(k, gen) * np.hanning(k)
+	exc = bandpass(exc, 300.0, 9000.0, order=2)
+	shell = modal(exc, [(186.0, 0.075, 0.80), (331.0, 0.055, 0.60),
+	                    (498.0, 0.036, 0.45), (842.0, 0.020, 0.30)])
+	wires = bandpass(noise(n, gen), 2600.0, 11000.0, order=2) * perc_env(n, 0.0012, 0.115, 0.85)
+	splash = modal(exc, [(612.0, 0.34, 0.40), (1043.0, 0.28, 0.42), (1687.0, 0.22, 0.38),
+	                     (2590.0, 0.17, 0.32), (3910.0, 0.12, 0.24), (5720.0, 0.08, 0.16)])
+	out = blend(unit(shell), unit(wires), 0.72)
+	return unit(blend(out, unit(splash), 0.46), velocity)
+
+
+def _tom(f0: float, n: int, gen: np.random.Generator, velocity: float = 1.0) -> np.ndarray:
+	"""Tuned tom: membrane modes plus the beater, with the head's pitch bend at the hit."""
+	exc = np.zeros(n)
+	k = max(3, n_of(0.0025))
+	exc[:k] = noise(k, gen) * np.hanning(k)
+	exc = lowpass(exc, 1600.0, order=2)
+	ratios = [1.00, 1.504, 1.742, 2.00, 2.44]
+	taus = [0.30, 0.21, 0.16, 0.12, 0.08]
+	gains = [1.00, 0.55, 0.38, 0.26, 0.15]
+	drum = modal(exc, [(f0 * r, tau, g) for r, tau, g in zip(ratios, taus, gains)])
+	# the head is stretched at the moment of impact and relaxes over ~40 ms
+	bend_n = min(n, n_of(0.045))
+	bend = np.zeros(n)
+	bend[:bend_n] = np.sin(phase_of(expline(bend_n, f0 * 1.32, f0))) * exp_decay(bend_n, 0.014)
+	beater = lowpass(noise(n, gen), 2600.0, order=2) * perc_env(n, 0.0006, 0.011, 1.5)
+	out = blend(blend(unit(drum), unit(bend), 0.34), unit(beater), 0.20)
+	return unit(out * asr_env(n, 0.001, 0.06, 2.0), velocity)
+
+
+TOM_HZ = {"hi": 196.00, "mid": 146.83, "lo": 110.00}     # G3, D3, A2
+TOM_PAN = {"hi": 0.34, "mid": 0.02, "lo": -0.32}
+
+
+def stem_raid_drums() -> tuple[np.ndarray, np.ndarray]:
+	gen = rng("stem_raid_drums")
+	left, right = _buf(), _buf()
+	kick_n = n_of(0.70)
+	snare_n = n_of(1.10)
+	tom_n = n_of(0.55)
+
+	for bar in range(1, th.BARS + 1):
+		fill = bar in th.RAID_FILL_BARS
+		for beat in th.RAID_KICK_BEATS:
+			start = th.beat_sample(th.bar_beat(bar, beat)) + int(gen.integers(-50, 50))
+			vel = 1.0 if beat == 1.0 else 0.92
+			_place(left, right, _big_kick(kick_n, gen, vel), start, 0.90, 0.0)
+		for beat, vel in th.RAID_KICK_PICKUP:
+			if fill:
+				continue
+			start = th.beat_sample(th.bar_beat(bar, beat)) + int(gen.integers(-50, 50))
+			_place(left, right, _big_kick(kick_n, gen, vel), start, 0.60, 0.0)
+		for beat in th.RAID_SNARE_BEATS:
+			start = th.beat_sample(th.bar_beat(bar, beat)) + int(gen.integers(-60, 60))
+			_place(left, right, _raid_snare(snare_n, gen, 1.0), start, 0.62, -0.10)
+		for beat, voice, vel in (th.RAID_FILL if fill else th.RAID_TOM_PATTERN):
+			start = th.beat_sample(th.bar_beat(bar, beat)) + int(gen.integers(-70, 70))
+			_place(left, right, _tom(TOM_HZ[voice], tom_n, gen, vel), start,
+			       0.46, TOM_PAN[voice])
+		# the fill bars end on the downbeat of the next bar
+		if fill:
+			_place(left, right, _big_kick(kick_n, gen, 1.0),
+			       th.beat_sample(th.bar_beat(bar, 5.0)), 0.90, 0.0)
+
+	left, right = widen(left, right, 0.18)
+	left, right = stereo_room(left, right, wet=0.15, rt60=1.10, predelay=0.014, damp_hz=6400.0)
+	return highpass(left, 30.0, 2), highpass(right, 30.0, 2)
+
+
+# ======================================================= count_piano (unsynced)
+
+
+def piano_note(f: float, n: int, velocity: float, gen: np.random.Generator) -> np.ndarray:
+	"""A struck string over a soundboard: three strings a unison, felt, stiffness.
+
+	Inharmonicity is the whole difference between a piano and an organ. A real string
+	resists bending, so partial k sits at ``k*f*sqrt(1 + B k^2)`` rather than at ``k*f``;
+	B falls as the strings get shorter and thinner up the keyboard. That stretch is why
+	the partials of a low D and a high D never quite line up, and it is what a listener
+	hears as "piano" before they hear anything else.
+
+	Two more things earn their keep: each partial gets its *own* decay (the top of the
+	spectrum is gone in half a second while the fundamental hangs on for three, which is
+	the shape of a piano note), and the three strings of a unison are detuned by under a
+	cent so the note breathes instead of sitting still.
+	"""
+	t = t_axis(n)
+	stiff = float(np.interp(f, [55.0, 110.0, 220.0, 440.0, 880.0],
+	                        [4.2e-4, 2.4e-4, 1.4e-4, 0.9e-4, 0.7e-4]))
+	tau1 = float(np.interp(f, [55.0, 110.0, 220.0, 440.0, 880.0],
+	                       [3.4, 2.8, 2.1, 1.5, 1.0]))
+	# harder blows are brighter, exactly as the hammer's contact time gets shorter
+	tilt = 1.55 - 0.55 * velocity
+	strings = [(-0.65, 0.88), (0.0, 1.00), (0.72, 0.84)]
+
+	out = np.zeros(n)
+	for k in range(1, 19):
+		fk = k * math.sqrt(1.0 + stiff * k * k)
+		if f * fk > 0.45 * SR:
+			break
+		amp = 1.0 / (k ** tilt)
+		if amp < 6e-4:
+			break
+		env = np.exp(-t / (tau1 / (1.0 + 0.95 * (k - 1) ** 0.72)))
+		partial = np.zeros(n)
+		for cents, g in strings:
+			partial += g * np.sin(phase_of(f * fk * 2.0 ** ((cents + _detune(gen, 0.5)) / 1200.0),
+			                               n, phase0=float(gen.uniform(0.0, 6.28))))
+		out += amp * partial * env
+
+	# hammer felt on the string, and the case around it
+	hammer = lowpass(noise(n, gen), 2600.0, order=2) * perc_env(n, 0.0006, 0.0075, 1.6)
+	out = blend(out, hammer, 0.14)
+	board = modal(out, [(97.0, 0.075, 0.30), (148.0, 0.055, 0.22), (231.0, 0.038, 0.15)])
+	out = blend(out, board, 0.22)
+	return unit(lowpass(out, 9500.0, order=2) * asr_env(n, 0.0012, 0.10, 2.0), velocity)
+
+
+def stem_count_piano() -> tuple[np.ndarray, np.ndarray]:
+	"""Solo piano, its own 4-bar loop at 55 BPM — it never syncs with the band."""
+	gen = rng("stem_count_piano")
+	loop_n = th.COUNT_FRAMES
+	total = loop_n + n_of(5.0)
+	left, right = np.zeros(total), np.zeros(total)
+
+	for beat, names, dur, vel in th.COUNT_PIANO_LINE:
+		start = th.count_beat_sample(beat)
+		length = th.count_beat_sample(beat + dur) - start
+		n = length + n_of(2.2)                       # the note rings past its notation
+		# the hand rolls very slightly, and lands a touch before or after the beat
+		lean = int(gen.integers(-1400, 1400))
+		for i, name in enumerate(names):
+			f = th.freq(name, _detune(gen, 2.0))
+			midi = th.note_to_midi(name)
+			position = float(np.clip((midi - 62) / 34.0, -0.45, 0.45))
+			v = vel * (1.0 - 0.05 * i)
+			_place(left, right, piano_note(f, n, v, gen),
+			       start + lean + n_of(0.011 * i) + int(gen.integers(-500, 500)),
+			       1.0, position, loop_n=loop_n)
+
+	left, right = stereo_room(left, right, wet=0.22, rt60=1.55, predelay=0.020, damp_hz=4200.0)
+	return highpass(left, 34.0, 2), highpass(right, 34.0, 2)
+
+
 # ================================================================== the stack
 
 STEMS = {
@@ -565,13 +806,36 @@ STEMS = {
 	"06_barisax": stem_barisax,
 	"07_strings": stem_strings,
 	"08_full": stem_full,
+	"09_tense": stem_tense,
+	"10_raid_drums": stem_raid_drums,
 }
+
+# Not in the synchronized stack: its own tempo, its own loop length, its own level.
+COUNT_PIANO = "count_piano"
+
+
+def _level_to(stereo: np.ndarray, target_lufs: float) -> np.ndarray:
+	"""Hit a loudness target *through* the limiter.
+
+	Scaling to target and then clipping the peaks back (which is what a plain
+	peak-normalise does) leaves a transient stem like the drums 8 dB under everything
+	else. Converges in two or three passes.
+	"""
+	from .analysis import lufs_integrated
+
+	for _ in range(6):
+		measured = lufs_integrated(stereo, SR)
+		if measured <= -180.0:
+			break
+		error = target_lufs - measured
+		stereo = soft_limit(stereo * db2lin(error), PEAK_CEILING_DB, knee_db=7.0)
+		if abs(error) < 0.1:
+			break
+	return stereo
 
 
 def render_stem(name: str) -> np.ndarray:
-	"""Render one stem to an (N, 2) float array, loop-folded and level-matched."""
-	from .analysis import lufs_integrated
-
+	"""Render one synced stem to an (N, 2) float array, loop-folded and level-matched."""
 	left, right = STEMS[name]()
 	assert len(left) == TOTAL and len(right) == TOTAL, "stem rendered at the wrong length"
 	left = dc_remove(left, 24.0)
@@ -579,17 +843,15 @@ def render_stem(name: str) -> np.ndarray:
 	# Everything above this line is linear and time-invariant, so folding here is exact.
 	stereo = np.stack([fold_tail(left, N), fold_tail(right, N)], axis=1)
 	assert stereo.shape[0] == N, "fold produced the wrong frame count"
+	return _level_to(stereo, STEM_LUFS[name])
 
-	# Hit the loudness target *through* the limiter: scaling to target and then clipping
-	# the peaks back (which is what a plain peak-normalise does) leaves a transient stem
-	# like the drums 8 dB under everything else. Converges in two or three passes.
-	target = STEM_LUFS[name]
-	for _ in range(6):
-		measured = lufs_integrated(stereo, SR)
-		if measured <= -180.0:
-			break
-		error = target - measured
-		stereo = soft_limit(stereo * db2lin(error), PEAK_CEILING_DB, knee_db=7.0)
-		if abs(error) < 0.1:
-			break
-	return stereo
+
+def render_count_piano() -> np.ndarray:
+	"""Render the unsynced piano to a (COUNT_FRAMES, 2) float array."""
+	loop_n = th.COUNT_FRAMES
+	left, right = stem_count_piano()
+	left = dc_remove(left, 24.0)
+	right = dc_remove(right, 24.0)
+	stereo = np.stack([fold_tail(left, loop_n), fold_tail(right, loop_n)], axis=1)
+	assert stereo.shape[0] == loop_n, "fold produced the wrong frame count"
+	return _level_to(stereo, COUNT_PIANO_LUFS)

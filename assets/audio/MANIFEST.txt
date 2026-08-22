@@ -7,35 +7,67 @@ no external assets, no licences: we own every byte. Regenerate with
 The generator is deterministic — a re-run reproduces these files exactly.
 
 Levels: -1.5 dBFS is a ceiling, not a target. SFX peaks form a deliberate ladder
-(knocker loudest, cash_tick and wall_tap far below) so gameplay code does not have
-to ride volume_db on every call; music stems are matched by integrated loudness
-(LUFS) instead, so the stack stays balanced as stems fade in.
+(knocker and kickback loudest, spinner_tick and wall_tap far below) so gameplay code
+does not have to ride volume_db on every call; music stems are matched by integrated
+loudness (LUFS) instead, so the stack stays balanced as stems fade in.
 
 SFX — assets/audio/sfx/*.wav  (44.1 kHz, 16-bit PCM, mono)
+Looping events (bill_counter, siren) are built periodic and carry a 'seam' figure; every
+other file is a one-shot that starts and ends at true zero.
 ------------------------------------------------------------------------------
-file                       dur  peak dB   rms dB   crest  centroid    decay     KiB
-flipper_up.wav          0.260s    -2.50   -25.10    22.6     1040Hz     213ms    22.4
-flipper_down.wav        0.190s    -8.00   -25.13    17.1      557Hz     166ms    16.4
-bumper_hit.wav          0.440s    -1.80   -22.26    20.5     1039Hz     400ms    37.9
-sling_hit.wav           0.240s    -3.00   -23.87    20.9     1557Hz     204ms    20.7
-plunger_pull.wav        0.060s    -9.00   -24.51    15.5     1259Hz      48ms     5.2
-plunger_launch.wav      0.580s    -3.00   -24.78    21.8      539Hz     267ms    50.0
-ball_spawn.wav          0.420s    -6.00   -26.09    20.1     2404Hz     270ms    36.2
-drain.wav               0.980s    -3.50   -20.84    17.3      385Hz     793ms    84.5
-nudge_thump.wav         0.340s    -4.50   -19.66    15.2      223Hz     307ms    29.3
-tilt_warning.wav        2.050s    -3.00   -26.02    23.0     1904Hz    1456ms   176.6
-tilt.wav                1.400s    -2.00   -23.94    21.9      575Hz     763ms   120.6
-knocker.wav             0.400s    -1.50   -23.89    22.4      882Hz     230ms    34.5
-cash_tick.wav           0.038s   -11.00   -27.07    16.1     2233Hz      30ms     3.3
-chime_a.wav             2.300s    -4.00   -22.86    18.9      992Hz    1888ms   198.1
-chime_b.wav             2.300s    -4.00   -23.95    20.0     1217Hz    1653ms   198.1
-chime_c.wav             2.300s    -4.00   -24.89    20.9     1660Hz    1722ms   198.1
-wall_tap.wav            0.085s   -16.00   -32.26    16.3     1413Hz      70ms     7.4
-subtotal                                                                     1239.6
+file                       dur  peak dB   rms dB   crest  centroid    decay   seam     KiB
+flipper_up.wav          0.260s    -2.50   -25.10    22.6     1040Hz     213ms      —    22.4
+flipper_down.wav        0.190s    -8.00   -25.13    17.1      557Hz     166ms      —    16.4
+bumper_hit.wav          0.440s    -1.80   -22.26    20.5     1039Hz     400ms      —    37.9
+sling_hit.wav           0.240s    -3.00   -23.87    20.9     1557Hz     204ms      —    20.7
+plunger_pull.wav        0.060s    -9.00   -24.51    15.5     1259Hz      48ms      —     5.2
+plunger_launch.wav      0.580s    -3.00   -24.78    21.8      539Hz     267ms      —    50.0
+ball_spawn.wav          0.420s    -6.00   -26.09    20.1     2404Hz     270ms      —    36.2
+drain.wav               0.980s    -3.50   -20.84    17.3      385Hz     793ms      —    84.5
+nudge_thump.wav         0.340s    -4.50   -19.66    15.2      223Hz     307ms      —    29.3
+tilt_warning.wav        2.050s    -3.00   -26.02    23.0     1904Hz    1456ms      —   176.6
+tilt.wav                1.400s    -2.00   -23.94    21.9      575Hz     763ms      —   120.6
+knocker.wav             0.400s    -1.50   -23.89    22.4      882Hz     230ms      —    34.5
+cash_tick.wav           0.038s   -11.00   -27.07    16.1     2233Hz      30ms      —     3.3
+chime_a.wav             2.300s    -4.00   -22.86    18.9      992Hz    1888ms      —   198.1
+chime_b.wav             2.300s    -4.00   -23.95    20.0     1217Hz    1653ms      —   198.1
+chime_c.wav             2.300s    -4.00   -24.89    20.9     1660Hz    1722ms      —   198.1
+wall_tap.wav            0.085s   -16.00   -32.26    16.3     1413Hz      70ms      —     7.4
+rollover_click.wav      0.048s   -12.00   -27.58    15.6     1626Hz      37ms      —     4.2
+spinner_tick.wav        0.030s   -14.00   -32.84    18.8     3712Hz      24ms      —     2.6
+drop_clack.wav          0.150s    -6.50   -25.58    19.1      871Hz     130ms      —    13.0
+drop_bank_down.wav      0.520s    -3.00   -21.99    19.0     1499Hz     264ms      —    44.8
+drop_bank_reset.wav     0.460s    -5.50   -23.83    18.3     1684Hz     175ms      —    39.7
+kickback.wav            0.520s    -1.80   -25.10    23.3     1040Hz     280ms      —    44.8
+orbit_whoosh.wav        0.400s    -6.00   -21.29    15.3     3330Hz     187ms      —    34.5
+storefront_collect.wav  1.100s    -2.60   -18.64    16.0     3257Hz     907ms      —    94.8
+laundromat_wash.wav     0.500s    -8.00   -20.78    12.8     1170Hz     343ms      —    43.1
+bribe_paid.wav          0.820s   -10.00   -18.51     8.5     3072Hz     114ms      —    70.7
+guy_pinched.wav         0.700s    -3.20   -20.77    17.6     3079Hz     508ms      —    60.3
+bail_paid.wav           0.720s    -4.50   -26.61    22.1     3730Hz     430ms      —    62.1
+safe_open.wav           1.650s    -3.50   -21.87    18.4     2297Hz     483ms      —   142.2
+stamp_thunk.wav         0.300s    -5.00   -25.02    20.0     1409Hz     220ms      —    25.9
+paper_slip.wav          0.340s   -13.00   -28.24    15.2     6105Hz     180ms      —    29.3
+job_done.wav            0.620s    -4.00   -20.95    17.0     3209Hz     435ms      —    53.4
+skill_shot_ding.wav     1.150s    -3.50   -22.41    18.9     2749Hz     519ms      —    99.1
+combo_2.wav             0.300s    -5.00   -19.41    14.4     1586Hz     271ms      —    25.9
+combo_3.wav             0.300s    -4.60   -18.17    13.6     1760Hz     274ms      —    25.9
+combo_4.wav             0.300s    -4.20   -17.56    13.4     2162Hz     278ms      —    25.9
+headline_sting.wav      0.900s    -3.50   -21.96    18.5     4245Hz     100ms      —    77.6
+rankup_fanfare.wav      2.000s    -1.60   -15.48    13.9     2414Hz    1317ms      —   172.3
+bill_counter.wav        1.200s    -7.00   -21.00    14.0     5218Hz     202ms   0.07   103.4
+coin_drop.wav           0.580s    -7.00   -24.12    17.1     2723Hz     392ms      —    50.0
+siren.wav               7.000s    -9.00   -21.75    12.7     1186Hz    3891ms   0.67   603.0
+raid_start.wav          1.500s    -1.70   -21.25    19.5     1347Hz    1426ms      —   129.2
+raid_win.wav            1.500s    -2.20   -20.82    18.6     3104Hz    1118ms      —   129.2
+raid_lose.wav           1.500s    -2.40   -21.34    18.9     1767Hz    1325ms      —   129.2
+subtotal                                                                            3575.7
 
 MUSIC — assets/audio/music/city1/*.ogg  (44.1 kHz, Vorbis q0.6, stereo)
 'Eastport 72' — 92 BPM swung, D minor, 8-bar loop, 920348 frames (20.8696 s) each.
 Chords: bars 1-2 Dm6 | 3-4 Gm7 | 5 Bb7 | 6 A7 | 7 Dm6 | 8 A7.
+01-08 are the level stack (music_set_level); 09/10 are state layers on the SAME
+sample-locked player. count_piano is NOT synced — 55 BPM, 4 bars, 769745 frames.
 ------------------------------------------------------------------------------
 file                     frames      dur  peak dB    LUFS  centroid   seam     KiB
 01_bass.ogg              920348  20.870s    -4.11   -20.5     1001Hz   0.02   210.5
@@ -46,13 +78,16 @@ file                     frames      dur  peak dB    LUFS  centroid   seam     K
 06_barisax.ogg           920348  20.870s   -10.17   -25.0     1545Hz   0.14   332.7
 07_strings.ogg           920348  20.870s   -13.90   -26.4     2030Hz   0.10   391.4
 08_full.ogg              920348  20.870s    -8.90   -23.0     2052Hz   0.20   225.7
+09_tense.ogg             920348  20.870s    -6.88   -24.0     1399Hz   0.14   214.6
+10_raid_drums.ogg        920348  20.870s    -3.14   -19.0     3500Hz   0.16   332.1
+count_piano.ogg          769745  17.455s    -6.36   -21.5     1108Hz   0.15   196.7
 99_preview_full.ogg      920348  20.870s    -1.53   -14.7     3512Hz   0.10   475.0
-subtotal                                                                    2854.6
+subtotal                                                                    3598.1
 
 'seam' is the sample step across the loop point divided by the 99.9th-percentile
 step inside the file, measured on the DECODED Vorbis. Below 1.0 means the join is
 quieter than ordinary programme material, i.e. inaudible. 99_preview_full is the
-eight stems summed, for listening checks only — the game never loads it.
+calm eight summed, for listening checks only — the game never loads it.
 
 BASS TUNING — Karplus-Strong loop verified by autocorrelation (worst 0.21 cents, tolerance 5)
 ------------------------------------------------------------------------------
@@ -62,4 +97,13 @@ G2     98.00->   98.00Hz +0.07c  Bb2   116.54->  116.55Hz +0.17c  E3    164.81->
 E2     82.41->   82.41Hz +0.13c  F3    174.61->  174.63Hz +0.18c  Ab3   207.65->  207.66Hz +0.06c
 C#3   138.59->  138.61Hz +0.21c  G3    196.00->  196.00Hz +0.01c
 
-TOTAL COMMITTED AUDIO: 4.00 MiB (17 SFX + 9 music files)
+TUNED SFX — fundamental mode measured off the written WAV (worst 1.38 cents, tolerance 6)
+The chimes are D5/F5/A5 and the combo blips are the same three an octave up, so
+a combo landing on a Wire draw is a chord rather than a mistake.
+------------------------------------------------------------------------------
+chime_a           587.33->  587.17Hz -0.48c  chime_b           698.46->  698.00Hz -1.13c
+chime_c           880.00->  879.38Hz -1.22c  combo_2          1174.66-> 1174.48Hz -0.26c
+combo_3          1396.91-> 1396.41Hz -0.62c  combo_4          1760.00-> 1759.14Hz -0.85c
+skill_shot_ding  1760.00-> 1759.74Hz -0.26c  tilt_warning     1046.50-> 1045.67Hz -1.38c
+
+TOTAL COMMITTED AUDIO: 7.01 MiB (45 SFX + 12 music files), budget 16 MiB

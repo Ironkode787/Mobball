@@ -1,12 +1,18 @@
 extends Node2D
-## M0 acceptance runner (specs/m0-feel.md §"Acceptance"). Boots the real game scene, steps
-## real physics headless, and drives the six scripted scenarios. Prints PASS/FAIL per
-## scenario and quits 0 only if every one passed.
+## M0 acceptance runner (specs/m0-feel.md §"Acceptance"). Boots the M0 alley, steps real
+## physics headless, and drives the six scripted scenarios. Prints PASS/FAIL per scenario
+## and quits 0 only if every one passed.
 ##
 ## Everything is counted in physics ticks (Engine.physics_ticks_per_second), never wall time,
 ## and the chaos is seeded — reruns take the same path.
+##
+## This hosts the alley itself rather than booting `game/main.tscn`. The feel numbers being
+## guarded here are the M0 table's, and `main.tscn` now boots the M1 progression table and a
+## whole session on top of it; going through it would make this sim fail for reasons that
+## have nothing to do with the physics it exists to protect. The wiring below is exactly the
+## part of Main these scenarios need: a nudge controller, and the tilt/drain housekeeping.
 
-const MAIN_SCENE := preload("res://game/main.tscn")
+const TABLE_SCENE := preload("res://game/table/segments/alley_debug.tscn")
 
 const BOUND_MIN := Vector2(36.0, -4.0)
 const BOUND_MAX := Vector2(1044.0, 1930.0)
@@ -17,8 +23,9 @@ const FLIP_MAX_SPEED := 3600.0
 const CRADLE_REST_SPEED := 20.0
 const SEED := 0x4B494E47
 
-var main: Main = null
+var host: Node2D = null
 var table: AlleyDebugTable = null
+var nudge: NudgeController = null
 
 var _results: Array[Dictionary] = []
 var _current: String = ""
@@ -50,11 +57,18 @@ func _ready() -> void:
 		elif arg.begins_with("--seed="):
 			soak_seed = arg.split("=")[1].to_int()
 	_rng.seed = soak_seed
-	main = MAIN_SCENE.instantiate()
-	main.auto_start = false
-	main.show_hud = false
-	add_child(main)
-	table = main.table
+	host = Node2D.new()
+	host.name = "Host"
+	add_child(host)
+	table = TABLE_SCENE.instantiate()
+	table.name = "Table"
+	host.add_child(table)
+	nudge = NudgeController.new()
+	nudge.name = "Nudge"
+	host.add_child(nudge)
+	table.ball_spawned.connect(func(b: Ball) -> void: nudge.set_ball(b))
+	table.ball_lost.connect(_on_ball_lost)
+	Events.tilted.connect(_on_tilted)
 	table.auto_respawn = false
 	Events.flipper_fired.connect(func(side: StringName) -> void: _fired[side] = int(_fired[side]) + 1)
 	Events.tilted.connect(func() -> void: _tilt_count += 1)
@@ -62,6 +76,23 @@ func _ready() -> void:
 		_switches += 1
 		_dirty += v)
 	_run()
+
+
+## The housekeeping game/main.gd does around a drain: the guy is gone, so the flippers come
+## back and the Inspector forgets.
+func _on_ball_lost(_ball: Ball) -> void:
+	nudge.set_ball(null)
+	nudge.clear_tilt()
+	table.flipper_left.revive()
+	table.flipper_right.revive()
+	if table.plunger != null:
+		table.plunger.enabled = true
+
+
+## TILT: the guy's flippers are dead until he's pinched (docs/01 §5).
+func _on_tilted() -> void:
+	table.flipper_left.kill()
+	table.flipper_right.kill()
 
 
 # ---------------------------------------------------------------- harness
@@ -155,7 +186,7 @@ func _run() -> void:
 	print("scenarios: %d  passed: %d  failed: %d" % [_results.size(), _results.size() - failed, failed])
 	print("OK" if failed == 0 else "SIM FAILED")
 	table.despawn_ball()
-	main.queue_free()
+	host.queue_free()
 	await step(2)
 	get_tree().quit(0 if failed == 0 else 1)
 
@@ -164,8 +195,8 @@ func _run() -> void:
 func _s1_no_tunnel() -> void:
 	begin("no-tunnel soak (%.0fs)" % soak_seconds)
 	table.auto_respawn = true
-	var relaxed := main.nudge.meter.max_warnings
-	main.nudge.meter.max_warnings = 1 << 30      # tilt would park the flippers; we want stress
+	var relaxed := nudge.meter.max_warnings
+	nudge.meter.max_warnings = 1 << 30      # tilt would park the flippers; we want stress
 	await fresh_ball_in_lane()
 	table.plunger.launch(1.0)
 
@@ -192,7 +223,7 @@ func _s1_no_tunnel() -> void:
 				next_flip[s] = t + ticks(_rng.randf_range(0.3, 0.7))
 		if t >= next_nudge:
 			next_nudge = t + ticks(3.0)
-			main.nudge.nudge(nudge_names[_rng.randi() % 3])
+			nudge.nudge(nudge_names[_rng.randi() % 3])
 		# a ball that dribbled back into the shooter lane gets re-plunged, so the soak
 		# never degenerates into 30 s of a parked ball
 		if table.plunger.ball_ready():
@@ -203,8 +234,8 @@ func _s1_no_tunnel() -> void:
 	_watch_bounds = false
 	table.flipper_left.set_pressed(false)
 	table.flipper_right.set_pressed(false)
-	main.nudge.meter.max_warnings = relaxed
-	main.nudge.clear_tilt()
+	nudge.meter.max_warnings = relaxed
+	nudge.clear_tilt()
 	table.auto_respawn = false
 
 	var stuck := float(_still_max) / float(Engine.physics_ticks_per_second)
@@ -319,14 +350,14 @@ func _s5_tilt() -> void:
 	begin("tilt kills flippers until drain")
 	table.auto_respawn = true
 	await fresh_ball_in_lane()
-	main.nudge.clear_tilt()
+	nudge.clear_tilt()
 	_tilt_count = 0
 
 	for i in range(4):
-		main.nudge.nudge(&"left")
+		nudge.nudge(&"left")
 		await wait(Feel.NUDGE_COOLDOWN + 0.03)
 	check(_tilt_count == 1, "tilted fired %d times, expected 1" % _tilt_count)
-	check(main.nudge.tilted(), "nudge controller does not report tilted")
+	check(nudge.tilted(), "nudge controller does not report tilted")
 
 	var before := int(_fired[&"left"])
 	table.flipper_left.press()
@@ -339,7 +370,7 @@ func _s5_tilt() -> void:
 	if is_instance_valid(b):
 		b.place(Vector2(490.0, 1876.0))
 	await wait(Feel.RESPAWN_DELAY + 0.6)
-	check(not main.nudge.tilted(), "tilt did not clear on drain")
+	check(not nudge.tilted(), "tilt did not clear on drain")
 	check(table.ball != null, "no ball respawned after the drain")
 
 	before = int(_fired[&"left"])

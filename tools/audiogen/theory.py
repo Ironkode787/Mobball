@@ -178,6 +178,56 @@ STRING_LINE = [
 	(31.0, "D5", 2.0, 0.78),   # resolves, and rings into the D5 that opens the loop
 ]
 
+# ------------------------------------------- wave 2: the state stems (spec §2)
+
+# 09_tense — the Heat ostinato. Swung eighths on a low D pedal, with an Eb upper
+# neighbour that leans on the off-beats and falls straight back to D. One chromatic
+# note the band never plays is all the menace this needs; anything more and the
+# ostinato starts arguing with the harmony instead of sitting under it.
+# (beat-in-bar, note, duration in beats, velocity)
+TENSE_BAR_A = [
+	(1.0, "D2", 0.42, 1.00),
+	(1.5, "D2", 0.38, 0.70),
+	(2.5, "D2", 0.38, 0.80),
+	(3.0, "D2", 0.42, 0.90),
+	(4.0, "D2", 0.38, 0.76),
+	(4.5, "D2", 0.38, 0.68),
+]
+TENSE_BAR_B = [
+	(1.0, "D2", 0.42, 1.00),
+	(1.5, "D2", 0.38, 0.70),
+	(2.5, "Eb2", 0.38, 0.88),
+	(3.0, "D2", 0.42, 0.90),
+	(4.0, "D2", 0.38, 0.76),
+	(4.5, "Eb2", 0.38, 0.72),
+]
+# The neighbour lands on the even bars only — "occasional", per the spec.
+TENSE_BARS = [TENSE_BAR_A, TENSE_BAR_B] * (BARS // 2)
+
+# The muted tick rides every swung eighth; these are the ones that get leaned on.
+TENSE_TICK_BEATS = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5]
+TENSE_TICK_ACCENT = {1.0: 1.00, 2.5: 0.86, 3.0: 0.92, 4.5: 0.80}
+
+# 10_raid_drums — halftime. The backbeat moves to 3, the kick gets big, and the toms
+# drive the space the ride used to fill. Tom voices are named, not pitched, here; the
+# tuning lives in music.py with the drum itself.
+RAID_KICK_BEATS = [1.0, 3.0]
+RAID_KICK_PICKUP = [(4.5, 0.62)]          # a push into the next bar
+RAID_SNARE_BEATS = [3.0]
+RAID_TOM_PATTERN = [
+	(1.5, "hi", 0.60),
+	(2.0, "mid", 0.72),
+	(2.5, "hi", 0.55),
+	(4.0, "mid", 0.78),
+	(4.5, "lo", 0.66),
+]
+# Bars 4 and 8 turn the second half into a fill instead.
+RAID_FILL_BARS = (4, 8)
+RAID_FILL = [
+	(3.0, "hi", 0.70), (3.5, "hi", 0.62), (4.0, "mid", 0.82),
+	(4.5, "mid", 0.74), (4.75, "lo", 0.90),
+]
+
 STEM_NAMES = [
 	"01_bass",
 	"02_drums",
@@ -187,4 +237,49 @@ STEM_NAMES = [
 	"06_barisax",
 	"07_strings",
 	"08_full",
+]
+
+# Added to the same AudioStreamSynchronized, so these are the same LOOP_FRAMES long.
+STATE_STEM_NAMES = ["09_tense", "10_raid_drums"]
+SYNCED_STEM_NAMES = STEM_NAMES + STATE_STEM_NAMES
+
+
+# ------------------------------------------- wave 2: The Count's solo piano
+
+# Never synced with the band, so it gets its own tempo and its own loop length: a
+# 4-bar ballad at 55 BPM, straight eighths (a swung ballad at this tempo drags).
+COUNT_BPM = 55.0
+COUNT_BARS = 4
+COUNT_BEATS = COUNT_BARS * BEATS_PER_BAR                    # 16
+COUNT_FRAMES = int(round(SR * COUNT_BEATS * 60.0 / COUNT_BPM))
+COUNT_SECONDS = COUNT_FRAMES / SR
+COUNT_SEC_PER_BEAT = 60.0 / COUNT_BPM
+
+
+def count_beat_sample(beat: float) -> int:
+	"""Straight (unswung) grid for the piano, 1-based beat."""
+	return int(round((beat - 1.0) * COUNT_SEC_PER_BEAT * SR))
+
+
+# Dm9 | Bbmaj7 | Gm7 | A7(b9) — the same D minor the band is in, voiced for two hands
+# and mostly left alone. (beat, [notes], duration in beats, velocity)
+COUNT_PIANO_LINE = [
+	(1.0, ["D2"], 3.6, 0.62),
+	(1.0, ["F3", "A3", "C4", "E4"], 3.4, 0.44),
+	(3.5, ["A4"], 1.6, 0.50),
+	(4.5, ["G4"], 0.6, 0.38),
+
+	(5.0, ["Bb1"], 3.6, 0.60),
+	(5.0, ["D4", "F4", "A4"], 3.2, 0.42),
+	(7.0, ["D5"], 1.8, 0.54),
+
+	(9.0, ["G2"], 3.6, 0.58),
+	(9.0, ["Bb3", "D4", "F4"], 3.2, 0.42),
+	(11.0, ["C5"], 1.2, 0.52),
+	(12.0, ["Bb4"], 1.0, 0.44),
+
+	(13.0, ["A1"], 3.8, 0.64),
+	(13.5, ["C#4", "E4", "G4"], 2.6, 0.46),
+	(15.0, ["A4"], 1.0, 0.48),
+	(16.0, ["Bb4", "E4"], 1.6, 0.40),     # the b9 hanging over the loop point
 ]

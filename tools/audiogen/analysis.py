@@ -128,6 +128,38 @@ def pitch_autocorr(x: np.ndarray, sr: int = SR, fmin: float = 35.0,
 	return float(m) * sr / refine(ac, k2)
 
 
+def partial_hz(x: np.ndarray, sr: int = SR, f_lo: float = 100.0,
+               f_hi: float = 20000.0) -> float:
+	"""Frequency of the loudest spectral peak inside ``[f_lo, f_hi]``.
+
+	The right measurement for a *struck bar* — a chime, a glockenspiel, the combo
+	blips. Autocorrelation answers "what period best repeats", which for an inharmonic
+	partial set (a chime's are 1 : 2.76 : 5.40) is not the fundamental and can be a
+	hundred cents off while the bar is perfectly in tune: the tuned thing is the
+	fundamental mode, not the waveform's period. Parabolic interpolation on the
+	log-magnitude puts the answer well inside a cent for a mode that rings for more
+	than a few periods.
+	"""
+	x = np.asarray(x, dtype=np.float64)
+	x = x - float(np.mean(x))
+	n = x.size
+	if n < 4096 or float(np.max(np.abs(x))) < 1e-9:
+		return 0.0
+	nfft = 1 << int(math.ceil(math.log2(n))) + 1
+	mag = np.abs(np.fft.rfft(x * np.hanning(n), nfft))
+	f = np.fft.rfftfreq(nfft, 1.0 / sr)
+	band = np.nonzero((f >= f_lo) & (f <= f_hi))[0]
+	if band.size < 3:
+		return 0.0
+	k = int(band[np.argmax(mag[band])])
+	if k <= 0 or k >= len(mag) - 1:
+		return float(f[k])
+	y0, y1, y2 = (math.log(max(v, 1e-30)) for v in (mag[k - 1], mag[k], mag[k + 1]))
+	den = y0 - 2.0 * y1 + y2
+	delta = 0.5 * (y0 - y2) / den if abs(den) > 1e-18 else 0.0
+	return float((k + delta) * sr / nfft)
+
+
 # ------------------------------------------------------------------- loudness
 
 

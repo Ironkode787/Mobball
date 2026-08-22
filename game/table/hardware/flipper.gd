@@ -14,6 +14,9 @@ enum State { REST, RISING, HELD, FALLING }
 var state: State = State.REST
 var progress: float = 0.0           ## 0 rest, 1 fully extended
 var dead: bool = false              ## tilt kills the flippers until the ball drains
+## Fresh Rubbers / Steel Toes: `Stats.flipper_power()` scales the surface speed the bat is
+## guaranteed to hand the ball. 1.0 is the M0 curve, which is what the feel sims measure.
+var power_scale: float = 1.0
 
 var _phase_time: float = 0.0
 var _fall_from: float = 0.0
@@ -268,7 +271,7 @@ func _assist(local: Vector2, reach: float, _delta: float) -> void:
 	var n := (to_global(local) - to_global(Vector2(local.x, 0.0))).normalized()
 	if n == Vector2.ZERO:
 		return
-	var vn_surface := surface.dot(n)
+	var vn_surface := surface.dot(n) * power_scale
 	if vn_surface <= 0.0:
 		return
 	var vn_ball := _ball.linear_velocity.dot(n)

@@ -10,6 +10,9 @@ func run(t: TestCtx) -> void:
 	_lanes_fit_a_ball(t)
 	_flippers(t)
 	_mirror(t)
+	_progression_keeps_the_alley(t)
+	_progression_lanes_fit_a_ball(t)
+	_progression_has_no_pinch_points(t)
 
 
 func _walls_are_thick(t: TestCtx) -> void:
@@ -120,3 +123,106 @@ func _mirror(t: TestCtx) -> void:
 			"inlane floor (slope %.2f) delivers the ball instead of holding it" % absf(floor_span.y / floor_span.x))
 	t.near(AlleyDebugTable.SLING_CORNER.x, AlleyDebugTable.SLING_BOTTOM.x, 0.01,
 			"the slingshot's outer edge is vertical — it is the inlane's inner wall")
+
+
+# ------------------------------------------------------------ progression table
+
+## The M1 table inherits the M0 lower third whole. These are tuned numbers with reasons
+## written down in segments/alley_debug.gd's header; if one of them ever drifts apart from
+## the other table, the feel sims and the growth sim would be measuring two machines.
+func _progression_keeps_the_alley(t: TestCtx) -> void:
+	t.eq(ProgressionTable.FLIPPER_PIVOT_L, AlleyDebugTable.FLIPPER_PIVOT_L, "left flipper pivot")
+	t.eq(ProgressionTable.FLIPPER_PIVOT_R, AlleyDebugTable.FLIPPER_PIVOT_R, "right flipper pivot")
+	t.eq(ProgressionTable.SLING_CORNER, AlleyDebugTable.SLING_CORNER, "slingshot corner")
+	t.eq(ProgressionTable.SLING_TOP, AlleyDebugTable.SLING_TOP, "slingshot rake top")
+	t.eq(ProgressionTable.SLING_BOTTOM, AlleyDebugTable.SLING_BOTTOM, "slingshot bottom")
+	t.eq(ProgressionTable.INLANE_END, AlleyDebugTable.INLANE_END, "inlane floor end")
+	t.eq(ProgressionTable.OUTLANE_X, AlleyDebugTable.OUTLANE_X, "outlane guide x")
+	t.eq(ProgressionTable.OUTLANE_TOP, AlleyDebugTable.OUTLANE_TOP, "outlane guide top")
+	t.eq(ProgressionTable.OUTLANE_BOTTOM, AlleyDebugTable.OUTLANE_BOTTOM, "outlane guide bottom")
+	t.eq(ProgressionTable.DRAIN_Y, AlleyDebugTable.DRAIN_Y, "drain line")
+	t.eq(ProgressionTable.DIVIDER_TOP, AlleyDebugTable.DIVIDER_TOP, "divider cap (the plunge fix)")
+	t.eq(ProgressionTable.DIVIDER_THICK, AlleyDebugTable.DIVIDER_THICK, "divider thickness")
+	t.eq(ProgressionTable.GATE_TOP, AlleyDebugTable.GATE_TOP, "one-way gate top")
+	t.eq(ProgressionTable.GATE_BOTTOM, AlleyDebugTable.GATE_BOTTOM, "one-way gate bottom")
+	t.eq(ProgressionTable.ARCH_A, AlleyDebugTable.ARCH_A, "arch left foot")
+	t.eq(ProgressionTable.ARCH_B, AlleyDebugTable.ARCH_B, "arch apex")
+	t.eq(ProgressionTable.ARCH_C, AlleyDebugTable.ARCH_C, "arch right foot")
+	t.eq(ProgressionTable.MIRROR_X, AlleyDebugTable.MIRROR_X, "playfield mirror line")
+
+	var centre := ProgressionTable.circumcenter(
+			ProgressionTable.ARCH_A, ProgressionTable.ARCH_B, ProgressionTable.ARCH_C)
+	t.near(centre.x, ProgressionTable.ARCH_CENTER.x, 0.001, "cached arch centre x")
+	t.near(centre.y, ProgressionTable.ARCH_CENTER.y, 0.001, "cached arch centre y")
+
+
+## Every lane the M1 table adds has to pass a 56 px ball with room to spare.
+func _progression_lanes_fit_a_ball(t: TestCtx) -> void:
+	var dia := Feel.BALL_RADIUS * 2.0
+	var wall_face: float = ProgressionTable.PLAY_LEFT + ProgressionTable.OUTER_THICK * 0.5
+	var guide_face: float = ProgressionTable.LANE_GUIDE_X - ProgressionTable.GUIDE_THICK * 0.5
+	t.near(guide_face - wall_face, ProgressionTable.CHANNEL_WIDTH, 0.001,
+			"the numbers lane is CHANNEL_WIDTH wide")
+	t.ok(guide_face - wall_face >= dia + 20.0,
+			"numbers lane %.0f px wide" % (guide_face - wall_face))
+
+	# the getaway arc keeps the same channel width all the way round the top
+	var arch_inner: float = ProgressionTable.ARCH_CENTER.distance_to(ProgressionTable.ARCH_A) \
+			- ProgressionTable.OUTER_THICK * 0.5
+	var arc_outer: float = ProgressionTable.ORBIT_ARC_RADIUS + ProgressionTable.GUIDE_THICK * 0.5
+	t.ok(arch_inner - arc_outer >= dia + 20.0,
+			"orbit channel %.0f px wide at the arch" % (arch_inner - arc_outer))
+
+	var posts: PackedFloat32Array = ProgressionTable.ROLLOVER_POST_X
+	for i in range(posts.size() - 1):
+		var lane: float = posts[i + 1] - posts[i] - ProgressionTable.ROLLOVER_POST_THICK
+		t.ok(lane >= dia + 20.0, "top lane %d is %.0f px wide" % [i + 1, lane])
+
+	# the storefront banks must leave real routes through the midfield, not a wall
+	var half := Storefront.TARGET_PITCH + Storefront.TARGET_LENGTH * 0.5
+	var edges: Array[Vector2] = []
+	for i in range(ProgressionTable.STOREFRONT_AT.size()):
+		var centre: Vector2 = ProgressionTable.STOREFRONT_AT[i]
+		var reach: float = half * cos(deg_to_rad(ProgressionTable.STOREFRONT_RAKE[i]))
+		edges.append(Vector2(centre.x - reach, centre.x + reach))
+	for i in range(edges.size() - 1):
+		var gap: float = edges[i + 1].x - edges[i].y
+		t.ok(gap >= dia + 20.0, "midfield gap %d is %.0f px" % [i + 1, gap])
+	t.ok(edges[0].x - (ProgressionTable.LANE_GUIDE_X + ProgressionTable.GUIDE_THICK * 0.5)
+			>= dia + 20.0, "the route between the numbers lane and Lucky's passes a ball")
+
+
+## A gap is either a route or a wall — never ball-sized, which is where a ball wedges and
+## the night quietly ends.
+func _progression_has_no_pinch_points(t: TestCtx) -> void:
+	var dia := Feel.BALL_RADIUS * 2.0
+	var centre: Vector2 = ProgressionTable.ARCH_CENTER
+	var arc_inner: float = ProgressionTable.ORBIT_ARC_RADIUS - ProgressionTable.GUIDE_THICK * 0.5
+
+	# the top-lane posts sit inside the getaway arc: prove they are clear of it
+	for x: float in ProgressionTable.ROLLOVER_POST_X:
+		var top := Vector2(x, ProgressionTable.ROLLOVER_POST_TOP)
+		var clearance: float = arc_inner - centre.distance_to(top) \
+				- ProgressionTable.ROLLOVER_POST_THICK * 0.5
+		t.ok(clearance >= dia or clearance <= 0.0,
+				"post at x=%.0f leaves a %.0f px pinch under the orbit arc" % [x, clearance])
+
+	# the right-hand storefront and the wire bank stop short of the divider by less than a
+	# ball, so nothing can crawl in behind them
+	var half := Storefront.TARGET_PITCH + Storefront.TARGET_LENGTH * 0.5
+	var pawn: Vector2 = ProgressionTable.STOREFRONT_AT[2]
+	var pawn_right: float = pawn.x + half * cos(deg_to_rad(ProgressionTable.STOREFRONT_RAKE[2]))
+	t.ok(ProgressionTable.PLAY_RIGHT - pawn_right < dia,
+			"Fat Tony's leaves a %.0f px slot against the divider"
+			% (ProgressionTable.PLAY_RIGHT - pawn_right))
+
+	# the payphones are close enough together to read as one bank and to seal
+	var wire: PackedFloat32Array = ProgressionTable.WIRE_Y
+	for i in range(wire.size() - 1):
+		var gap: float = wire[i + 1] - wire[i] - ProgressionTable.TARGET_LENGTH
+		t.ok(gap < dia, "payphones %d and %d leave a %.0f px slot" % [i + 1, i + 2, gap])
+
+	# the wire bank still leaves the right-hand lane open
+	var corridor: float = ProgressionTable.PLAY_RIGHT - ProgressionTable.WIRE_X \
+			- Feel.BALL_RADIUS * 0.5
+	t.ok(corridor >= dia, "the lane outside the payphones is %.0f px" % corridor)

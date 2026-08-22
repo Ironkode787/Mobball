@@ -25,7 +25,7 @@ if __package__ in (None, ""):                      # allow `python3 tools/audiog
 from . import music, sfx  # noqa: E402
 from . import theory as th  # noqa: E402
 from .analysis import (  # noqa: E402
-	describe, loop_report, lufs_integrated, peak_db, pitch_autocorr, sanity,
+	describe, loop_report, lufs_integrated, partial_hz, peak_db, pitch_autocorr, sanity,
 )
 from .synth import SR, n_of, rng, soft_limit  # noqa: E402
 
@@ -35,8 +35,10 @@ VORBIS_COMPRESSION = 0.4
 
 PEAK_CEILING_DB = -1.5
 BASS_TUNING_TOLERANCE_CENTS = 5.0
+TUNED_SFX_TOLERANCE_CENTS = 6.0
 LOOP_WRAP_RATIO_MAX = 1.5      # step across the seam vs. the loudest step in the file
 LOOP_EDGE_RMS_MIN = 0.02       # both ends must actually be ringing, not faded to silence
+SIZE_BUDGET_MB = 16.0          # specs/audio-wave2.md §3, raised from 12 for wave 2
 
 
 class Failure(Exception):
@@ -120,6 +122,15 @@ def write_ogg(path: Path, stereo: np.ndarray) -> tuple[dict, np.ndarray]:
 # ------------------------------------------------------------------- rendering
 
 
+def _check_seam(name: str, info: dict) -> None:
+	if info["wrap_ratio"] > LOOP_WRAP_RATIO_MAX:
+		raise Failure(f"{name}: loop seam step is {info['wrap_ratio']:.2f}x the "
+		              f"loudest step in the file — audible click")
+	if info["edge_rms_ratio"] < LOOP_EDGE_RMS_MIN:
+		raise Failure(f"{name}: loop edges are near-silent ({info['edge_rms_ratio']:.4f}) "
+		              f"— that is a faded loop, not a seamless one")
+
+
 def render_sfx(out_dir: Path) -> list[dict]:
 	rows: list[dict] = []
 	for event in sfx.EVENTS:
@@ -132,43 +143,68 @@ def render_sfx(out_dir: Path) -> list[dict]:
 		info = write_wav(out_dir / f"{event}.wav", buf)
 		if info["issues"]:
 			raise Failure(f"{event}: after encode — {', '.join(info['issues'])}")
+		# The loopable events are held to the music stems' seam standard, measured on the
+		# decoded PCM rather than on the float buffer we happen to have in hand.
+		if event in sfx.LOOP_EVENTS:
+			want = n_of(sfx.LOOP_EVENTS[event])
+			if info["frames"] != want:
+				raise Failure(f"{event}: {info['frames']} frames, expected {want}")
+			back, _ = sf.read(str(out_dir / f"{event}.wav"), dtype="float64")
+			info.update(loop_report(back))
+			_check_seam(event, info)
 		rows.append(info)
-		print(f"  sfx  {event:<15} {info['seconds']:5.3f}s  peak {info['peak_db']:6.2f} dB  "
+		mark = f"  seam {info['wrap_ratio']:4.2f}x" if event in sfx.LOOP_EVENTS else ""
+		print(f"  sfx  {event:<18} {info['seconds']:5.3f}s  peak {info['peak_db']:6.2f} dB  "
 		      f"rms {info['rms_db']:6.1f} dB  centroid {info['centroid_hz']:6.0f} Hz  "
-		      f"decay {info['decay_s'] * 1000:5.0f} ms")
+		      f"decay {info['decay_s'] * 1000:5.0f} ms{mark}")
 	return rows
 
 
 def render_music(out_dir: Path) -> tuple[list[dict], np.ndarray]:
 	rows: list[dict] = []
 	mix = np.zeros((th.LOOP_FRAMES, 2))
-	for name in th.STEM_NAMES:
+	for name in th.SYNCED_STEM_NAMES:
 		stereo = music.render_stem(name)
 		if stereo.shape[0] != th.LOOP_FRAMES:
 			raise Failure(f"{name}: {stereo.shape[0]} frames, expected {th.LOOP_FRAMES}")
 		issues = sanity(stereo)
 		if issues:
 			raise Failure(f"{name}: {', '.join(issues)}")
-		mix += stereo
+		# The preview is the calm mix: the state stems are alternates, not extra layers.
+		if name in th.STEM_NAMES:
+			mix += stereo
 		info, decoded = write_ogg(out_dir / f"{name}.ogg", stereo)
 		if decoded.shape[0] != th.LOOP_FRAMES:
 			raise Failure(f"{name}: decoded to {decoded.shape[0]} frames, "
 			              f"expected {th.LOOP_FRAMES} — Vorbis padding broke the loop")
-		if info["wrap_ratio"] > LOOP_WRAP_RATIO_MAX:
-			raise Failure(f"{name}: loop seam step is {info['wrap_ratio']:.2f}x the "
-			              f"loudest step in the file — audible click")
-		if info["edge_rms_ratio"] < LOOP_EDGE_RMS_MIN:
-			raise Failure(f"{name}: loop edges are near-silent "
-			              f"({info['edge_rms_ratio']:.4f}) — that is a faded loop, not a seamless one")
+		_check_seam(name, info)
 		rows.append(info)
-		print(f"  stem {name:<12} {info['seconds']:6.3f}s  peak {info['peak_db']:6.2f} dB  "
+		print(f"  stem {name:<14} {info['seconds']:6.3f}s  peak {info['peak_db']:6.2f} dB  "
 		      f"LUFS {info['lufs']:6.1f}  centroid {info['centroid_hz']:6.0f} Hz  "
 		      f"seam {info['wrap_ratio']:4.2f}x  {info['bytes'] / 1024:6.1f} KiB")
+
+	# The Count's piano: a different tempo and a different loop length, so it is checked
+	# against its own frame count and never against the stack's.
+	piano = music.render_count_piano()
+	if piano.shape[0] != th.COUNT_FRAMES:
+		raise Failure(f"count_piano: {piano.shape[0]} frames, expected {th.COUNT_FRAMES}")
+	issues = sanity(piano)
+	if issues:
+		raise Failure(f"count_piano: {', '.join(issues)}")
+	info, decoded = write_ogg(out_dir / "count_piano.ogg", piano)
+	if decoded.shape[0] != th.COUNT_FRAMES:
+		raise Failure(f"count_piano: decoded to {decoded.shape[0]} frames, "
+		              f"expected {th.COUNT_FRAMES}")
+	_check_seam("count_piano", info)
+	rows.append(info)
+	print(f"  solo {'count_piano':<14} {info['seconds']:6.3f}s  peak {info['peak_db']:6.2f} dB  "
+	      f"LUFS {info['lufs']:6.1f}  centroid {info['centroid_hz']:6.0f} Hz  "
+	      f"seam {info['wrap_ratio']:4.2f}x  {info['bytes'] / 1024:6.1f} KiB")
 
 	preview = soft_limit(mix, PEAK_CEILING_DB, knee_db=7.0)
 	info, decoded = write_ogg(out_dir / "99_preview_full.ogg", preview)
 	rows.append(info)
-	print(f"  mix  {'99_preview_full':<12} {info['seconds']:6.3f}s  peak {info['peak_db']:6.2f} dB  "
+	print(f"  mix  {'99_preview_full':<14} {info['seconds']:6.3f}s  peak {info['peak_db']:6.2f} dB  "
 	      f"LUFS {info['lufs']:6.1f}  seam {info['wrap_ratio']:4.2f}x  {info['bytes'] / 1024:6.1f} KiB")
 	return rows, mix
 
@@ -200,23 +236,50 @@ def verify_bass_tuning() -> list[tuple[str, float, float, float]]:
 	return results
 
 
-def verify_stem_lengths(paths: list[Path]) -> None:
+def verify_stem_lengths(out_dir: Path) -> None:
+	"""Every stem in the AudioStreamSynchronized must be the same number of frames.
+
+	Named explicitly rather than globbed: the piano lives in the same folder and is
+	deliberately a different length, and a glob that swept it in would either fail the
+	build or (worse) be relaxed until it stopped checking anything.
+	"""
 	lengths = {}
-	for p in paths:
-		info = sf.info(str(p))
-		lengths[p.name] = info.frames
+	for name in th.SYNCED_STEM_NAMES:
+		lengths[name] = sf.info(str(out_dir / f"{name}.ogg")).frames
 	unique = set(lengths.values())
 	if len(unique) != 1:
 		raise Failure(f"stems differ in length: {lengths}")
 	if unique.pop() != th.LOOP_FRAMES:
 		raise Failure(f"stems are {lengths} frames, expected {th.LOOP_FRAMES}")
+	piano = sf.info(str(out_dir / "count_piano.ogg")).frames
+	if piano != th.COUNT_FRAMES:
+		raise Failure(f"count_piano is {piano} frames, expected {th.COUNT_FRAMES}")
+
+
+def verify_sfx_tuning(out_dir: Path) -> list[tuple[str, float, float, float]]:
+	"""Measure the tuned events off disk and prove they land where they are notated.
+
+	Struck bars are inharmonic (a chime's partials are 1 : 2.76 : 5.40), so the tuned
+	thing is the fundamental *mode*, not the waveform's period — autocorrelation reports
+	an in-tune chime as a hundred cents flat because it is answering a different
+	question. Measured on the file, after the room and the 16-bit encode.
+	"""
+	results = []
+	for event, (target, at) in sfx.PITCHED_EVENTS.items():
+		data, _ = sf.read(str(out_dir / f"{event}.wav"), dtype="float64")
+		window = data[n_of(at): n_of(at) + n_of(0.5)]
+		got = partial_hz(window, SR, target * 0.80, target * 1.25)
+		cents = th.cents_between(got, target) if got > 0.0 else float("inf")
+		results.append((event, target, got, cents))
+	return results
 
 
 # -------------------------------------------------------------------- manifest
 
 
 def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
-                   tuning: list[tuple[str, float, float, float]]) -> None:
+                   tuning: list[tuple[str, float, float, float]],
+                   sfx_tuning: list[tuple[str, float, float, float]]) -> None:
 	lines: list[str] = []
 	add = lines.append
 	add("KINGPIN — generated audio manifest")
@@ -228,22 +291,27 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 	add("The generator is deterministic — a re-run reproduces these files exactly.")
 	add("")
 	add("Levels: -1.5 dBFS is a ceiling, not a target. SFX peaks form a deliberate ladder")
-	add("(knocker loudest, cash_tick and wall_tap far below) so gameplay code does not have")
-	add("to ride volume_db on every call; music stems are matched by integrated loudness")
-	add("(LUFS) instead, so the stack stays balanced as stems fade in.")
+	add("(knocker and kickback loudest, spinner_tick and wall_tap far below) so gameplay code")
+	add("does not have to ride volume_db on every call; music stems are matched by integrated")
+	add("loudness (LUFS) instead, so the stack stays balanced as stems fade in.")
 	add("")
 
 	if sfx_rows:
+		loopers = ", ".join(sorted(sfx.LOOP_EVENTS))
 		add("SFX — assets/audio/sfx/*.wav  (44.1 kHz, 16-bit PCM, mono)")
+		add(f"Looping events ({loopers}) are built periodic and carry a 'seam' figure; every")
+		add("other file is a one-shot that starts and ends at true zero.")
 		add("-" * 78)
 		add(f"{'file':<22}{'dur':>8}{'peak dB':>9}{'rms dB':>9}{'crest':>8}"
-		    f"{'centroid':>10}{'decay':>9}{'KiB':>8}")
+		    f"{'centroid':>10}{'decay':>9}{'seam':>7}{'KiB':>8}")
 		for r in sfx_rows:
+			seam = f"{r['wrap_ratio']:7.2f}" if "wrap_ratio" in r else f"{'—':>7}"
 			add(f"{r['name']:<22}{r['seconds']:7.3f}s{r['peak_db']:9.2f}{r['rms_db']:9.2f}"
 			    f"{r['crest_db']:8.1f}{r['centroid_hz']:9.0f}Hz{r['decay_s'] * 1000:8.0f}ms"
-			    f"{r['bytes'] / 1024:8.1f}")
+			    f"{seam}{r['bytes'] / 1024:8.1f}")
 		total = sum(r["bytes"] for r in sfx_rows)
-		add(f"{'subtotal':<22}{'':>8}{'':>9}{'':>9}{'':>8}{'':>10}{'':>9}{total / 1024:8.1f}")
+		add(f"{'subtotal':<22}{'':>8}{'':>9}{'':>9}{'':>8}{'':>10}{'':>9}{'':>7}"
+		    f"{total / 1024:8.1f}")
 		add("")
 
 	if music_rows:
@@ -251,6 +319,9 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 		add(f"'Eastport 72' — {th.BPM:.0f} BPM swung, D minor, 8-bar loop, "
 		    f"{th.LOOP_FRAMES} frames ({th.LOOP_SECONDS:.4f} s) each.")
 		add("Chords: bars 1-2 Dm6 | 3-4 Gm7 | 5 Bb7 | 6 A7 | 7 Dm6 | 8 A7.")
+		add("01-08 are the level stack (music_set_level); 09/10 are state layers on the SAME")
+		add(f"sample-locked player. count_piano is NOT synced — {th.COUNT_BPM:.0f} BPM, "
+		    f"{th.COUNT_BARS} bars, {th.COUNT_FRAMES} frames.")
 		add("-" * 78)
 		add(f"{'file':<22}{'frames':>9}{'dur':>9}{'peak dB':>9}{'LUFS':>8}"
 		    f"{'centroid':>10}{'seam':>7}{'KiB':>8}")
@@ -264,7 +335,7 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 		add("'seam' is the sample step across the loop point divided by the 99.9th-percentile")
 		add("step inside the file, measured on the DECODED Vorbis. Below 1.0 means the join is")
 		add("quieter than ordinary programme material, i.e. inaudible. 99_preview_full is the")
-		add("eight stems summed, for listening checks only — the game never loads it.")
+		add("calm eight summed, for listening checks only — the game never loads it.")
 		add("")
 
 	if tuning:
@@ -282,9 +353,27 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 			add("  ".join(row))
 		add("")
 
+	if sfx_tuning:
+		worst = max(abs(c) for _, _, _, c in sfx_tuning)
+		add(f"TUNED SFX — fundamental mode measured off the written WAV "
+		    f"(worst {worst:.2f} cents, tolerance {TUNED_SFX_TOLERANCE_CENTS:.0f})")
+		add("The chimes are D5/F5/A5 and the combo blips are the same three an octave up, so")
+		add("a combo landing on a Wire draw is a chord rather than a mistake.")
+		add("-" * 78)
+		row = []
+		for name, target, got, cents in sfx_tuning:
+			row.append(f"{name:<16}{target:8.2f}->{got:8.2f}Hz {cents:+5.2f}c")
+			if len(row) == 2:
+				add("  ".join(row))
+				row = []
+		if row:
+			add("  ".join(row))
+		add("")
+
 	grand = sum(r["bytes"] for r in sfx_rows + music_rows)
 	add(f"TOTAL COMMITTED AUDIO: {grand / 1024 / 1024:.2f} MiB "
-	    f"({len(sfx_rows)} SFX + {len(music_rows)} music files)")
+	    f"({len(sfx_rows)} SFX + {len(music_rows)} music files), "
+	    f"budget {SIZE_BUDGET_MB:.0f} MiB")
 	path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -304,11 +393,19 @@ def main(argv: list[str] | None = None) -> int:
 	sfx_rows: list[dict] = []
 	music_rows: list[dict] = []
 	tuning: list[tuple[str, float, float, float]] = []
+	sfx_tuning: list[tuple[str, float, float, float]] = []
 
 	try:
 		if args.only in (None, "sfx"):
 			print(f"SFX -> {out / 'sfx'}")
 			sfx_rows = render_sfx(out / "sfx")
+			sfx_tuning = verify_sfx_tuning(out / "sfx")
+			worst_name, _, _, worst = max(sfx_tuning, key=lambda r: abs(r[3]))
+			print(f"  tuned SFX: worst {worst_name} {worst:+.2f} cents "
+			      f"({len(sfx_tuning)} checked)")
+			if abs(worst) > TUNED_SFX_TOLERANCE_CENTS:
+				raise Failure(f"{worst_name} is {worst:+.2f} cents off "
+				              f"(tolerance ±{TUNED_SFX_TOLERANCE_CENTS:.0f})")
 
 		if args.only in (None, "music"):
 			print(f"bass tuning check ({len(set(n for b in th.BASS_LINE for n in b))} distinct notes)")
@@ -322,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
 			print(f"music -> {out / 'music' / 'city1'}  "
 			      f"({th.LOOP_FRAMES} frames / {th.LOOP_SECONDS:.4f} s per stem)")
 			music_rows, mix = render_music(out / "music" / "city1")
-			verify_stem_lengths(sorted((out / "music" / "city1").glob("0*.ogg")))
+			verify_stem_lengths(out / "music" / "city1")
 			print(f"  combined mix: {lufs_integrated(mix, SR):.1f} LUFS "
 			      f"(pre-limiter), peak {peak_db(mix):.2f} dB")
 	except Failure as exc:
@@ -332,12 +429,12 @@ def main(argv: list[str] | None = None) -> int:
 	elapsed = time.time() - started
 	manifest = out / "MANIFEST.txt"
 	if args.only is None:
-		write_manifest(manifest, sfx_rows, music_rows, tuning)
+		write_manifest(manifest, sfx_rows, music_rows, tuning, sfx_tuning)
 		print(f"\nmanifest -> {manifest}")
 	total = sum(r["bytes"] for r in sfx_rows + music_rows)
 	print(f"total committed audio: {total / 1024 / 1024:.2f} MiB in {elapsed:.1f} s")
-	if total > 12 * 1024 * 1024:
-		print("FAILED: over the 12 MiB budget", file=sys.stderr)
+	if total > SIZE_BUDGET_MB * 1024 * 1024:
+		print(f"FAILED: over the {SIZE_BUDGET_MB:.0f} MiB budget", file=sys.stderr)
 		return 1
 	return 0
 
