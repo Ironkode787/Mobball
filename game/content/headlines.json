@@ -1,0 +1,78 @@
+{
+  "schema": 1,
+  "comment": "The Count picks the first matching condition top-to-bottom, then a random variant. Placeholders: {dirty} {clean} {laundered} {guys_lost} {night} {rank_title}.",
+  "headlines": [
+    {
+      "when": "rank_up",
+      "variants": [
+        "LOCAL {rank_title} PROMOTED; PIGEONS 'NOT SURPRISED'",
+        "NEIGHBORHOOD WATCH DISBANDS, CITES 'NEW MANAGEMENT'",
+        "MYSTERY PATRON BUYS EVERYONE A ROUND — REGISTER WEEPS"
+      ]
+    },
+    {
+      "when": "raid_survived",
+      "variants": [
+        "POLICE RAID ARCADE, FIND ONLY 'A VERY GOOD PINBALL PLAYER'",
+        "CHIEF DECLARES VICTORY; EVIDENCE DECLARES NOTHING",
+        "RAID ENDS PEACEFULLY; DONUT BUDGET QUESTIONED"
+      ]
+    },
+    {
+      "when": "raid_lost",
+      "variants": [
+        "CASH SEIZED IN ARCADE RAID; OWNER 'NEVER SEEN IT BEFORE'",
+        "POLICE CONFISCATE SUSPICIOUS FORTUNE IN SMALL BILLS",
+        "LOCAL MAN LOSES SAVINGS HE INSISTS HE NEVER HAD"
+      ]
+    },
+    {
+      "when": "tilted",
+      "variants": [
+        "INSPECTOR CITES ARCADE FOR 'AGGRESSIVE LEANING'",
+        "MACHINE SHAKEN, NOT STIRRED; LICENSE UNDER REVIEW",
+        "CITY INSPECTOR FILES REPORT, ORDERS COFFEE"
+      ]
+    },
+    {
+      "when": "all_guys_lost",
+      "variants": [
+        "THREE MEN DETAINED OUTSIDE LAUNDROMAT; ALL CLAIM TO BE 'JUST WALKING'",
+        "HOLDING CELL FULL; SERGEANT REQUESTS BIGGER BENCH",
+        "BAD NIGHT ON 5TH STREET; PIGEONS EAT WELL"
+      ]
+    },
+    {
+      "when": "laundered_big",
+      "variants": [
+        "LAUNDROMAT REPORTS RECORD SOCK SEASON",
+        "LOCAL WASHERS 'SIMPLY THAT GOOD', SAYS OWNER",
+        "DRY CLEANING BOOM PUZZLES ECONOMISTS"
+      ]
+    },
+    {
+      "when": "big_night",
+      "variants": [
+        "ARCADE EARNINGS OUTPACE PORT AUTHORITY; NOBODY ASKS HOW",
+        "COIN SHORTAGE HITS DISTRICT; MINT BLAMES 'ONE MACHINE'",
+        "PINBALL DECLARED 'BASICALLY A BANK' BY CONFUSED AUDITOR"
+      ]
+    },
+    {
+      "when": "quiet_night",
+      "variants": [
+        "SLOW NIGHT IN THE ALLEY; TRASH CANS REST EASY",
+        "NOTHING HAPPENED LAST NIGHT, INSISTS EVERYONE",
+        "CRICKETS REPORT STRONG ATTENDANCE"
+      ]
+    },
+    {
+      "when": "default",
+      "variants": [
+        "ANOTHER NIGHT, ANOTHER MYSTERY JACKPOT",
+        "5TH STREET ARCADE STILL 'JUST AN ARCADE', WINKS OWNER",
+        "LOCAL BALL SEEN MOVING SUSPICIOUSLY FAST"
+      ]
+    }
+  ]
+}

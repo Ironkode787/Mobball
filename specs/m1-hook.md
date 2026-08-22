@@ -52,7 +52,8 @@ docs/04 + specs/ledger-data.md (upgrades), docs/05 §1–2 (jobs, raids).
   auto-hire free nobody when roster short. No traits in M1.
 - **The Count** (plain Control UI, palette colors, default font): count-up lines — dirty
   earned, laundered tonight (incl. pocket money auto-clean), clean balance, respect gained,
-  jobs done, headline (pick from ~10 madlib templates on night stats); roster strip with
+  jobs done, headline (from `game/content/headlines.json` — first matching condition,
+  random variant, placeholder substitution); roster strip with
   bail buttons; buttons: THE LEDGER / NEXT NIGHT. Safe collect banner on boot if offline
   earnings > 0.
 - **Laundering wiring:** laundromat loop pass → `wallet.launder_fraction(stats.launder_rate(),
