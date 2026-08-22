@@ -138,3 +138,5 @@ consumables · bond lockups (liquidity sink) · Commission tributes (optional pr
 | First prestige | day 3–5 |
 | Second city cleared | ~2× faster than first |
 | Session opens per day (healthy) | 2–4, driven by Safe cap — never by decay/punishment |
+| Heat liveliness *(added by sim)* | ≥ 10% of live play above band 0 once R3+ |
+| Casino EV at max Influence *(added by sim)* | +2% to +5%, monotone per purchase — variance is the product, never expectation |

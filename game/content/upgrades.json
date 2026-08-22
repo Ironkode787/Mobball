@@ -613,7 +613,7 @@
         {"kind": "unlock_hardware", "target": "commission_chairs"},
         {"kind": "unlock_hardware", "target": "sitdown_saucer"},
         {"kind": "unlock_hardware", "target": "penthouse_stairs"},
-        {"kind": "idle_rate_add", "target": "penthouse", "value": "8K"}
+        {"kind": "idle_rate_add", "target": "penthouse", "value": "2K"}
       ],
       "table_change": "the room above the Club lights up — the calmest, most dangerous place in the city"
     }
