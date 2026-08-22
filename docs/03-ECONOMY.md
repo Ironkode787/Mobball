@@ -63,7 +63,8 @@ Rule: **randomness may swing a Night by ±30%; builds and skill swing it by ×20
 
 One dial that makes success dangerous — the "edge of the seat" machine.
 
-**Gains:** +1 per $50k dirty earned within 10s (velocity-based, scales with rank); +5–15 per
+**Gains:** +1 per $2K dirty earned within 10s at R0, threshold ×3.5 per rank *(sim-tuned;
+the original $50K/×10 placeholder left heat permanently dead)*; +5–15 per
 loud act (smuggling run, briefcase setup, failed heist step); loud guys/rackets add %.
 **Decay:** −0.5/s while playing calm (nothing loud for 8s); −10/Night laying low (skip a
 Night's rackets = "close up shop", an actual strategic idle choice); Lawyer retainer improves both.
@@ -88,7 +89,8 @@ wiretap vans, subpoena targets, and the RICO raid — detailed in [05](05-MODES-
 
 ## 5. Respect ☆
 
-The skill spine. Sources (per Night, roughly): clean Drop-Off ☆1 · combo ×3+ ☆2 (×6+ ☆5) ·
+The skill spine. Sources (per Night, roughly): clean Drop-Off ☆1 · combo ×3 ☆2 and ×6 ☆5,
+**first time each per Night** *(sim-tuned: per-chain ☆ made combos 95%+ of all Respect)* ·
 Job completed ☆5–50 · Collection Round perfect ☆10 · boss beaten ☆100–400 · raid survived ☆25 ·
 heist clean exit ☆40. **No purchase, no idle source, no conversion.** Rank thresholds in
 [02](02-TABLE-AND-CAREER.md) §1. Excess ☆ beyond R7 banks into the Juice formula.
@@ -106,8 +108,11 @@ heist clean exit ☆40. **No purchase, no idle source, no conversion.** Rank thr
 
 ## 7. Growth curve & big numbers
 
-- Value scale per rank: ~×8–12 (bumper base $10 at R0 → ~$40M equivalent hits at R7 with
-  multipliers). Numbers use short-scale suffixes ($1.2M, $3.4B, $7.7T) with mantissa+exponent
+- Value scale per rank: ~×3–4 measured, delivered **entirely by Ledger multipliers and
+  new-tier content — never by an automatic rank multiplier** (sim finding: a single
+  rank-scaled payout drowned the whole economy; `rank_scale` is a heat/bail normalizer
+  only). Lifetime growth to the big numbers comes from tier stacking across 8 ranks ×
+  5 cities. Numbers use short-scale suffixes ($1.2M, $3.4B, $7.7T) with mantissa+exponent
   arithmetic ([09-TECH](09-TECH.md) §6). Lifetime clean by first Skip Town: ~$5–20B.
 - Upgrade cost bands per tier: T0 $50–500 · T1 1–10k · T2 10–100k · T3 0.1–1M · T4 1–20M ·
   T5 20–500M · T6 0.5–20B · T7 20B–5T. Repeatables cost `base × 1.15^level` (classic
@@ -125,7 +130,7 @@ consumables · bond lockups (liquidity sink) · Commission tributes (optional pr
 
 | Metric | Target |
 |--------|--------|
-| First upgrade bought | ≤ 90 seconds into Night 1 |
+| First upgrade bought | at the first Count, ≤ 5 min in *(clean cash only exists from the pocket-money wash at a Count — "90 s into Night 1" was unreachable by construction)* |
 | Time-to-R1 / R3 / R4 | 15 min / day 1 / day 2–3 |
 | Median Night length | 3–8 min (R-scaled) |
 | Active vs. pure-idle earn rate | ≥ ×10 |

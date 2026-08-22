@@ -73,7 +73,7 @@ func _combo_multiplier(t: TestCtx) -> void:
 	t.ok(b.equals_approx(BigMoney.from_float(150.0)), "the second different shot is x1.5")
 	t.ok(c.equals_approx(BigMoney.from_float(225.0)), "the third is x2.25")
 	t.eq(Game.night_best_combo, 3, "the Night remembers its best chain")
-	t.eq(Game.respect, Combo.RESPECT_STARS, "x3 pays Respect")
+	t.eq(Game.respect, int(Combo.RESPECT_TIERS[3]), "x3 pays Respect")
 
 	var no_combo := Game.earn_switch(&"wire", BigMoney.from_float(100.0), {"no_combo": true})
 	t.ok(no_combo.equals_approx(BigMoney.from_float(100.0)), "a no_combo payout is unmultiplied")

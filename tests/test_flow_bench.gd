@@ -69,10 +69,12 @@ func _night_tick(t: TestCtx) -> void:
 	b.pinch(raid_guy, true)
 
 	b.night_tick()
-	t.eq(String(guy["state"]), Bench.STATE_FREE, "one Night off and he walks")
+	t.eq(String(guy["state"]), Bench.STATE_HOLDING, "a stretch outlasts the first Night")
+	b.night_tick()
+	t.eq(String(guy["state"]), Bench.STATE_FREE, "two Nights off and he walks")
 	t.eq(String(raid_guy["state"]), Bench.STATE_HOLDING, "the raid stretch is longer")
 	b.night_tick()
-	t.eq(String(raid_guy["state"]), Bench.STATE_FREE, "and it ends after the second Night")
+	t.eq(String(raid_guy["state"]), Bench.STATE_FREE, "and it ends after the third Night")
 	t.ok(not bool(raid_guy["from_raid"]), "walking clears the raid flag")
 
 	var survivor := b.guys[2]

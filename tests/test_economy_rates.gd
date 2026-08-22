@@ -41,15 +41,19 @@ func _test_band_helpers(t: TestCtx) -> void:
 
 
 func _test_rank_scale(t: TestCtx) -> void:
-	# docs/03 §4: +1 heat per $50k earned at R0, scaling with rank (x10 placeholder).
-	_same(t, Rates.rank_scale(0), BigMoney.of(5.0, 4), "R0 rank scale is $50k")
-	_same(t, Rates.rank_scale(1), BigMoney.of(5.0, 5), "R1 is x10 of R0")
-	_same(t, Rates.rank_scale(7), BigMoney.of(5.0, 11), "R7 is $500B per heat point")
-	_same(t, Rates.rank_scale(-3), BigMoney.of(5.0, 4), "a negative rank clamps to R0")
+	# Balance-sim ruling: +1 heat per $2K earned at R0, x3.5 per rank (income tracks
+	# Ledger multipliers at ~x3-4/rank, so heat stays live at every rank).
+	t.ok(Rates.rank_scale(0).equals_approx(BigMoney.of(2.0, 3), 1e-9), "R0 rank scale is $2k")
+	t.ok(Rates.rank_scale(1).equals_approx(BigMoney.of(7.0, 3), 1e-9), "R1 is x3.5 of R0")
+	t.ok(Rates.rank_scale(7).equals_approx(
+			BigMoney.from_float(2000.0 * pow(3.5, 7.0)), 1e-9), "R7 matches 2K x 3.5^7")
+	t.ok(Rates.rank_scale(-3).equals_approx(BigMoney.of(2.0, 3), 1e-9),
+			"a negative rank clamps to R0")
 	for r in 7:
 		var here := Rates.rank_scale(r)
 		var next := Rates.rank_scale(r + 1)
-		t.near(next.ratio_to(here), 10.0, 1e-9, "rank %d -> %d is exactly x10" % [r, r + 1])
+		t.near(next.ratio_to(here), Rates.RANK_SCALE_PER_RANK_FACTOR, 1e-9,
+				"rank %d -> %d is exactly x3.5" % [r, r + 1])
 
 
 func _test_launder_and_safe_constants(t: TestCtx) -> void:

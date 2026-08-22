@@ -41,9 +41,13 @@ const RAID_CONFISCATE_FRACTION := 0.30
 
 ## $50k of dirty per +1 heat at R0; ×10 per rank is the placeholder curve for the
 ## docs' "~×8–12 per rank".
-const RANK_SCALE_BASE_MANTISSA := 5.0
-const RANK_SCALE_BASE_EXP := 4
-const RANK_SCALE_PER_RANK_EXP := 1
+## Balance-sim ruling (specs/m2 wave): $2K of dirty per +1 heat at R0. The original $50K
+## placeholder left peak heat at 5/100 over whole simulated careers — the entire risk
+## system never fired. ×3.5 per rank tracks measured income growth (~×3–4/rank from
+## Ledger multipliers) so heat stays live at every rank instead of re-dying above R2.
+const RANK_SCALE_BASE_MANTISSA := 2.0
+const RANK_SCALE_BASE_EXP := 3
+const RANK_SCALE_PER_RANK_FACTOR := 3.5
 const RANK_MAX := 7
 
 # --- Laundering (docs/03 §2) --------------------------------------------------
@@ -122,10 +126,11 @@ static func multiplier_for_band(band: int) -> float:
 # --- Scale helpers ------------------------------------------------------------
 
 
-## Dirty earned per +1 heat at a given career rank: $50k at R0, ×10 per rank.
+## Dirty earned per +1 heat at a given career rank: $2K at R0, ×3.5 per rank.
 static func rank_scale(rank: int) -> BigMoney:
 	var r := maxi(rank, 0)
-	return BigMoney.of(RANK_SCALE_BASE_MANTISSA, RANK_SCALE_BASE_EXP + r * RANK_SCALE_PER_RANK_EXP)
+	return BigMoney.of(RANK_SCALE_BASE_MANTISSA, RANK_SCALE_BASE_EXP).mul(
+			pow(RANK_SCALE_PER_RANK_FACTOR, float(r)))
 
 
 static func pocket_money_per_night() -> BigMoney:

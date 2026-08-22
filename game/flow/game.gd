@@ -278,7 +278,7 @@ func start_night() -> void:
 	bench.night_tick(stats.bench_slots())
 	jobs.roll(rank, stats, stats.job_slots(), _rng)
 	jobs.begin_night()
-	combo.reset()
+	combo.reset_night()
 	_reset_night_tallies()
 	state = &"night"
 	Events.night_started.emit(night_no)
@@ -407,9 +407,12 @@ func collect_safe() -> BigMoney:
 ## with the player's first real decision, not with the launch.
 func award_skill_shot() -> BigMoney:
 	night_skill_shots += 1
-	var base := BigMoney.of(SKILL_SHOT_MANTISSA, SKILL_SHOT_EXP).mul_big(
-			Rates.rank_scale(rank).div_big(Rates.rank_scale(0)))
-	var payout := earn_switch(&"skill_shot", base, {"no_combo": true})
+	# Balance-sim ruling: a flat base through the same multipliers as every other switch.
+	# The old ×rank_scale factor made this one shot 99-100% of all career income. Career
+	# growth comes from the Ledger, never from rank automatically; rank_scale stays a
+	# heat/bail normalizer only.
+	var payout := earn_switch(&"skill_shot", BigMoney.of(SKILL_SHOT_MANTISSA, SKILL_SHOT_EXP),
+			{"no_combo": true})
 	add_respect(RESPECT_SKILL_SHOT, &"skill_shot")
 	AudioDirector.play(&"skill_shot_ding")
 	Events.skill_shot.emit()

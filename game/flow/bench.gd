@@ -18,8 +18,10 @@ const START_SLOTS := 4
 ## Nights survived per experience level (level prices bail, docs/03 §8).
 const NIGHTS_PER_LEVEL := 3
 ## Nights in holding: a normal pinch is one Night off, a raid stretch is two (docs/05 §2).
-const SIT_OUT_NIGHTS := 1
-const SIT_OUT_NIGHTS_RAID := 2
+## Balance-sim ruling: at 1 Night the bail sink never fired (0 short line-ups in 1,596
+## simulated Nights) — a stretch has to outlast the roster's slack to make bail a decision.
+const SIT_OUT_NIGHTS := 2
+const SIT_OUT_NIGHTS_RAID := 3
 
 var guys: Array[Dictionary] = []
 var slots: int = START_SLOTS

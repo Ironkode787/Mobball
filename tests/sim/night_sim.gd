@@ -392,10 +392,10 @@ func _s4_bail_and_bench() -> void:
 	check(Game.wallet.dirty.equals_approx(dirty_before.sub_clamped(cost), 1e-6),
 			"bail did not cost exactly %s" % cost.text())
 
-	var still_held := Game.bench.holding().size()
-	Game.bench.night_tick(Game.stats.bench_slots())
-	check(Game.bench.holding().size() < still_held or still_held == 0,
-			"holding did not empty out after a night_tick")
+	for i in Bench.SIT_OUT_NIGHTS_RAID:
+		Game.bench.night_tick(Game.stats.bench_slots())
+	check(Game.bench.holding().is_empty(),
+			"holding did not empty after sitting out the longest stretch")
 	check(Game.bench.available().size() >= 1, "the bench cannot field anybody — hard lock")
 	print("        bail %s | roster %d | available %d"
 			% [cost.text(), Game.bench.guys.size(), Game.bench.available().size()])

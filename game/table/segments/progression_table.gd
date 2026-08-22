@@ -30,6 +30,13 @@ signal bribe_offered()
 signal orbit_completed()
 signal rollover_rolled(index: int, was_lit: bool)
 signal storefront_collected(id: StringName, amount: BigMoney)
+## M2 — THE CLUB (docs/02 §2 R4). The deck's hardware reports through the table so the flow
+## lane has one thing to talk to; see game/table/segments/club_deck.gd for what each means.
+signal staircase_climbed(speed: float)
+signal roulette_landed(pocket: int, house: bool)
+signal reels_state(cleared_columns: Array)
+signal high_roller_held(steps: int)
+signal backroom_entered()
 ## The coils went hunting for a stuck ball. Diagnostic more than gameplay, but the sims
 ## assert on it and a rash of them in telemetry means new geometry has a trap in it.
 signal ball_searched(at: Vector2)
@@ -179,6 +186,9 @@ var storefronts: Array[Storefront] = []
 var rollovers: Array[Rollover] = []
 var cop_targets: Array[StandupTarget] = []
 var raid_active: bool = false
+## The upper deck. Always built, dormant until `club_deck` is owned — same rule as every
+## other piece of furniture on this table.
+var club: ClubDeck = null
 
 var _walls: WallBuilder = null
 var _gate: StaticBody2D = null
@@ -202,8 +212,13 @@ func segment_id() -> StringName:
 	return &"table_main"
 
 
+## Grows with the empire: once the Club is built the table is ~2.8 screens tall, and the
+## camera reads its clamp straight off this (game/core/camera_rig.gd).
 func bounds() -> Rect2:
-	return Rect2(Vector2(PLAY_LEFT, 0.0), Vector2(LANE_RIGHT - PLAY_LEFT, PLAY_BOTTOM))
+	var r := Rect2(Vector2(PLAY_LEFT, 0.0), Vector2(LANE_RIGHT - PLAY_LEFT, PLAY_BOTTOM))
+	if club != null and club.is_hardware_active():
+		r = r.merge(club.bounds())
+	return r
 
 
 func spawn_point() -> Vector2:
@@ -225,6 +240,14 @@ func socket(id: StringName) -> Vector2:
 			return Vector2(MIRROR_X, 1010.0)
 		&"drain":
 			return Vector2(MIRROR_X, DRAIN_Y)
+		&"club_deck":
+			return Vector2(ClubDeck.DECK_LEFT, ClubDeck.DECK_BOTTOM)
+		&"stair_mouth":
+			return ClubDeck.STAIR_MOUTH
+		# Left half of the sky, deliberately empty: the Docks and the Penthouse dock here
+		# (docs/02 §0). Nothing in M2 may build into it.
+		&"sky_left":
+			return Vector2(PLAY_LEFT, ClubDeck.DECK_BOTTOM)
 	return Vector2.ZERO
 
 
@@ -245,6 +268,7 @@ func _ready() -> void:
 	_build_storefronts()
 	_build_extras()
 	_build_flippers()
+	_build_club()
 	_build_drain()
 	_build_plunger()
 	Events.upgrade_purchased.connect(_on_upgrade_purchased)
@@ -467,6 +491,24 @@ func _build_flippers() -> void:
 	add_child(flipper_right)
 
 
+## THE CLUB (specs/m2-empire.md TABLE-2). The deck is one node in negative-y space; it owns
+## its own geometry and its own toys, and everything it does that the session cares about is
+## re-emitted here so `game/flow` has a single table surface to bind to.
+func _build_club() -> void:
+	club = ClubDeck.new()
+	club.name = "ClubDeck"
+	add_child(club)
+	club.bind_flippers(flipper_left, flipper_right)
+	club.staircase_climbed.connect(func(s: float) -> void: staircase_climbed.emit(s))
+	club.roulette_landed.connect(func(p: int, h: bool) -> void: roulette_landed.emit(p, h))
+	club.reels_state.connect(func(cols: Array) -> void: reels_state.emit(cols))
+	club.high_roller_held.connect(func(steps: int) -> void: high_roller_held.emit(steps))
+	club.backroom_entered.connect(func() -> void: backroom_entered.emit())
+	_register([ClubDeck.ID_DECK], club)
+	for piece: Dictionary in club.pieces():
+		_register(piece["ids"], piece["node"], ClubDeck.ID_DECK)
+
+
 func _build_drain() -> void:
 	var area := Area2D.new()
 	area.name = "Drain"
@@ -494,11 +536,13 @@ func _build_plunger() -> void:
 # ================================================================= unlocking =====
 
 
-func _register(ids: Array, node: Node) -> void:
+## `needs` is an id that must *also* be owned for the piece to be on the table: the Club's
+## toys are bought one at a time but none of them exists without the deck under them.
+func _register(ids: Array, node: Node, needs: StringName = &"") -> void:
 	var typed: Array[StringName] = []
 	for id: Variant in ids:
 		typed.append(StringName(id))
-	_pieces.append({"ids": typed, "node": node})
+	_pieces.append({"ids": typed, "node": node, "needs": needs})
 
 
 ## Is this hardware id paid for? `debug_all_hardware` is the M0/feel-sim bypass.
@@ -545,6 +589,30 @@ func hardware_node(id: StringName) -> Node:
 	return null
 
 
+## Should this registered piece be standing on the table right now? One owned id out of the
+## piece's set is enough, but its `needs` id (if any) is not optional.
+func hardware_piece_active(piece: Dictionary) -> bool:
+	var needs: StringName = StringName(piece.get("needs", &""))
+	if needs != &"" and not hardware_unlocked(needs):
+		return false
+	for id: StringName in piece["ids"]:
+		if hardware_unlocked(id):
+			return true
+	return false
+
+
+## Dev/sim door into the owned set, the same one `KINGPIN_TABLE_HARDWARE` opens: force these
+## ids on without a Ledger. The Club's nodes are M2 content and have no upgrade entries yet,
+## so the sims stage the deck through here.
+func force_hardware(ids: Array, on: bool = true) -> void:
+	for id: Variant in ids:
+		if on:
+			_forced[StringName(id)] = true
+		else:
+			_forced.erase(StringName(id))
+	refresh_hardware()
+
+
 func hardware_ids() -> Array[StringName]:
 	var out: Array[StringName] = []
 	for piece: Dictionary in _pieces:
@@ -558,12 +626,10 @@ func hardware_ids() -> Array[StringName]:
 ## purchase, and idempotent, which is what makes save-loading a non-event.
 func refresh_hardware() -> void:
 	for piece: Dictionary in _pieces:
-		var active := false
-		for id: StringName in piece["ids"]:
-			if hardware_unlocked(id):
-				active = true
-				break
-		Dormant.apply(piece["node"], active)
+		Dormant.apply(piece["node"], hardware_piece_active(piece))
+	if club != null:
+		club.set_flippers_live(hardware_unlocked(ClubDeck.ID_DECK)
+				and hardware_unlocked(ClubDeck.ID_FLIPPERS))
 	for s in storefronts:
 		s.bank_enabled = hardware_unlocked(s.id)
 		s.wash_enabled = s.id == &"storefront_laundromat" and hardware_unlocked(&"laundromat_loop")
@@ -698,6 +764,8 @@ func _bind_ball() -> void:
 		plunger.set_ball(ball)
 	if magnet != null:
 		magnet.set_ball(ball)
+	if club != null:
+		club.set_ball(ball)
 
 
 func _on_drain_entered(body: Node2D) -> void:
@@ -734,6 +802,11 @@ func _ball_search(delta: float) -> void:
 		return
 	var p := ball.global_position
 	if ball.speed() > BALL_SEARCH_SPEED or p.y > BALL_SEARCH_FLOOR or lane_rect().has_point(p):
+		_still_for = 0.0
+		return
+	# Upstairs has its own legitimate resting places — a mini-bat cradle, a saucer mid-hold,
+	# a pocket riding the wheel round — and none of them wants a coil under it.
+	if club != null and club.search_exempt(ball):
 		_still_for = 0.0
 		return
 	_still_for += delta

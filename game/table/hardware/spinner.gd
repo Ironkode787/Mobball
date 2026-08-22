@@ -9,7 +9,11 @@ extends Node2D
 
 signal spun(total: int)
 
-const FRICTION := 7.0                 ## rad/s² bled off while spinning
+## rad/s² bled off while spinning. A real spinner is dead in two to four seconds; at 7.0 this
+## one coasted for eleven and paid 87–138 segments off a single pass — $2.2K–$3.5K at T1, a
+## couple of hundred bumper hits for one shot (SIM lane balance report, design-approved).
+## At 25.0 a full-speed pass is worth ~39 segments and the decay is still audible.
+const FRICTION := 25.0
 const MAX_SPEED := 78.0               ## rad/s — about 12 turns/s, 25 segments/s
 const SPEED_PER_PX := 0.055           ## ball speed (px/s) → blade speed (rad/s)
 const MIN_KICK := 6.0

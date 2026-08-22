@@ -14,6 +14,11 @@ const ROLLOVER := 25.0
 const WIRE_TARGET := 150.0
 const BANK_COMPLETE := 1000.0
 const ORBIT := 500.0
+## M2 — the Club (specs/m2-empire.md TABLE-2). The casino pieces pay a courtesy switch only:
+## the real money on this deck is the bet, and the flow lane owns bets.
+const RAMP_CLIMB := 750.0
+const CASINO_POCKET := 100.0
+const CASINO_REEL := 100.0
 
 const GROUP_BUMPERS := &"bumpers"
 const GROUP_SLINGS := &"slings"
@@ -22,6 +27,8 @@ const GROUP_ROLLOVERS := &"rollovers"
 const GROUP_WIRE := &"wire"
 const GROUP_STOREFRONTS := &"storefronts"
 const GROUP_ORBIT := &"orbit"
+const GROUP_RAMPS := &"ramps"
+const GROUP_CASINO := &"casino"
 
 const UPGRADES_PATH := "res://game/content/upgrades.json"
 
@@ -52,6 +59,14 @@ static func earn_big(group: StringName, base: BigMoney, id: StringName, ball: No
 	Events.switch_hit.emit(id, ball, strength)
 	Events.scored.emit(id, int(round(base.approx_float())))
 	return Game.earn_switch(group, base)
+
+
+## Pay for a switch that has already reported itself. A DropTarget announces its own closure
+## from `drop()`, so a bank that pays per target (the Club's slot reels) must not report it a
+## second time — Jobs count switch ids, and one hit is one hit.
+static func earn_quiet(group: StringName, base: float, id: StringName) -> BigMoney:
+	Events.scored.emit(id, int(round(base)))
+	return Game.earn_switch(group, BigMoney.from_float(base))
 
 
 ## A collection cashes out `Stats.collect_minutes()` minutes of that racket's idle rate

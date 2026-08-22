@@ -10,6 +10,13 @@ extends Node2D
 ## "slow wash cycle" (`laundromat_loop`) and the R3 storefront are one piece of hardware at
 ## two levels of build-out: with only the loop bought, the doorway is there without a bank
 ## in front of it.
+##
+## The two build-outs are deliberately **independent**. The wash pass fires on any pass
+## through the doorway for as long as the loop is owned; the bank only adds the collection on
+## top of it. Gating the wash on the bank's door cycle made buying the protection racket a
+## laundering *downgrade* — a 26 s armed/open/cooldown loop where there had been an always-
+## open door (SIM lane balance report, design-approved). Owning more of a racket may never
+## make it work worse.
 
 signal collected(id: StringName, amount: BigMoney)
 signal washed(id: StringName)
@@ -135,7 +142,7 @@ func _on_target_dropped(_t: DropTarget) -> void:
 
 
 func _on_door_entered(body: Node2D) -> void:
-	if not (body is Ball) or not _present or _state != State.OPEN:
+	if not (body is Ball) or not _present:
 		return
 	var ball := body as Ball
 	if wash_enabled and _wash_cool <= 0.0:
@@ -143,7 +150,7 @@ func _on_door_entered(body: Node2D) -> void:
 		AudioDirector.play(&"laundromat_wash")
 		TableScore.hit(&"laundromat_loop", ball)
 		washed.emit(id)
-	if not bank_enabled:
+	if not bank_enabled or _state != State.OPEN:
 		return
 	var amount := TableScore.storefront_collect_value(id)
 	AudioDirector.play(&"storefront_collect")
@@ -199,7 +206,9 @@ func _physics_process(delta: float) -> void:
 func _apply_door() -> void:
 	if _door == null:
 		return
-	var live := _present and _state == State.OPEN
+	# The doorway is a live switch whenever there is a wash loop behind it, open shutters or
+	# not; the bank decides collections, never washes.
+	var live := _present and (_state == State.OPEN or wash_enabled)
 	_door.collision_layer = Feel.LAYER_ZONES if live else 0
 	_door.collision_mask = Feel.LAYER_BALL if live else 0
 

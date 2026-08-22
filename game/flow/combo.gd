@@ -9,20 +9,22 @@ extends RefCounted
 ## which is what makes "different shots" the skill rather than "any shot, fast".
 
 signal changed(count: int)
-## Fires the first time a chain reaches RESPECT_AT (☆2, docs/03 §5).
+## Fires when a chain reaches a RESPECT_TIERS length for the FIRST time this Night.
+## Balance-sim ruling: per-chain ☆ made combos 95-98% of all career Respect, so rank
+## tracked shot volume instead of skill. Once per Night per tier, ranks belong to Jobs.
 signal respect_earned(stars: int)
 
 const WINDOW := 4.0
 const STEP := 1.5
 const CAP := 8.0
-const RESPECT_AT := 3
-const RESPECT_STARS := 2
+## chain length reached -> ☆ awarded, first time each per Night (docs/03 §5).
+const RESPECT_TIERS := {3: 2, 6: 5}
 
 var count: int = 0
 
 var _groups: Dictionary = {}
 var _timer: float = 0.0
-var _scored_respect: bool = false
+var _night_scored: Dictionary = {}
 
 
 ## Register a scoring hit and return the multiplier that hit earns.
@@ -34,9 +36,10 @@ func on_hit(group: StringName) -> float:
 	_groups[group] = true
 	_timer = WINDOW
 	_set_count(count + 1)
-	if count >= RESPECT_AT and not _scored_respect:
-		_scored_respect = true
-		respect_earned.emit(RESPECT_STARS)
+	var stars := int(RESPECT_TIERS.get(count, 0))
+	if stars > 0 and not _night_scored.has(count):
+		_night_scored[count] = true
+		respect_earned.emit(stars)
 	return multiplier()
 
 
@@ -67,10 +70,15 @@ func reset() -> void:
 	_set_count(0)
 
 
+## A new Night re-arms the once-per-Night ☆ tiers. Called by Game.start_night().
+func reset_night() -> void:
+	reset()
+	_night_scored.clear()
+
+
 func _clear() -> void:
 	_groups.clear()
 	_timer = 0.0
-	_scored_respect = false
 
 
 func _set_count(v: int) -> void:

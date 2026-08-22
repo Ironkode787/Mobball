@@ -45,11 +45,15 @@ const FIXTURES := {
 }
 
 ## Hardware ids checked at every stage. `storefront_laundromat` is deliberately absent: it
-## shares its shell with `laundromat_loop`, so the bank is asserted on its own below.
+## shares its shell with `laundromat_loop`, so the bank is asserted on its own below. The
+## Club's ids are here so the M2 deck stays provably invisible to an M1 career — no stage
+## below expects one of them, and the fixtures would fail if the deck leaked downward.
 const TRACKED: Array[StringName] = [
 	&"inlane_guides", &"slingshots", &"bumper_2", &"bumper_3", &"rollovers",
 	&"spinner_numbers", &"orbit_left", &"wire_bank", &"laundromat_loop",
 	&"storefront_pizzeria", &"storefront_pawn", &"bribe_target", &"kickback_left",
+	&"club_deck", &"staircase_ramp", &"roulette_wheel", &"slot_reels",
+	&"high_roller_saucer", &"backroom_saucer", &"club_flippers",
 ]
 
 const EXPECT := {
@@ -471,11 +475,23 @@ func _s6_laundromat_loop() -> void:
 	check(earned_total() == 0.0, "the wash pass earned dirty money (it launders, it does not pay)")
 	table.despawn_ball()
 
+	table.despawn_ball()
+	await wait(Storefront.WASH_COOLDOWN + 0.2)
 	use("T3")
 	check(lucky.bank_enabled, "the drop bank did not arrive at T3")
 	check(lucky.wash_enabled, "the wash loop was lost when the bank arrived")
 	check(not lucky.is_open(), "the shutters should be back up with a bank fitted")
-	print("        Lucky's: loop-only at T1, bank + loop at T3")
+
+	# Buying the racket must not take the laundering away: the wash pass is the loop's, and
+	# it fires through the doorway whether or not the bank in front of it happens to be down.
+	reset_log()
+	await drop_at(door)
+	await step(3)
+	check(_washes == 1, "with the bank fitted, a pass through the door washed %d times"
+			% _washes)
+	check(_collected.is_empty(), "an armed bank paid a collection")
+	table.despawn_ball()
+	print("        Lucky's: loop-only at T1, bank + loop at T3, washing either way")
 	finish()
 
 

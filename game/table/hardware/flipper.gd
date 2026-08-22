@@ -10,6 +10,11 @@ extends AnimatableBody2D
 enum State { REST, RISING, HELD, FALLING }
 
 @export var side: StringName = &"left"
+## Bat size against the Feel numbers. 1.0 is the main table's bat, which is what the feel
+## sims measure; the Club's mini pair is 0.8. Scaled here rather than on the node's transform
+## on purpose — a scaled Node2D would leave `to_local` reporting stretched coordinates and
+## quietly break the swept-contact guard below, which compares against a real ball radius.
+@export var size_scale: float = 1.0
 
 var state: State = State.REST
 var progress: float = 0.0           ## 0 rest, 1 fully extended
@@ -33,6 +38,7 @@ var _rest_rot: float = 0.0
 var _up_rot: float = 0.0
 var _strike_sign: float = -1.0
 var _clock: float = 0.0             ## physics-tick time; never wall time (headless sims)
+var _present: bool = true           ## hardware switch — the Club's bats before it is bought
 
 
 func _ready() -> void:
@@ -49,10 +55,22 @@ func _ready() -> void:
 	_build_shapes()
 
 
+func bat_length() -> float:
+	return Feel.FLIPPER_LENGTH * size_scale
+
+
+func pivot_radius() -> float:
+	return Feel.FLIPPER_PIVOT_RADIUS * size_scale
+
+
+func tip_radius() -> float:
+	return Feel.FLIPPER_TIP_RADIUS * size_scale
+
+
 func _build_shapes() -> void:
-	var l := Feel.FLIPPER_LENGTH
-	var rp := Feel.FLIPPER_PIVOT_RADIUS
-	var rt := Feel.FLIPPER_TIP_RADIUS
+	var l := bat_length()
+	var rp := pivot_radius()
+	var rt := tip_radius()
 
 	var pivot := CollisionShape2D.new()
 	var pc := CircleShape2D.new()
@@ -85,7 +103,7 @@ func set_ball(b: Ball) -> void:
 
 
 func press() -> void:
-	if dead:
+	if dead or not _present:
 		return
 	match state:
 		State.REST:
@@ -111,6 +129,13 @@ func set_pressed(pressed: bool) -> void:
 		release()
 
 
+## Is the button down on this bat right now? The Club's mini pair rides the main flippers'
+## button state rather than reading the input actions itself, so the deck inherits the input
+## buffer, the touch zones and the tilt kill for free and there is one input path, not two.
+func is_held() -> bool:
+	return _held
+
+
 func kill() -> void:
 	dead = true
 	_held = false
@@ -123,15 +148,34 @@ func revive() -> void:
 	dead = false
 
 
+## Dormant hardware (game/table/hardware/dormant.gd). Separate from `dead`, which is the
+## tilt state the session owns: a bat that was never bought is not a bat that got tilted.
+func set_hardware_active(active: bool) -> void:
+	_present = active
+	visible = active
+	collision_layer = Feel.LAYER_FLIPPERS if active else 0
+	if active:
+		return
+	_held = false
+	_buffered_at = -1000.0
+	state = State.REST
+	progress = 0.0
+	rotation = _rest_rot
+
+
+func is_hardware_active() -> bool:
+	return _present
+
+
 func _now() -> float:
 	return _clock
 
 
 ## Global AABB of the bat right now — used by tests and by trap/cradle checks.
 func bat_aabb() -> Rect2:
-	var l := Feel.FLIPPER_LENGTH
-	var rp := Feel.FLIPPER_PIVOT_RADIUS
-	var rt := Feel.FLIPPER_TIP_RADIUS
+	var l := bat_length()
+	var rp := pivot_radius()
+	var rt := tip_radius()
 	var pts := [
 		to_global(Vector2(0.0, -rp)), to_global(Vector2(0.0, rp)),
 		to_global(Vector2(l, -rt)), to_global(Vector2(l, rt)),
@@ -149,7 +193,7 @@ func strike_normal() -> Vector2:
 
 ## Where a ball sits when cradled at `t` along the bat (0 = pivot, 1 = tip).
 func cradle_point(t: float) -> Vector2:
-	var x := Feel.FLIPPER_LENGTH * clampf(t, 0.0, 1.0)
+	var x := bat_length() * clampf(t, 0.0, 1.0)
 	return to_global(Vector2(x, 0.0)) + strike_normal() * (_bat_radius(x) + Feel.BALL_RADIUS)
 
 
@@ -227,8 +271,8 @@ func _guard_ball(delta: float) -> void:
 		_prev_local_valid = false
 		return
 	var local := to_local(_ball.global_position)
-	var span_max := Feel.FLIPPER_LENGTH + Feel.FLIPPER_TIP_RADIUS
-	var in_span := local.x > -Feel.FLIPPER_PIVOT_RADIUS and local.x < span_max
+	var span_max := bat_length() + tip_radius()
+	var in_span := local.x > -pivot_radius() and local.x < span_max
 	var bat_r := _bat_radius(local.x)
 	var reach := bat_r + Feel.BALL_RADIUS
 
@@ -247,8 +291,8 @@ func _guard_ball(delta: float) -> void:
 
 
 func _bat_radius(local_x: float) -> float:
-	var t := clampf(local_x / Feel.FLIPPER_LENGTH, 0.0, 1.0)
-	return lerpf(Feel.FLIPPER_PIVOT_RADIUS, Feel.FLIPPER_TIP_RADIUS, t)
+	var t := clampf(local_x / bat_length(), 0.0, 1.0)
+	return lerpf(pivot_radius(), tip_radius(), t)
 
 
 func _rescue(local: Vector2, bat_r: float) -> void:
@@ -280,9 +324,9 @@ func _assist(local: Vector2, reach: float, _delta: float) -> void:
 
 
 func _draw() -> void:
-	var l := Feel.FLIPPER_LENGTH
-	var rp := Feel.FLIPPER_PIVOT_RADIUS
-	var rt := Feel.FLIPPER_TIP_RADIUS
+	var l := bat_length()
+	var rp := pivot_radius()
+	var rt := tip_radius()
 	var brass := Feel.COL_BRASS
 	if _glow > 0.0:
 		brass = brass.lerp(Color(1.0, 0.97, 0.8), _glow * 0.7)
