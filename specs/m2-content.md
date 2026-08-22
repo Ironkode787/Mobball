@@ -21,6 +21,12 @@ One bet vehicle, one multiplier vehicle, one grind vehicle — legible under pre
 - **Slots (the grind).** Drop-target grid pays flat `casino`-group values; clearing all 3
   columns in one deck visit = **Jackpot**: pays `JACKPOT_MINUTES` (8) of total idle rate,
   clean. Re-arm next deck visit.
+  **Ruling (M2 integration):** the Jackpot and Meeting jackpots pay clean UNCONDITIONALLY
+  (fenced loot, like heists) — only the roulette payout is gated by the `casino_wash` node.
+  **Open vocabulary item:** Loaded Dice's pocket-count half needs a `casino_pocket_add`
+  effect kind + `Stats.casino_player_pockets()` (base 5) + the wheel hardware reading it —
+  without it, max Influence lands at −3.1% EV instead of the promised ≈+4%. Next meta/table
+  pass.
 
 Heat interplay: casino wins do NOT feed the heat window (it's the wash, not hot money) —
 but High Roller holds and Jackpots add flat Heat. The deck is where you go to cool the

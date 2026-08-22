@@ -37,6 +37,9 @@ signal roulette_landed(pocket: int, house: bool)
 signal reels_state(cleared_columns: Array)
 signal high_roller_held(steps: int)
 signal backroom_entered()
+## The ball left the deck via the return lane and is back on the main field — flow closes
+## a "deck visit" (slots Jackpot window) on this instead of polling ball height.
+signal deck_returned()
 ## The coils went hunting for a stuck ball. Diagnostic more than gameplay, but the sims
 ## assert on it and a rash of them in telemetry means new geometry has a trap in it.
 signal ball_searched(at: Vector2)
@@ -504,6 +507,7 @@ func _build_club() -> void:
 	club.reels_state.connect(func(cols: Array) -> void: reels_state.emit(cols))
 	club.high_roller_held.connect(func(steps: int) -> void: high_roller_held.emit(steps))
 	club.backroom_entered.connect(func() -> void: backroom_entered.emit())
+	club.returned_home.connect(func(_at: Vector2) -> void: deck_returned.emit())
 	_register([ClubDeck.ID_DECK], club)
 	for piece: Dictionary in club.pieces():
 		_register(piece["ids"], piece["node"], ClubDeck.ID_DECK)
@@ -709,6 +713,16 @@ func _on_rollover(index: int, was_lit: bool) -> void:
 
 func _on_storefront_collected(id: StringName, amount: BigMoney) -> void:
 	storefront_collected.emit(id, amount)
+
+
+## How many storefront banks are currently armed — the Collection Round trigger reads
+## this instead of poking each storefront's state (flow-lane request, M2).
+func storefronts_armed_count() -> int:
+	var n := 0
+	for s in storefronts:
+		if s.state_name() == &"armed":
+			n += 1
+	return n
 
 
 func _on_laundromat_wash(_id: StringName) -> void:

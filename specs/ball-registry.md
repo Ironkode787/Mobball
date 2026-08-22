@@ -35,6 +35,17 @@ core autoload, minimal diffs elsewhere.
   only when the LAST live ball drains with no guys left to serve; ball-save windows are
   per-ball (spawn time stamped per instance).
 
+## Timing contracts (learned in M2 integration — binding)
+
+- `guy_for(ball)` stays valid THROUGH every unregister signal (`ball_unregistered`,
+  `count_changed`, `last_ball`); the guy entry is erased only after they all fire.
+- `last_ball` fires from inside `unregister`, i.e. possibly BEFORE the table's `ball_lost`
+  reaches gameplay and before a ball-save has decided anything. Consumers ending a mode on
+  `last_ball` must settle one physics tick before acting (a save may repopulate the count).
+- Spawning during a physics callback (`body_entered` etc.) throws
+  "Can't change this state while flushing queries" — queue `spawn_extra_ball`/re-serves
+  to the next physics tick, as the table's own auto-respawn does.
+
 ## Invariants & acceptance
 
 - All existing sims green unchanged (single-ball behavior must be bit-identical: with

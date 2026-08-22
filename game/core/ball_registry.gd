@@ -31,12 +31,14 @@ func unregister(ball: Ball) -> void:
 	if ball == null or not _balls.has(ball):
 		return
 	_balls.erase(ball)
-	_guys.erase(ball.get_instance_id())
+	# The guy stays readable until every signal has fired: ball_lost handlers pinch the
+	# right man via guy_for(ball) DURING these emits (flow-lane finding, M2).
 	ball_unregistered.emit(ball)
 	var n := count()
 	count_changed.emit(n)
 	if n == 1:
 		last_ball.emit(live()[0])
+	_guys.erase(ball.get_instance_id())
 
 
 ## The Bench guy riding this ball (multiball = named guys, docs/01 §4). Set by the flow
