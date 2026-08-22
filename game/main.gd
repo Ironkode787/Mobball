@@ -84,6 +84,8 @@ func start_session(save_path: String = SaveGame.DEFAULT_PATH) -> void:
 	if not Game.state_changed.is_connected(_on_state_changed):
 		Game.state_changed.connect(_on_state_changed)
 	Game.boot(save_path)
+	# boot() sets the stem count from the rank; keep the M debug key cycling from there.
+	_music_level = AudioDirector.music_level()
 	_apply_state(Game.state)
 
 

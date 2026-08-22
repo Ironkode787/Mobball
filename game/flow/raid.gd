@@ -16,6 +16,8 @@ const DURATION := 45.0
 const MAGNET_PERIOD := 6.0
 const TELEGRAPH := 1.2
 const MAGNET_IMPULSE := 620.0
+## The siren sits under the mode, not on top of it.
+const SIREN_DB := -6.0
 ## Table tint while the sirens are on.
 const DARKEN := Color(0.62, 0.48, 0.52, 1.0)
 
@@ -28,6 +30,9 @@ var time_left: float = DURATION
 var _table: Node2D = null
 var _next_magnet: float = MAGNET_PERIOD
 var _telegraphed: bool = false
+## One looping wail under the whole mode, stopped when the mode ends (specs/audio-wave2 §1:
+## `siren` is a 7 s loopable bed, not a per-telegraph chirp).
+var _siren: AudioStreamPlayer = null
 
 
 func _ready() -> void:
@@ -44,6 +49,7 @@ func begin(table: Node2D) -> void:
 	_telegraphed = false
 	TableAPI.call_if(_table, "set_raid_active", [true])
 	AudioDirector.play(&"raid_start")
+	_siren = AudioDirector.play(&"siren", {"loop": true, "volume_db": SIREN_DB})
 	AudioDirector.music_set_state(&"raid")
 	Events.raid_started.emit()
 	set_physics_process(true)
@@ -76,11 +82,18 @@ func _physics_process(delta: float) -> void:
 	var since := duration - time_left
 	if not _telegraphed and since >= _next_magnet - TELEGRAPH:
 		_telegraphed = true
-		AudioDirector.play(&"siren")
+		# A table with its own magnet draws and sounds the warning itself; without one,
+		# flow still owes the player a beat of notice before the yank.
+		if not _has_table_magnet():
+			AudioDirector.play(&"siren", {"volume_db": SIREN_DB})
 	if since >= _next_magnet:
 		_next_magnet += MAGNET_PERIOD
 		_telegraphed = false
 		_pull_ball()
+
+
+func _has_table_magnet() -> bool:
+	return _table != null and is_instance_valid(_table) and _table.has_method("magnet_pull")
 
 
 ## The Captain's magnet: a drain-ward tug, counterable with a flip or a Lean. The table owns
@@ -88,7 +101,7 @@ func _physics_process(delta: float) -> void:
 func _pull_ball() -> void:
 	if _table == null or not is_instance_valid(_table):
 		return
-	if _table.has_method("magnet_pull"):
+	if _has_table_magnet():
 		_table.call("magnet_pull")
 		return
 	var b := TableAPI.ball(_table)
@@ -117,3 +130,6 @@ func _end(survived: bool) -> void:
 
 func _release_table() -> void:
 	TableAPI.call_if(_table, "set_raid_active", [false])
+	if _siren != null and is_instance_valid(_siren):
+		_siren.stop()
+	_siren = null

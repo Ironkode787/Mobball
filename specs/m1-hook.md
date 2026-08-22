@@ -108,13 +108,20 @@ docs/04 + specs/ledger-data.md (upgrades), docs/05 §1–2 (jobs, raids).
   locked reason (rank too low / needs X). Buying: spend clean, level up, `Stats.recompute`,
   `Events.upgrade_purchased`, `AudioDirector.play(&"stamp_thunk")` (fail-silent for now).
   "Next affordable" compass button scrolls to cheapest buyable.
+  **Settled at integration:** `LedgerState` (meta) is the canonical owned-levels store; the
+  flow lane mints levels through it and mirrors into the save file, loading by path so a
+  meta rename degrades the board rather than the boot. Passive wash draws against the same
+  per-Night launder cap as the loop (design ruling — uncapped passive wash would
+  trivialize laundering; Fronts tiers raise the cap instead).
 - **Data tests** (`tests/test_upgrades_data.gd`): validate the shipped JSON thoroughly —
   this is the guard rail for all future data-only tuning commits.
 
 ## Lane 3 — TABLE (`game/table/`, table tests/sims)
 
 - Convert the M0 layout into the progression table `game/table/table_main.tscn`: base =
-  walls, flippers, drain, ONE bumper, plunger (fixed 0.75 power until `plunger_bands` flag).
+  walls, flippers, drain, ONE bumper, plunger (fixed **0.92** power until `plunger_bands`
+  flag — measured: 0.75 never clears the shooter lane on the shipped geometry; ≥0.90 clears
+  the arch. The pre-upgrade plunger must be reliable-but-uncontrollable, not broken).
   All other hardware present-but-dormant behind `hardware_unlocked` (hidden, collision off).
 - New hardware (all emit via `Game.earn_switch` groups, values from specs/ledger-data.md
   economics: bumper 10, sling 5 base, spinner 25/spin-segment, rollover 25, wire target 150,
@@ -133,7 +140,10 @@ docs/04 + specs/ledger-data.md (upgrades), docs/05 §1–2 (jobs, raids).
   - `bribe_target` — donut-shop standup, active only when `bribe_unlocked()` and affordable;
     hit = `Game.heat.bribe()` flow callback (expose signal, flow wires cost).
   - `cop_targets` — 4 dormant standups + a drain-ward magnet impulse API for Raid mode
-    (flow drives; table provides `set_raid_active(bool)` and telegraph visuals).
+    (flow drives; table provides `set_raid_active(bool)` and telegraph visuals). **Audio
+    ownership: the flow lane owns all raid sound (looping siren bed via
+    `play(&"siren", {"loop": true})`); the table's magnet telegraph is visual-only** — a
+    short `radio_squelch` telegraph cue is a wave-3 audio candidate.
 - Keep `alley_debug.tscn` + feel sims green (debug_all_hardware). Layout may rearrange the
   M0 midfield to fit storefronts; keep flipper/sling/lane geometry identical.
 - **Sim:** `tests/sim/table_growth_sim.tscn` — boot table with staged owned-sets (bare / T1 /

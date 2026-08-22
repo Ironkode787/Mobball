@@ -97,8 +97,10 @@ func migrate(d: Dictionary) -> Dictionary:
 	if v == VERSION:
 		return d
 	if v > VERSION:
-		# A save from a newer build: load what we understand rather than wiping it.
-		push_warning("[save] file version %d is newer than %d" % [v, VERSION])
+		# A save from a newer build (a downgrade): load what we understand rather than
+		# wiping it. A log line, not a warning — it is a supported situation, not a fault.
+		print("[save] file version %d is newer than %d; loading what this build knows"
+				% [v, VERSION])
 		return d
 	d["version"] = VERSION
 	return d

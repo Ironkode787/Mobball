@@ -133,6 +133,8 @@ func start() -> void:
 	_lanes_from_signal = _connect_table(&"rollover_rolled", _on_rollover_rolled)
 	_connect_table(&"bribe_offered", _on_bribe_offered)
 
+	# Nights do not always open cold — coming off a survived raid the meter is still at 30.
+	AudioDirector.music_set_state(_music_state())
 	guy_index = -1
 	_next_guy()
 	set_physics_process(true)
@@ -525,7 +527,10 @@ func _music_state() -> StringName:
 func _set_raid_visual(on: bool) -> void:
 	if table == null or not is_instance_valid(table):
 		return
-	TableAPI.call_if(table, "set_raid_active", [on])
+	if table.has_method("set_raid_active"):
+		# The table owns its own red wash and cop targets; do not tint it twice.
+		table.call("set_raid_active", on)
+		return
 	table.modulate = RaidMode.DARKEN if on else Color.WHITE
 
 

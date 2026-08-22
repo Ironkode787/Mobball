@@ -37,14 +37,11 @@ var table: Node2D = null
 var _results: Array[Dictionary] = []
 var _current: String = ""
 var _fails: PackedStringArray = []
-var _rng := RandomNumberGenerator.new()
-var _flip_state: bool = false
 var _coaching: bool = false
 var _feed_warned: bool = false
 
 
 func _ready() -> void:
-	_rng.seed = SEED
 	main = MAIN_SCENE.instantiate()
 	main.auto_start = false
 	add_child(main)

@@ -28,6 +28,7 @@ var _buttons: HBoxContainer = null
 var _roster: VBoxContainer = null
 var _safe: PanelContainer = null
 var _body: VBoxContainer = null
+var _counter: AudioStreamPlayer = null
 
 
 func _ready() -> void:
@@ -36,7 +37,8 @@ func _ready() -> void:
 	_build()
 	_row_index = 0
 	_row_time = 0.0
-	AudioDirector.play(&"bill_counter")
+	# The counter runs under the tally and stops when the last line lands (audio-wave2 §1).
+	_counter = AudioDirector.play(&"bill_counter", {"loop": true})
 
 
 func _build() -> void:
@@ -254,8 +256,20 @@ func _show_headline() -> void:
 	if _headline_shown:
 		return
 	_headline_shown = true
+	_stop_counter()
 	for row in _rows:
 		_paint_row(row, 1.0)
 	_headline.text = String(summary.get("headline", ""))
 	_headline.modulate.a = 1.0
 	AudioDirector.play(&"headline_sting")
+
+
+func _stop_counter() -> void:
+	if _counter != null and is_instance_valid(_counter):
+		_counter.stop()
+	_counter = null
+
+
+## The screen can be torn down mid-tally (NEXT NIGHT on the first frame).
+func _exit_tree() -> void:
+	_stop_counter()
