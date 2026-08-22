@@ -363,6 +363,202 @@
       "cost": "8M", "repeat": null, "requires": ["rackets.club_license"],
       "effects": [{"kind": "unlock_hardware", "target": "club_flippers"}],
       "table_change": "mini flippers bolt onto the Club deck, riding your same thumbs"
+    },
+
+    {
+      "id": "crew.skids",
+      "branch": "crew", "tier": 1,
+      "name": "Skids, the Wheelman",
+      "flavor": "Never turns the engine off. Never explains why.",
+      "cost": "5K", "repeat": {"max": 5, "growth": 1.6}, "requires": [],
+      "reveal": {"rank": 1},
+      "specialist": {"id": "skids", "instrument": "bicycle_bell"},
+      "effects": [{"kind": "serve_speed_mult", "value": 1.15, "per_level": true}],
+      "table_change": "an idling car appears by the launch lane — the next guy arrives faster"
+    },
+    {
+      "id": "crew.nussbaum",
+      "branch": "crew", "tier": 2,
+      "name": "\"Numbers\" Nussbaum",
+      "flavor": "He doesn't launder money. He tutors it.",
+      "cost": "40K", "repeat": {"max": 10, "growth": 1.5}, "requires": ["fronts.coin_op"],
+      "specialist": {"id": "nussbaum", "instrument": "clarinet"},
+      "effects": [{"kind": "auto_launder_per_sec", "value": 0.004, "per_level": true}],
+      "table_change": "a green visor appears in the laundromat window"
+    },
+    {
+      "id": "crew.big_sal",
+      "branch": "crew", "tier": 2,
+      "name": "Big Sal",
+      "flavor": "Things bounce off Big Sal. It's physics.",
+      "cost": "60K", "repeat": {"max": 5, "growth": 1.6}, "requires": ["muscle.enforcer_corner"],
+      "specialist": {"id": "big_sal", "instrument": "tuba"},
+      "effects": [{"kind": "kickback_cooldown_mult", "value": 0.9, "per_level": true}],
+      "table_change": "Big Sal leans on the outlane rail, recharging the kickback faster"
+    },
+    {
+      "id": "crew.professor",
+      "branch": "crew", "tier": 3,
+      "name": "The Professor",
+      "flavor": "Cased forty banks. Robbed none. 'The math was the fun part.'",
+      "cost": "120K", "repeat": {"max": 3, "growth": 2.0}, "requires": [],
+      "reveal": {"rank": 3},
+      "specialist": {"id": "professor", "instrument": "oboe"},
+      "effects": [{"kind": "aim_line", "value": 1, "per_level": true}],
+      "table_change": "chalk trajectories appear when you case the joint (trap and hold)"
+    },
+    {
+      "id": "crew.rosa",
+      "branch": "crew", "tier": 3,
+      "name": "Rosa the Fence",
+      "flavor": "Knows what everything's worth. Charges accordingly.",
+      "cost": "150K", "repeat": {"max": 10, "growth": 1.35}, "requires": ["rackets.protection_pawn"],
+      "specialist": {"id": "rosa", "instrument": "alto_sax"},
+      "effects": [{"kind": "all_dirty_mult", "value": 1.05, "per_level": true}],
+      "table_change": "the pawn shop gains a back room — everything sells for more"
+    },
+    {
+      "id": "crew.cohen",
+      "branch": "crew", "tier": 4,
+      "name": "\"Whispers\" Cohen, Attorney",
+      "flavor": "Has never lost a case. Has never exactly won one either.",
+      "cost": "3M", "repeat": {"max": 5, "growth": 1.7}, "requires": ["influence.beat_cop"],
+      "specialist": {"id": "cohen", "instrument": "violin"},
+      "effects": [
+        {"kind": "heat_decay_mult", "value": 1.2, "per_level": true},
+        {"kind": "bail_discount", "value": 0.05, "per_level": true}
+      ],
+      "table_change": "a briefcase man loiters outside the courthouse — heat fades faster, bail costs less"
+    },
+    {
+      "id": "crew.manny",
+      "branch": "crew", "tier": 4,
+      "name": "Manny the Fix",
+      "flavor": "You never see him move. Things are just... handled.",
+      "cost": "6M", "repeat": {"max": 4, "growth": 1.8}, "requires": ["rackets.club_license"],
+      "specialist": {"id": "manny", "instrument": "cornet"},
+      "effects": [{"kind": "auto_collect_interval", "value": 45, "per_level": true}],
+      "table_change": "Manny scurries across the field and pockets a lit award for you"
+    },
+    {
+      "id": "crew.eddie",
+      "branch": "crew", "tier": 5,
+      "name": "Eddie Odds",
+      "flavor": "Eddie doesn't gamble. Eddie corrects.",
+      "cost": "40M", "repeat": {"max": 12, "growth": 1.3}, "requires": ["fronts.casino_wash"],
+      "reveal": {"rank": 5},
+      "specialist": {"id": "eddie", "instrument": "trombone"},
+      "effects": [{"kind": "casino_edge_add", "value": 0.01, "per_level": true}],
+      "table_change": "Eddie lurks at the Club rail — the house forgets whose house it is"
+    },
+    {
+      "id": "crew.consigliere",
+      "branch": "crew", "tier": 5,
+      "name": "The Consigliere",
+      "flavor": "Speaks four languages. Says almost nothing in any of them.",
+      "cost": "60M", "repeat": {"max": 3, "growth": 2.2}, "requires": [],
+      "reveal": {"rank": 5},
+      "specialist": {"id": "consigliere", "instrument": "cello"},
+      "effects": [
+        {"kind": "job_reroll_add", "value": 1, "per_level": true},
+        {"kind": "job_respect_mult", "value": 1.1, "per_level": true}
+      ],
+      "table_change": "a chair at the long table fills early — the work board bends to you"
+    },
+
+    {
+      "id": "influence.loaded_dice",
+      "branch": "influence", "tier": 4,
+      "name": "Loaded Dice",
+      "flavor": "They're not loaded. They're just very well informed.",
+      "cost": "4M", "repeat": {"max": 8, "growth": 1.4}, "requires": ["fronts.casino_wash"],
+      "effects": [{"kind": "casino_edge_add", "value": 0.01, "per_level": true}],
+      "table_change": "the dice on the Club felt glint a little too knowingly"
+    },
+    {
+      "id": "influence.coolers_fired",
+      "branch": "influence", "tier": 4,
+      "name": "The Cooler's Fired",
+      "flavor": "UNDER NEW MANAGEMENT, says the sign. The sign is you.",
+      "cost": "8M", "repeat": null, "requires": ["influence.loaded_dice"],
+      "effects": [{"kind": "feature_flag", "target": "coolers_fired"}],
+      "table_change": "cold streaks at the tables pay back double when they break"
+    },
+    {
+      "id": "influence.inspector_vacation",
+      "branch": "influence", "tier": 4,
+      "name": "Inspector's Vacation",
+      "flavor": "Two weeks in Boca. Postcard says 'lean all you want.'",
+      "cost": "12M", "repeat": null, "requires": ["influence.coffee_fund"],
+      "effects": [{"kind": "feature_flag", "target": "inspector_vacation"}],
+      "table_change": "hitting a lit target empties the Inspector's chair for 20 seconds"
+    },
+    {
+      "id": "influence.police_scanner",
+      "branch": "influence", "tier": 5,
+      "name": "Police Scanner",
+      "flavor": "Crackles ten seconds before trouble does.",
+      "cost": "30M", "repeat": null, "requires": ["influence.beat_cop"],
+      "reveal": {"rank": 5},
+      "effects": [{"kind": "feature_flag", "target": "police_scanner"}],
+      "table_change": "a scanner bolts onto the backbox and mutters warnings"
+    },
+    {
+      "id": "influence.wiretap_wire",
+      "branch": "influence", "tier": 5,
+      "name": "Wiretap the Wire",
+      "flavor": "Turns out the numbers know their number.",
+      "cost": "50M", "repeat": null, "requires": ["rackets.the_wire"],
+      "reveal": {"rank": 5},
+      "effects": [{"kind": "feature_flag", "target": "wiretap_wire"}],
+      "table_change": "one payphone sparks — the next draw shows 15 seconds early"
+    },
+    {
+      "id": "influence.rain_insurance",
+      "branch": "influence", "tier": 5,
+      "name": "Rain Insurance",
+      "flavor": "Terrible flood. Everything ruined. Very sad. Fully covered.",
+      "cost": "80M", "repeat": null, "requires": ["influence.police_scanner"],
+      "reveal": {"event": "first_raid_survived"},
+      "effects": [{"kind": "feature_flag", "target": "rain_insurance"}],
+      "table_change": "an insurance office opens across the street — one confiscation per Night, waived"
+    },
+    {
+      "id": "muscle.insurance_policy",
+      "branch": "muscle", "tier": 5,
+      "name": "Insurance Policy",
+      "flavor": "The Inspector's report gains an asterisk. The asterisk gains a lawyer.",
+      "cost": "60M", "repeat": null, "requires": ["influence.coffee_fund"],
+      "reveal": {"rank": 5},
+      "effects": [{"kind": "feature_flag", "target": "insurance_policy"}],
+      "table_change": "TILT no longer ends the guy — he limps at half value for 10 seconds"
+    },
+    {
+      "id": "muscle.right_hand_man",
+      "branch": "muscle", "tier": 4,
+      "name": "Right-Hand Man",
+      "flavor": "Like Big Sal, but on the other side. Also somehow bigger.",
+      "cost": "6M", "repeat": null, "requires": ["muscle.enforcer_corner"],
+      "effects": [{"kind": "kickback_unlock", "target": "right"}],
+      "table_change": "a second corner boy posts up by the right outlane"
+    },
+    {
+      "id": "rackets.house_rake",
+      "branch": "rackets", "tier": 4,
+      "name": "House Rake",
+      "flavor": "The house always wins. You are increasingly the house.",
+      "cost": "3M", "repeat": {"max": 10, "growth": 1.3}, "requires": ["rackets.club_license"],
+      "effects": [{"kind": "idle_rate_add", "target": "casino", "value": "150", "per_level": true}],
+      "table_change": "more tables appear on the Club floor"
+    },
+    {
+      "id": "fronts.comps",
+      "branch": "fronts", "tier": 4,
+      "name": "Comp'd Suite",
+      "flavor": "The first bet's on the house. The house is confused about who it is.",
+      "cost": "5M", "repeat": null, "requires": ["fronts.casino_wash"],
+      "effects": [{"kind": "feature_flag", "target": "comps"}],
+      "table_change": "a neon COMPS sign lights over the Club rail — one free stake per Night"
     }
   ]
 }

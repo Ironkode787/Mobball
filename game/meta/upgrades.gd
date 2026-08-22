@@ -41,7 +41,12 @@ const VALUE_GROUPS: PackedStringArray = [
 
 ## Boolean gameplay flags. A new flag needs code that reads it, so adding one here is a
 ## deliberate act — that is the point of validating against a list.
-const FEATURE_FLAGS: PackedStringArray = ["plunger_bands", "casino_wash"]
+const FEATURE_FLAGS: PackedStringArray = [
+	"plunger_bands", "casino_wash",
+	# M2 influence/fronts flags (specs/m2-content.md §3) — consumers land with their lanes.
+	"coolers_fired", "inspector_vacation", "police_scanner", "rain_insurance",
+	"wiretap_wire", "insurance_policy", "comps",
+]
 
 ## Milestone marks the reveal engine understands (docs/04 "Milestone reveals").
 const REVEAL_EVENTS: PackedStringArray = [
