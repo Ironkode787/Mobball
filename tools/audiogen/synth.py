@@ -313,10 +313,9 @@ def mode(x: np.ndarray, freq: float, tau: float, sr: int = SR) -> np.ndarray:
 	freq = float(np.clip(freq, 5.0, 0.48 * sr))
 	r = math.exp(-1.0 / (max(tau, 1e-4) * sr))
 	w = 2.0 * np.pi * freq / sr
-	b = np.array([math.sin(w) * (1.0 - r), 0.0])
+	b = np.array([math.sin(w), 0.0])
 	a = np.array([1.0, -2.0 * r * math.cos(w), r * r])
-	y = signal.lfilter(b, a, x)
-	return y
+	return signal.lfilter(b, a, x)
 
 
 def modal(exciter: np.ndarray, spec, sr: int = SR) -> np.ndarray:
