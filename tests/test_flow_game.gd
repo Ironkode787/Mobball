@@ -12,8 +12,10 @@ func run(t: TestCtx) -> void:
 	Game.save.erase()
 
 	_money_path(t)
+	_flat_money(t)
 	_combo_multiplier(t)
 	_idle_and_laundering(t)
+	_raid_latch(t)
 	_rank_ladder(t)
 	_state_machine(t)
 	_serialization(t)
@@ -62,6 +64,68 @@ func _money_path(t: TestCtx) -> void:
 	var expect := BigMoney.from_float(100.0 * Game.stats.value_mult(&"bumpers"))
 	t.ok(once.equals_approx(expect, 1e-9),
 			"an all-groups multiplier lands once: got %s, want %s" % [once.text(), expect.text()])
+
+
+## Money that arrives already priced (a bet's winnings, a Wire ticket): face value into the
+## wallet, still hot, never a chain. Balance-sim ruling — sending it back through the switch
+## multipliers put the Heat band and the Ledger on the same Night's money twice.
+func _flat_money(t: TestCtx) -> void:
+	_fresh()
+	Game.buy_upgrade("muscle.brass_balls", BigMoney.zero())
+	Game.heat.value = 75.0
+	t.ok(Game.heat.multiplier() > 1.0 and Game.stats.value_mult(&"casino") > 1.0,
+			"the Night is multiplying dirty and the Ledger is adding to it")
+
+	var priced := BigMoney.from_float(1_000.0)
+	var switch_pays := Game.preview_switch(&"casino", priced)
+	t.ok(switch_pays.cmp(priced) > 0, "a SWITCH worth $1000 tonight pays %s" % switch_pays.text())
+
+	var dirty_before := Game.wallet.dirty
+	var pending_before := Game.heat.pending_units()
+	var paid := Game.earn_flat_dirty(priced, &"casino")
+	t.ok(paid.equals_approx(priced, 1e-9), "but flat money pays exactly what it says: %s"
+			% paid.text())
+	t.ok(Game.wallet.dirty.equals_approx(dirty_before.add(priced), 1e-9), "into the dirty pile")
+	t.ok(Game.heat.pending_units() > pending_before,
+			"as hot money — dirty cash in a pocket is dirty cash")
+	t.eq(Game.combo.count, 0, "and it is not a shot: it cannot open a chain")
+	t.ok(Game.night_dirty.equals_approx(priced, 1e-9), "The Count still sees it")
+	t.ok(Game.night_group_base_dirty(&"casino").equals_approx(priced, 1e-9),
+			"and flat money is its own base — nothing multiplied it")
+
+
+## THE RULING (balance sim): `HeatMeter.raid_triggered` latches, and `Game._process` ticks the
+## meter in every state — so when only the live Night listened, a crossing at The Count killed
+## the Raid for the rest of the career (89 of 120 shark Nights in the audit). `Game` owns the
+## one permanent connection and hands the call to whatever Night is live.
+func _raid_latch(t: TestCtx) -> void:
+	_fresh()
+	var spy := _RaidSpy.new()
+	var real_night: Node = Game.night
+	Game.night = spy
+
+	Game.heat.value = Rates.RAID_THRESHOLD
+	t.eq(spy.calls, 1, "the meter crossing 100 during a Night calls the Night, exactly once")
+	t.ok(Game.heat.is_raid_pending(), "and the latch is set until the raid is settled")
+	Game.heat.value = Rates.RAID_THRESHOLD + 10.0
+	t.eq(spy.calls, 1, "climbing further inside the same raid does not call it again")
+
+	# The Count: no Night, and the meter still ticking. The call goes nowhere — and must not
+	# be lost, which is what the latch is for.
+	Game.heat.reset_after_raid(true)
+	t.ok(not Game.heat.is_raid_pending(), "settling a raid clears the latch")
+	Game.night = null
+	Game.heat.value = Rates.RAID_THRESHOLD
+	t.eq(spy.calls, 1, "with no Night live there is nobody to call")
+	t.ok(Game.heat.is_raid_pending(),
+			"but the Inspector is pending, and NightController.start() opens the door for him")
+
+	# `reset_after_raid` still clears it, whichever way the raid went.
+	Game.heat.reset_after_raid(false)
+	t.ok(not Game.heat.is_raid_pending(), "a busted raid clears the latch too")
+	t.near(Game.heat.value, Rates.RAID_BUST_HEAT, 1e-9, "and the meter comes back cold")
+	Game.night = real_night
+	spy.free()
 
 
 func _combo_multiplier(t: TestCtx) -> void:
@@ -201,3 +265,14 @@ func _meta_stores(t: TestCtx) -> void:
 	Game.from_dict(Game.save.read())
 	t.eq(LedgerState.level_of("rackets.trash_2"), 1, "loading restores the Ledger's levels")
 	t.ok(Reveal.shared().has_mark(&"first_tilt"), "and the reveal history with them")
+
+
+## Stands in for the live NightController: `Game.night` is typed loosely on purpose (the two
+## files must not reference each other), so the contract is exactly this one method.
+class _RaidSpy:
+	extends Node
+
+	var calls: int = 0
+
+	func on_raid_called() -> void:
+		calls += 1

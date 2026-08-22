@@ -14,10 +14,10 @@ const DAYS := 2
 
 
 func run(t: TestCtx) -> void:
-	# The experiment switches are process-wide statics; pin all three to the SHIPPED values so
-	# this file measures the shipped economy no matter what ran before it in the same process.
+	# The experiment switches are process-wide statics; pin both to the SHIPPED values so this
+	# file measures the shipped economy no matter what ran before it in the same process.
+	# (`high_roller_scales_stake` is gone: that counterfactual won and is the rule now.)
 	SimState.skill_shot_scales_with_rank = false
-	SimState.high_roller_scales_stake = false
 	SimState.clean_eats_wash_cap = false
 	_mirrored_constants(t)
 	_profiles_load(t)
@@ -105,6 +105,29 @@ func _m2_constants(t: TestCtx) -> void:
 			"the pocket ceiling is the same on both sides")
 	t.eq(Casino.CasinoRules.PLAYER_POCKETS, Stats.CASINO_POCKETS_BASE,
 			"the pocket floor is the same on both sides")
+	# THE RULING (balance sim): the edge is bought in PAYOUT only. The ceiling equals the base
+	# so no shipped node can move the wheel, and the payout ceiling is exactly the base payout
+	# plus every edge point Influence can own — which lands the EV on +5.0% and nowhere else.
+	t.eq(Casino.CasinoRules.PLAYER_POCKETS_MAX, Casino.CasinoRules.PLAYER_POCKETS,
+			"the pocket ceiling is the base: Influence buys payout, not pockets")
+	t.near(Casino.CasinoRules.PAYOUT + Stats.CASINO_EDGE_MAX, Casino.CasinoRules.PAYOUT_MAX,
+			1e-9, "the edge cap and the payout cap are one decision written twice")
+	var fully_bought := Stats.new()
+	fully_bought.recompute({"crew.eddie": 12, "influence.loaded_dice": 8})
+	t.near(fully_bought.casino_edge_add(), Stats.CASINO_EDGE_MAX, 1e-9,
+			"the shipped catalog can buy the whole edge")
+	t.near(Casino.expected_value(fully_bought), 0.05, 1e-9,
+			"and full investment is exactly +5% EV, which is the top of the design band")
+	# The High Roller rides the STAKE, so nothing it does may show up in the wheel's book.
+	var ladder := Casino.new()
+	ladder.arm(Casino.CasinoRules.HIGH_ROLLER_MULT.size() - 1)
+	t.near(Casino.expected_value(fully_bought), 0.05, 1e-9,
+			"an armed ladder is variance, not expectation: EV must not move")
+	var bet := ladder.stake_with_ladder(BigMoney.from_float(100.0), BigMoney.of(1.0, 9))
+	t.ok(bet.equals_approx(BigMoney.from_float(500.0), 1e-9),
+			"the top rung is ×5 on the BET (%s)" % bet.text())
+	t.near(float(ladder.resolve(1, false, bet, Casino.CasinoRules.PAYOUT, false)["multiplier"]),
+			Casino.CasinoRules.PAYOUT, 1e-9, "and the payout stays the wheel's own")
 	for pocket in range(Casino.CasinoRules.POCKETS):
 		t.eq(SimTable.pocket_is_house(pocket, Casino.CasinoRules.PLAYER_POCKETS),
 				RouletteWheel.HOUSE_POCKETS.has(pocket),
@@ -126,6 +149,14 @@ func _m2_constants(t: TestCtx) -> void:
 			"a Jackpot costs one drop per target in the grid")
 	t.eq(CollectionRound.RESPECT, 10, "a perfect Collection Round is ☆10")
 	t.near(CollectionRound.SECONDS, 25.0, 1e-9, "a Collection Round runs 25 s")
+	# Once a Night, like the combo's ☆ (balance-sim ruling). Both sides of the sim drive the
+	# real `CollectionRound`, so proving the rulebook here proves it for the career runs.
+	var block := CollectionRound.new()
+	block.begin_night()
+	t.eq(block.take_respect(), CollectionRound.RESPECT, "the first perfect round pays ☆10")
+	t.eq(block.take_respect(), 0, "the second one pays money and nothing else")
+	block.begin_night()
+	t.eq(block.take_respect(), CollectionRound.RESPECT, "and the next Night re-arms it")
 	t.near(SimNight.STOREFRONT_POLL, NightController.STOREFRONT_POLL, 1e-9,
 			"the block is read at the flow lane's cadence")
 
@@ -157,7 +188,7 @@ func _m2_constants(t: TestCtx) -> void:
 			&"auto_collect_interval", &"serve_speed_mult", &"kickback_cooldown_mult",
 			&"heat_decay_mult", &"all_dirty_mult", &"job_respect_mult"]:
 		t.ok(Stats.FOLD.has(kind), "Stats still folds `%s`, which the sim reads" % kind)
-	t.near(Stats.CASINO_EDGE_MAX, 0.12, 1e-9, "the edge cap is where the sim thinks it is")
+	t.near(Stats.CASINO_EDGE_MAX, 0.20, 1e-9, "the edge cap is where the sim thinks it is")
 	t.near(WireDraws.PERIOD, 90.0, 1e-9, "the tote board draws every 90 s")
 	t.near(WireDraws.EXACT_MULT, 80.0, 1e-9, "an exact Wire number pays ×80")
 	t.near(WireDraws.LAST_DIGIT_MULT, 6.0, 1e-9, "a last-digit Wire number pays ×6")
@@ -258,6 +289,29 @@ func _money_path_matches_game(t: TestCtx) -> void:
 			"SimState.earn_switch pays what Game.earn_switch pays (%s vs %s)" % [mine.text(), theirs.text()])
 	t.ok(sim.wallet.dirty.equals_approx(Game.wallet.dirty, 1e-9), "…and the wallets agree")
 	t.near(sim.heat.pending_units(), Game.heat.pending_units(), 1e-9, "…and the heat windows agree")
+
+	# The BASE line the Wire prices its ticket off (balance-sim ruling). Both sides book it in
+	# the same place as the multiplied one, and neither may book the post-multiplier amount.
+	t.ok(sim.night_group_base_dirty(&"bumpers").equals_approx(
+			Game.night_group_base_dirty(&"bumpers"), 1e-9),
+			"SimState books the same base line Game does (%s vs %s)"
+			% [sim.night_group_base_dirty(&"bumpers").text(),
+				Game.night_group_base_dirty(&"bumpers").text()])
+	t.ok(sim.night_group_base_dirty(&"bumpers").equals_approx(
+			Game.ledger_value(&"bumpers", BigMoney.from_float(TableScore.BUMPER)), 1e-9),
+			"…and the base line is the Ledger's value, before Heat, mode and combo")
+
+	# Flat money: the wheel and the tote board already priced it, so both sides pay it at face
+	# value — hot money, never a chain, never multiplied again.
+	var flat_before := Game.heat.pending_units()
+	var chain_before := Game.combo.count
+	var flat_mine := sim.earn_flat_dirty(BigMoney.from_float(1_000.0), &"casino")
+	var flat_theirs := Game.earn_flat_dirty(BigMoney.from_float(1_000.0), &"casino")
+	t.ok(flat_mine.equals_approx(flat_theirs, 1e-9), "SimState.earn_flat_dirty pays what Game does")
+	t.ok(flat_theirs.equals_approx(BigMoney.from_float(1_000.0), 1e-9),
+			"…which is face value, whatever the Heat band and the Ledger say")
+	t.ok(Game.heat.pending_units() > flat_before, "…and it is still hot money")
+	t.eq(Game.combo.count, chain_before, "…and still not a shot: it cannot touch a chain")
 
 	# M2: the same comparison with the mode multiplier live — a Loud guy on the table and a
 	# Family Meeting running. `Game.preview_switch` folds both; so must the sim's copy.

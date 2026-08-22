@@ -82,9 +82,6 @@ static func markdown(careers: Dictionary, targets: Array[Dictionary], catalog: U
 	if SimState.skill_shot_scales_with_rank:
 		switches.append("`--rank-skill`: the skill shot is back on `rank_scale(rank)/rank_scale(0)` "
 				+ "(×10 per rank), the behaviour the M1 sim retired")
-	if SimState.high_roller_scales_stake:
-		switches.append("`--stake-ladder`: the High Roller arms the next STAKE instead of the next "
-				+ "PAYOUT — same rungs, same Heat, variance instead of expectation")
 	if SimState.clean_eats_wash_cap:
 		switches.append("`--capped-clean`: money paid through `earn_clean` (casino wins, Jackpots, "
 				+ "Meeting jackpots, exact Wire numbers) counts against the per-Night wash cap")
@@ -101,8 +98,9 @@ static func markdown(careers: Dictionary, targets: Array[Dictionary], catalog: U
 	out.append("")
 	out.append("## The Club")
 	out.append("")
-	out.append("Deck visits, the wheel's book and the Family Meeting's uptime. `EV` is the "
-			+ "REALIZED return per dollar staked over the whole career, against the "
+	out.append("Deck visits, the wheel's book and the Family Meeting's uptime. `action` is every "
+			+ "dollar the wheel spun on — the player's stakes plus the house's comped ones — and "
+			+ "`EV real` is what came back per dollar of it, against the "
 			+ "`Casino.expected_value(stats)` the end-state build had bought.")
 	out.append("")
 	out.append(_club_table(careers, true))
@@ -247,19 +245,22 @@ static func _club_findings(careers: Dictionary) -> PackedStringArray:
 			out.append("%s: never reached the Club — no deck, no wheel, no Meeting" % id)
 			continue
 		var built := Casino.expected_value(s.stats)
-		var real := s.casino_paid.ratio_to(s.casino_staked) - 1.0 if s.casino_staked.is_positive() else 0.0
+		# Action, not out-of-pocket: comped stakes are the house's money on the same wheel.
+		var action := s.casino_staked.add(s.casino_comped_staked)
+		var real := s.casino_paid.ratio_to(action) - 1.0 if action.is_positive() else 0.0
 		var avg_mult := s.casino_mult_sum / maxf(float(s.casino_wins), 1.0)
-		out.append("%s: %d spins staked %s and paid %s — realized EV %+.1f%% against the %+.1f%% "
-				% [id, s.casino_spins, s.casino_staked.text(), s.casino_paid.text(),
+		out.append("%s: %d spins put %s across the wheel and paid %s — realized EV %+.1f%% against the %+.1f%% "
+				% [id, s.casino_spins, action.text(), s.casino_paid.text(),
 				real * 100.0, built * 100.0]
 				+ "the end-state build had bought (%d/%d pockets at ×%.2f)"
 				% [Casino.player_pockets(s.stats), Casino.CasinoRules.POCKETS,
 				Casino.payout_rate(s.stats)])
 		out.append("%s: a winning spin paid ×%.2f on average against a wheel payout of ×%.2f — "
 				% [id, avg_mult, Casino.payout_rate(s.stats)]
-				+ "%d High Roller holds and %d fired Coolers are the rest of it, and neither is "
-				% [s.high_roller_holds, s.casino_coolers]
-				+ "in `Casino.expected_value`")
+				+ "%d fired Coolers are the only thing that can be on top of it, and the %d "
+				% [s.casino_coolers, s.high_roller_holds]
+				+ "High Roller holds moved the BET (%s of comped action is in the EV above)"
+				% s.casino_comped_staked.text())
 		var casino_clean := _clean_from(s, &"roulette_wheel")
 		if s.total_clean_earned.is_positive():
 			out.append("%s: the wheel alone is %.0f%% of career CLEAN (%s of %s); everything "
@@ -291,15 +292,14 @@ static func _club_findings(careers: Dictionary) -> PackedStringArray:
 			out.append("%s: %d Wire draws, %d hits, %d exact — %s paid, which is %s of the "
 					% [id, s.wire_draws, s.wire_hits, s.wire_exacts, s.wire_paid.text(),
 					_pct(s.wire_paid, wire_total)]
-					+ "whole `wire` line. A draw pays ×6 of TONIGHT'S spinner take and that "
-					+ "take is already post-multiplier, so the Heat band and a Meeting "
-					+ "multiply it twice")
-		if s.raids_latched > 0:
-			out.append("%s: %d Nights opened with the Heat meter's raid latch already set and "
-					% [id, s.raids_latched]
-					+ "no raid ever came. `HeatMeter.raid_triggered` latches, but only the "
-					+ "NightController listens for it and `Game._process` ticks the meter at "
-					+ "The Count too — a crossing between Nights kills the Raid for good")
+					+ "whole `wire` line. A draw pays ×6 of tonight's spinner line at its BASE "
+					+ "value and is paid flat, so neither the Heat band nor a Meeting is on "
+					+ "that money twice")
+		if s.raids_at_open > 0:
+			out.append("%s: %d Nights opened with the Heat meter's raid latch already set "
+					% [id, s.raids_at_open]
+					+ "(the meter crosses 100 at The Count too) — the Inspector was waiting at "
+					+ "the door and the raid began on the first serve")
 		if s.boss_nights > 0:
 			out.append("%s: the Commission cost %d Nights (%d fights won); the ☆ were in the "
 					% [id, s.boss_nights, s.boss_wins]
@@ -329,7 +329,7 @@ static func _unpriceable(ids: PackedStringArray, catalog: Upgrades) -> PackedStr
 ## the career — the number the design's "+2–5% at max Influence investment" is a claim about.
 static func _club_table(careers: Dictionary, md: bool) -> String:
 	var head := PackedStringArray(["profile", "visits/night", "climb rate", "deck %", "spins",
-			"win %", "staked", "paid", "EV real", "EV wheel", "avg ×", "holds", "coolers",
+			"win %", "action", "paid", "EV real", "EV wheel", "avg ×", "holds", "coolers",
 			"jackpots", "meetings/night", "meeting %"])
 	var rows: Array[PackedStringArray] = []
 	for id in SimProfile.ids():
@@ -339,8 +339,9 @@ static func _club_table(careers: Dictionary, md: bool) -> String:
 		var s := c.state
 		var nights := maxf(float(c.nights_played), 1.0)
 		var ev_real := 0.0
-		if s.casino_staked.is_positive():
-			ev_real = s.casino_paid.ratio_to(s.casino_staked) - 1.0
+		var action := s.casino_staked.add(s.casino_comped_staked)
+		if action.is_positive():
+			ev_real = s.casino_paid.ratio_to(action) - 1.0
 		rows.append(PackedStringArray([
 			id,
 			"%.2f" % (float(s.deck_visits) / nights),
@@ -348,7 +349,7 @@ static func _club_table(careers: Dictionary, md: bool) -> String:
 			"%.0f%%" % (100.0 * c.deck_seconds / maxf(c.active_seconds, 1.0)),
 			str(s.casino_spins),
 			"%.0f%%" % (100.0 * float(s.casino_wins) / maxf(float(s.casino_spins), 1.0)),
-			s.casino_staked.text(), s.casino_paid.text(),
+			action.text(), s.casino_paid.text(),
 			"%+.1f%%" % (ev_real * 100.0),
 			"%+.1f%%" % (Casino.expected_value(s.stats) * 100.0),
 			"%.2f" % (s.casino_mult_sum / maxf(float(s.casino_wins), 1.0)),
@@ -390,7 +391,7 @@ static func _clean_table(careers: Dictionary, md: bool) -> String:
 ## Is the risk system alive? Peak heat is a spike; band seconds are a life.
 static func _heat_table(careers: Dictionary, md: bool) -> String:
 	var head := PackedStringArray(["profile", "peak", "band 0", "band 1", "band 2", "band 3",
-			"raid band", "raids", "survived", "insured", "raids/Night", "latched", "bribes"])
+			"raid band", "raids", "survived", "insured", "raids/Night", "at open", "bribes"])
 	var rows: Array[PackedStringArray] = []
 	for id in SimProfile.ids():
 		if not careers.has(id) or (careers[id] as Array).is_empty():
@@ -408,7 +409,7 @@ static func _heat_table(careers: Dictionary, md: bool) -> String:
 		cells.append(str(s.raids_insured))
 		cells.append("%.2f" % (float(s.raids_survived + s.raids_lost)
 				/ maxf(float(c.nights_played), 1.0)))
-		cells.append(str(s.raids_latched))
+		cells.append(str(s.raids_at_open))
 		cells.append(str(s.bribes_total))
 		rows.append(cells)
 	return _render(head, rows, md)

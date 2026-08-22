@@ -14,12 +14,14 @@ extends RefCounted
 ## `casino_high_roller` drive a real `Casino`, the back room drives a real `FamilyMeeting`,
 ## the block drives a real `CollectionRound`, and `_check_rank` asks a real `Commission` what
 ## rank the ladder is allowed to reach. What is copied is only the ORDER of the money — which
-## pipe a payout goes down (`earn_clean` vs `earn_switch(..., no_heat)`) and what folds into it
+## pipe a payout goes down (`earn_clean` vs `earn_flat_dirty` vs `earn_switch`) and what folds in
 ## (`mode_multiplier`, the fielded guys' traits).
 ##
-## DRIFT RISK, stated plainly: if `Game.earn_switch`, `Game.mode_multiplier`, `Game.end_night`'s
-## pocket-money wash, `Game.award_skill_shot`, `Game._pay_casino`, `Game.RANK_RESPECT` or
-## `Game._check_rank`'s use of the Commission change, this file must change with them.
+## DRIFT RISK, stated plainly: if `Game.earn_switch`, `Game.earn_flat_dirty`,
+## `Game.ledger_value`, `Game.mode_multiplier`, `Game.end_night`'s pocket-money wash,
+## `Game.award_skill_shot`, `Game._pay_casino`, `Game.wire_draw`'s base line,
+## `Game.RANK_RESPECT` or `Game._check_rank`'s use of the Commission change, this file must
+## change with them.
 ## `tests/test_sim_smoke.gd` asserts the constants against the live `Game` autoload and the
 ## live `Casino` / `FamilyMeeting` / `Commission` rulebooks so at least the numbers cannot
 ## drift silently; the composition order cannot be asserted from outside, so it is spelled out
@@ -70,8 +72,11 @@ var night_laundered: BigMoney = BigMoney.zero()
 ## Meeting jackpots, exact Wire numbers, a boss purse). It does NOT eat the wash cap and it is
 ## not laundering — which is the whole reason the deck matters (`Game.earn_clean`).
 var night_clean: BigMoney = BigMoney.zero()
-## Dirty booked per value group tonight — the Wire prices its ticket off the spinner's line.
+## Dirty booked per value group tonight, at what landed in the wallet.
 var night_group: Dictionary = {}
+## The same groups at their BASE, before Heat, mode and combo (`Game.night_group_base`). The
+## Wire prices its ticket off this line.
+var night_group_base: Dictionary = {}
 var night_insured: bool = false
 var night_respect: int = 0
 var night_skill_shots: int = 0
@@ -108,10 +113,10 @@ var raids_lost: int = 0
 ## Confiscations `rain_insurance` refused to pay.
 var raids_insured: int = 0
 ## Nights that OPENED with the Heat meter's raid latch already set — the meter crossed 100
-## while nothing was listening for it (The Count ticks Heat too, `Game._process`), so the
-## Inspector was called and never came. See the SIM report: this is a flow-lane bug, mirrored
-## rather than papered over, and it is why a hot career can show zero raids.
-var raids_latched: int = 0
+## between Nights (The Count ticks Heat too, `Game._process`). Since the flow ruling these are
+## not lost raids: the door comes in on the first serve of the next Night
+## (`NightController.start`), and this counts how often that happens.
+var raids_at_open: int = 0
 ## Clean that arrived through `earn_clean` rather than a wash — the deck's whole product.
 var total_clean_direct: BigMoney = BigMoney.zero()
 var clean_direct_from: Dictionary = {}
@@ -122,10 +127,17 @@ var casino_staked: BigMoney = BigMoney.zero()
 var casino_paid: BigMoney = BigMoney.zero()
 var casino_clean: BigMoney = BigMoney.zero()
 var casino_comped: int = 0
+## What the house staked for the player (`fronts.comps`). It is deliberately NOT on the
+## `casino_staked` line — The Count's staked line is what came out of the player's pocket —
+## but the wheel still spun on it and still paid on it, so the REALIZED-EV rows add it back:
+## paid ÷ (staked + comped) is the wheel's return per dollar of action, which is the number
+## `Casino.expected_value` is a claim about.
+var casino_comped_staked: BigMoney = BigMoney.zero()
 var casino_coolers: int = 0
 ## Sum of the payout multiple actually applied to a winning spin. Divided by `casino_wins` it
-## is the average multiple, which is what separates the wheel's own edge (`payout_rate`) from
-## everything the High Roller ladder and the Cooler add on top of it.
+## is the average multiple: since the ruling, the only thing that can put it above the wheel's
+## own `payout_rate` is the Cooler's apology — the High Roller rides the stake instead, where
+## it shows up in `casino_staked` and cancels out of the realized EV.
 var casino_mult_sum: float = 0.0
 var bribes_total: int = 0
 var deck_visits: int = 0
@@ -171,14 +183,11 @@ var play_clock: float = 0.0
 ## a question for design, not a fix: the sim only measures both worlds.
 static var skill_shot_scales_with_rank: bool = false
 
-## EXPERIMENT (`tools/balance.sh --stake-ladder`): the High Roller arms the next STAKE instead
-## of the next PAYOUT. Same drama, same Heat bill, same rung ladder — but ×5 on a bet is
-## variance, where ×5 on a payout is an EV multiplier the wheel's odds never priced. Shipped
-## behaviour is the payout multiplier (`Casino.resolve`); this is the counterfactual the SIM
-## report argues from, and it is a sim-side switch precisely because `game/flow` is not this
-## lane's to change.
-static var high_roller_scales_stake: bool = false
-
+## RETIRED EXPERIMENT (`tools/balance.sh --stake-ladder`): the stake ladder WON and is the
+## real rule now — `Casino.stake_with_ladder` multiplies the BET and `Casino.resolve` no
+## longer touches a payout, so there is no switch left to hold. The flag is still parsed by
+## `balance_cli` so an old command line does not error; it does nothing.
+##
 ## EXPERIMENT (`tools/balance.sh --capped-clean`): money paid through `earn_clean` counts
 ## against the per-Night laundering cap like any other wash. Shipped behaviour is that it does
 ## not (docs/03 §2 caps the LOOP, and casino money was never dirty), which is what makes the
@@ -212,25 +221,46 @@ func _init(seed_value: int = 0, from_catalog: Upgrades = null) -> void:
 ## `Game.earn_switch`, verbatim minus the Events emissions. Every dirty payout in the sim
 ## goes through here — including the idle-collect stubs' — exactly like the real table.
 func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {}) -> BigMoney:
-	var v := base_value.add(stats.value_add(group))
-	v = v.mul(stats.value_mult(group))
-	v = v.mul(heat.multiplier())
-	v = v.mul(mode_multiplier())
+	var base := ledger_value(group, base_value)
+	var v := base.mul(heat.multiplier()).mul(mode_multiplier())
 	if not bool(meta.get("no_combo", false)):
 		v = v.mul(combo.on_hit(group))
 	wallet.earn_dirty(v)
 	if not bool(meta.get("no_heat", false)):
 		heat.on_dirty_earned(v, Rates.rank_scale(rank))
 	night_dirty = night_dirty.add(v)
-	_book_group(group, v)
+	_book_group(group, v, base)
 	total_dirty = total_dirty.add(v)
 	jobs.on_earn(v, group)
 	return v
 
 
-func _book_group(group: StringName, v: BigMoney) -> void:
+## `Game.earn_flat_dirty`: money the wheel or the tote board already priced. Face value into
+## the wallet, no switch multipliers, no combo — but still dirty cash, so still hot money.
+func earn_flat_dirty(amount: BigMoney, group: StringName) -> BigMoney:
+	if amount == null or not amount.is_positive():
+		return BigMoney.zero()
+	wallet.earn_dirty(amount)
+	heat.on_dirty_earned(amount, Rates.rank_scale(rank))
+	night_dirty = night_dirty.add(amount)
+	_book_group(group, amount, amount)
+	total_dirty = total_dirty.add(amount)
+	jobs.on_earn(amount, group)
+	return amount
+
+
+## `Game.ledger_value`: the base plus everything the Ledger bought for the group, before
+## tonight's Heat band, mode and combo. The Wire's ticket is priced off this line.
+func ledger_value(group: StringName, base_value: BigMoney) -> BigMoney:
+	return base_value.add(stats.value_add(group)).mul(stats.value_mult(group))
+
+
+func _book_group(group: StringName, v: BigMoney, base: BigMoney) -> void:
 	var night_total: Variant = night_group.get(group, null)
 	night_group[group] = v if not (night_total is BigMoney) else (night_total as BigMoney).add(v)
+	var night_raw: Variant = night_group_base.get(group, null)
+	night_group_base[group] = base if not (night_raw is BigMoney) \
+			else (night_raw as BigMoney).add(base)
 	var career: Variant = total_by_group.get(group, null)
 	total_by_group[group] = v if not (career is BigMoney) else (career as BigMoney).add(v)
 
@@ -268,7 +298,7 @@ func earn_clean(amount: BigMoney, source: StringName = &"") -> BigMoney:
 		paid = BigMoney.min_of(paid, launder_cap_left())
 		overflow = amount.sub_clamped(paid)
 		if overflow.is_positive():
-			overflow = earn_switch(&"casino", overflow, {"no_heat": true, "no_combo": true})
+			overflow = earn_flat_dirty(overflow, &"casino")
 		if not paid.is_positive():
 			return overflow
 		night_laundered = night_laundered.add(paid)
@@ -287,6 +317,12 @@ func night_group_dirty(group: StringName) -> BigMoney:
 	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
 
 
+## `Game.night_group_base_dirty`: the same group before Heat, mode and combo.
+func night_group_base_dirty(group: StringName) -> BigMoney:
+	var v: Variant = night_group_base.get(group, null)
+	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
+
+
 ## `count` identical hits of one group, paid in a single step with the combo multiplier
 ## pinned to ×1. Exactly equal to `count` `earn_switch` calls in that state, because every
 ## consumer downstream of the multiplier is linear in the amount: the wallet adds, the heat
@@ -297,17 +333,15 @@ func night_group_dirty(group: StringName) -> BigMoney:
 func earn_repeat(group: StringName, base_value: BigMoney, count: int) -> BigMoney:
 	if count <= 0:
 		return BigMoney.zero()
-	var unit := base_value.add(stats.value_add(group))
-	unit = unit.mul(stats.value_mult(group))
-	unit = unit.mul(heat.multiplier())
-	unit = unit.mul(mode_multiplier())
-	var total := unit.mul(float(count))
+	var unit := ledger_value(group, base_value)
+	var total_base := unit.mul(float(count))
+	var total := total_base.mul(heat.multiplier()).mul(mode_multiplier())
 	if not total.is_positive():
 		return BigMoney.zero()
 	wallet.earn_dirty(total)
 	heat.on_dirty_earned(total, Rates.rank_scale(rank))
 	night_dirty = night_dirty.add(total)
-	_book_group(group, total)
+	_book_group(group, total, total_base)
 	total_dirty = total_dirty.add(total)
 	jobs.on_earn(total, group)
 	return total
@@ -350,12 +384,8 @@ func launder_cap_left() -> BigMoney:
 
 ## One `roulette_landed`. Stakes 5% of held dirty (capped by rank), resolves it, pays it.
 func casino_roulette(pocket: int, house: bool) -> Dictionary:
-	var stake := Casino.stake_for(wallet.dirty, rank)
-	if high_roller_scales_stake and casino.armed_multiplier() > 1.0:
-		# The counterfactual: the ladder is spent making the BET bigger, and the wheel's own
-		# odds then decide what that is worth. Cap it at what is actually in the wallet.
-		stake = BigMoney.min_of(stake.mul(casino.armed_multiplier()), wallet.dirty)
-		casino.armed = 1.0
+	# `Game.casino_roulette`: the High Roller's rungs ride the BET, capped by the pocket.
+	var stake := casino.stake_with_ladder(Casino.stake_for(wallet.dirty, rank), wallet.dirty)
 	var comped := casino.take_comp(stake)
 	if stake.is_positive() and not comped and not wallet.spend_dirty(stake):
 		stake = BigMoney.zero()
@@ -366,6 +396,7 @@ func casino_roulette(pocket: int, house: bool) -> Dictionary:
 	casino_spins += 1
 	if comped:
 		casino_comped += 1
+		casino_comped_staked = casino_comped_staked.add(stake)
 	if bool(result["cooler"]):
 		casino_coolers += 1
 	casino_staked = casino_staked.add(result["staked"])
@@ -392,7 +423,7 @@ func casino_reels(cleared_columns: Array) -> BigMoney:
 	return paid
 
 
-## A High Roller hold ended: arm the next payout, take the Heat the greed cost.
+## A High Roller hold ended: arm the next STAKE, take the Heat the greed cost.
 func casino_high_roller(steps: int) -> float:
 	var added := casino.arm(steps)
 	if added > 0.0:
@@ -402,11 +433,12 @@ func casino_high_roller(steps: int) -> float:
 	return added
 
 
+## `Game._pay_casino`: the wheel already priced this money, so the dirty branch pays face
+## value and only the Wash changes which pile it lands in.
 func _pay_casino(won: BigMoney, clean: bool, switch: StringName) -> BigMoney:
 	if won == null or not won.is_positive():
 		return BigMoney.zero()
-	var paid := earn_clean(won, switch) if clean \
-			else earn_switch(&"casino", won, {"no_heat": true, "no_combo": true})
+	var paid := earn_clean(won, switch) if clean else earn_flat_dirty(won, &"casino")
 	casino.book_payout(paid, clean)
 	return paid
 
@@ -423,21 +455,24 @@ func meeting_jackpot() -> BigMoney:
 
 ## The third storefront of a Collection Round: the last one pays its value again, ☆10 lands,
 ## and the back room lights up (docs/05 §3).
+## The third storefront of a Collection Round pays double and lights the back room; the ☆10
+## lands on the FIRST perfect round of the Night only (`CollectionRound.take_respect`).
 func collection_completed(id: StringName, base_value: BigMoney) -> BigMoney:
 	collection_wins += 1
 	var bonus := BigMoney.zero()
 	if base_value != null and base_value.is_positive():
 		bonus = earn_switch(&"storefronts", base_value.mul(CollectionRound.LAST_PAYS_EXTRA),
 				{"no_combo": true, "switch": id})
-	add_respect(CollectionRound.RESPECT, &"collection")
+	add_respect(collection.take_respect(), &"collection")
 	meeting.note_collection_round()
 	return bonus
 
 
 ## One Wire draw (docs/05 §4). The ticket is the spinner's session count; the base is what the
-## spinner has earned tonight, floored at $500. The exact number pays ×80 CLEAN.
+## spinner has earned tonight AT ITS BASE, floored at $500. A last-digit hit pays ×6 of that
+## FLAT dirty; the exact number pays ×80 CLEAN.
 func wire_draw(ticket: int) -> Dictionary:
-	var result := wire.draw(ticket, night_group_dirty(&"spinner"))
+	var result := wire.draw(ticket, night_group_base_dirty(&"spinner"))
 	wire_draws += 1
 	if String(result["hit"]) != String(WireDraws.HIT_NONE):
 		wire_hits += 1
@@ -446,10 +481,8 @@ func wire_draw(ticket: int) -> Dictionary:
 	var won: BigMoney = result["won"]
 	var paid := BigMoney.zero()
 	if won.is_positive():
-		if bool(result["clean"]):
-			paid = earn_clean(won, &"wire")
-		else:
-			paid = earn_switch(&"wire", won, {"no_combo": true})
+		paid = earn_clean(won, &"wire") if bool(result["clean"]) \
+				else earn_flat_dirty(won, &"wire")
 		wire.book_payout(paid)
 		wire_paid = wire_paid.add(paid)
 	result["paid"] = paid
@@ -621,6 +654,7 @@ func start_night() -> void:
 	night_laundered = BigMoney.zero()
 	night_clean = BigMoney.zero()
 	night_group = {}
+	night_group_base = {}
 	night_insured = false
 	night_respect = 0
 	night_skill_shots = 0

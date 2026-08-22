@@ -43,28 +43,58 @@ func _odds(t: TestCtx) -> void:
 	t.near(Casino.cooler_bonus(null), Casino.CasinoRules.COOLER_BONUS, 1e-9,
 			"and the plain Cooler apology")
 
-	# The knobs move the EV honestly and cannot be pushed past their ceiling.
+	# THE RULING (balance sim): the whole edge is bought in PAYOUT. Every point is worth
+	# 5/8 of itself, the curve is monotone, and full investment lands on exactly +5%.
+	var per_point := float(Casino.CasinoRules.PLAYER_POCKETS) / float(Casino.CasinoRules.POCKETS)
+	var last := Casino.expected_value(null)
+	var points := 1
+	while points <= 20:
+		var step := _EdgeStats.new(0.01 * float(points), Casino.CasinoRules.PLAYER_POCKETS)
+		var ev := Casino.expected_value(step)
+		t.near(ev - last, 0.01 * per_point, 1e-9,
+				"edge point %d is worth %.4f%%, not +0.625%%" % [points, (ev - last) * 100.0])
+		last = ev
+		points += 1
+	t.near(last, 0.05, 1e-9, "twenty points of edge is exactly +5% EV")
+
+	# The knobs cannot be pushed past their ceiling, and the pocket ceiling is the base: a
+	# wheel Influence could buy a whole pocket off would jump +18.5% in one purchase.
 	var maxed := _EdgeStats.new(1.0, 6)
 	t.near(Casino.payout_rate(maxed), Casino.CasinoRules.PAYOUT_MAX, 1e-9,
 			"a huge edge stops at the design ceiling")
-	t.near(Casino.expected_value(maxed), 6.0 / 8.0 * 1.55 - 1.0, 1e-9,
-			"six pockets at 1.55x is the positive-EV laundry")
-	t.ok(Casino.expected_value(maxed) > 0.0, "which is the only positive-EV laundry there is")
+	t.eq(Casino.player_pockets(maxed), Casino.CasinoRules.PLAYER_POCKETS,
+			"and a wheel asked for a sixth pocket is still the wheel as built")
+	t.near(Casino.expected_value(maxed), 5.0 / 8.0 * Casino.CasinoRules.PAYOUT_MAX - 1.0, 1e-9,
+			"5/8 at the payout ceiling is the positive-EV laundry")
+	t.near(Casino.expected_value(maxed), 0.05, 1e-9, "which is +5%, and not a point more")
 
 	# The cross-lane contract with META-2: the edge getter is a live read, not a permanent
-	# fallback, and the meta lane's ceiling can actually reach the payout the design tops out
-	# at (specs/m2-content.md §1: Loaded Dice nudges PAYOUT toward 1.55).
+	# fallback, and the meta lane's ceiling reaches the payout ceiling EXACTLY — the two
+	# numbers are one design decision written down twice.
 	var live := Stats.new()
 	live.recompute({})
 	t.ok(live.has_method("casino_edge_add"), "Stats carries the casino edge getter")
 	t.near(Casino.payout_rate(live), Casino.CasinoRules.PAYOUT, 1e-9,
 			"with no Influence bought the wheel pays its base 1.48x")
 	t.near(Casino.expected_value(live), -0.075, 1e-9, "at the honest -7.5% edge")
-	t.ok(Casino.CasinoRules.PAYOUT + Stats.CASINO_EDGE_MAX >= Casino.CasinoRules.PAYOUT_MAX,
-			"the meta lane's edge ceiling (%.3f) cannot reach the design payout ceiling"
+	t.near(Casino.CasinoRules.PAYOUT + Stats.CASINO_EDGE_MAX, Casino.CasinoRules.PAYOUT_MAX, 1e-9,
+			"the meta lane's edge ceiling (%.3f) does not land on the payout ceiling"
 			% Stats.CASINO_EDGE_MAX)
+	t.eq(Casino.CasinoRules.PLAYER_POCKETS_MAX, Casino.CasinoRules.PLAYER_POCKETS,
+			"no shipped node may buy a pocket: the ceiling is the base")
 	t.eq(Casino.player_pockets(live), Casino.CasinoRules.PLAYER_POCKETS,
-			"and with no pocket-count effect in the vocabulary yet, the wheel is as built")
+			"and the wheel is as built")
+
+	# Full investment in the shipped catalog: Eddie Odds ×12 and Loaded Dice ×8, a point each.
+	var invested := Stats.new()
+	invested.recompute({"crew.eddie": 12, "influence.loaded_dice": 8})
+	t.near(invested.casino_edge_add(), Stats.CASINO_EDGE_MAX, 1e-9,
+			"the shipped catalog buys the whole edge and stops there")
+	t.near(Casino.expected_value(invested), 0.05, 1e-9,
+			"a fully-invested Club runs at %.4f, and the ruling says exactly 0.05"
+			% Casino.expected_value(invested))
+	t.eq(Casino.player_pockets(invested), Casino.CasinoRules.PLAYER_POCKETS,
+			"…on the same 5-of-8 wheel it opened with")
 
 
 func _stakes(t: TestCtx) -> void:
@@ -146,9 +176,14 @@ func _cooler(t: TestCtx) -> void:
 	t.near(float(fired["multiplier"]), 1.48 * 2.0, 1e-9, "coolers_fired makes it +100%")
 
 
+## THE RULING (balance sim): the rungs multiply the STAKE. A payout multiplier on a wheel
+## Influence can push positive is an EV bomb the odds were never told about — the audit
+## measured a realized +95.7% against a built +16.3%. On the bet it is pure variance, which is
+## what a High Roller is actually buying, and `expected_value` stays true whatever is armed.
 func _high_roller(t: TestCtx) -> void:
 	var c := Casino.new()
 	var stake := BigMoney.from_float(100.0)
+	var deep := BigMoney.from_float(1_000_000.0)
 	t.near(c.arm(0), 0.0, 1e-9, "a saucer nobody held costs no Heat")
 	t.near(c.armed_multiplier(), 1.0, 1e-9, "and arms nothing")
 
@@ -159,11 +194,34 @@ func _high_roller(t: TestCtx) -> void:
 	t.near(c.arm(99), Casino.CasinoRules.HIGH_ROLLER_HEAT[3], 1e-9,
 			"a longer ladder than the book knows clamps rather than crashes")
 
+	# The armed ladder is worth NOTHING on the odds: it moves the bet, never the book.
+	var armed_stats := _EdgeStats.new(0.0, Casino.CasinoRules.PLAYER_POCKETS)
+	t.near(Casino.expected_value(armed_stats), -0.075, 1e-9,
+			"an armed ladder must not change what a dollar staked is worth")
+
+	t.ok(not c.stake_with_ladder(BigMoney.zero(), deep).is_positive(),
+			"a landing you could not bet on is not a spin")
+	t.near(c.armed_multiplier(), 5.0, 1e-9, "…so it does not burn the ladder either")
+	var big := c.stake_with_ladder(stake, deep)
+	t.ok(big.equals_approx(stake.mul(5.0), 1e-9), "the ladder rides the BET: x5 on the stake")
+	t.near(c.armed_multiplier(), 1.0, 1e-9, "and is spent on that one bet")
+	var flat := c.stake_with_ladder(stake, deep)
+	t.ok(flat.equals_approx(stake, 1e-9), "the next bet is the ordinary table stake again")
+
+	c.arm(3)
+	var broke := c.stake_with_ladder(stake, BigMoney.from_float(250.0))
+	t.ok(broke.equals_approx(BigMoney.from_float(250.0), 1e-9),
+			"you cannot ride a ladder past what is in your pocket")
+
+	# And the payout side of the wheel is untouched by any of it.
+	c.arm(3)
 	c.resolve(0, true, stake, 1.48, false)
-	t.near(c.armed_multiplier(), 5.0, 1e-9, "a losing pocket does not burn the ladder")
-	var win := c.resolve(1, false, stake, 1.48, false)
-	t.near(float(win["multiplier"]), 1.48 * 5.0, 1e-9, "the win rides the ladder")
-	t.near(c.armed_multiplier(), 1.0, 1e-9, "which is spent on that one payout")
+	t.near(c.armed_multiplier(), 5.0, 1e-9, "a losing pocket does not burn an unspent ladder")
+	var win := c.resolve(1, false, big, 1.48, false)
+	t.near(float(win["multiplier"]), 1.48, 1e-9,
+			"a win pays the wheel's payout and nothing on top of it")
+	t.ok((win["won"] as BigMoney).equals_approx(big.mul(1.48), 1e-9),
+			"the drama is in the size of the bet, not in the price of the pocket")
 
 
 # --- the slots ----------------------------------------------------------------
@@ -238,9 +296,30 @@ func _wash_gating(t: TestCtx) -> void:
 	t.ok(Game.wallet.clean.equals_approx(clean_before, 1e-9),
 			"no clean cash appears without the Wash")
 	t.ok(Game.wallet.dirty.cmp(dirty_before) > 0, "the win landed in the dirty pile")
-	t.near(Game.heat.pending_units(), 0.0, 1e-9,
-			"casino money is the wash, not hot money: the Heat window never sees it")
+	# The ruling: a dirty payout is dirty cash in a pocket, so it is hot money like any other —
+	# but it is paid at FACE VALUE, never back through the multipliers that priced the shots.
+	t.ok(Game.heat.pending_units() > 0.0,
+			"pre-Wash winnings are dirty cash, and dirty cash is hot money")
+	t.ok((dirty_win["paid"] as BigMoney).equals_approx(dirty_win["won"] as BigMoney, 1e-9),
+			"the house paid what the wheel promised, unmultiplied")
 	t.eq(Game.combo.count, 0, "and a bet is not a shot: no chain")
+
+	# The proof of ruling 4 in one line: at Heat band 2 the old path multiplied a payout by
+	# the band AND the group's Ledger value, on money the wheel had already priced.
+	_fresh_club()
+	Game.wallet.earn_dirty(BigMoney.from_float(100_000.0))
+	Game.heat.value = 75.0
+	t.ok(Game.heat.multiplier() > 1.0, "the meter is in a multiplying band")
+	var hot_win := Game.casino_roulette(1, false)
+	t.ok((hot_win["paid"] as BigMoney).equals_approx(hot_win["won"] as BigMoney, 1e-9),
+			"a hot Night must not multiply a bet's winnings a second time: %s vs %s"
+			% [(hot_win["paid"] as BigMoney).text(), (hot_win["won"] as BigMoney).text()])
+	t.ok((hot_win["won"] as BigMoney).equals_approx(
+			(hot_win["staked"] as BigMoney).mul(float(hot_win["multiplier"])), 1e-6),
+			"a win is the stake times the wheel, and nothing else")
+	_fresh_club()
+	Game.wallet.earn_dirty(BigMoney.from_float(100_000.0))
+	Game.heat.reset()
 
 	Game.buy_upgrade("fronts.casino_wash", BigMoney.zero())
 	t.ok(Game.stats.flag(&"casino_wash"), "the Wash is bought")
@@ -271,11 +350,17 @@ func _heat_and_jackpot(t: TestCtx) -> void:
 	t.near(Game.heat.value - heat_before, Casino.CasinoRules.HIGH_ROLLER_HEAT[2], 1e-6,
 			"greed on the saucer is paid for in Heat")
 
-	# The armed ladder rides the very next payout, whichever it is.
+	# The armed ladder rides the very next BET, whichever it is.
 	Game.wallet.earn_dirty(BigMoney.from_float(100_000.0))
+	var plain_stake := Casino.stake_for(Game.wallet.dirty, Game.rank)
 	var armed := Game.casino_roulette(1, false)
-	t.near(float(armed["multiplier"]), Casino.payout_rate(Game.stats) * 3.0, 1e-9,
-			"a two-rung hold triples the next win")
+	t.ok((armed["staked"] as BigMoney).equals_approx(
+			plain_stake.mul(Casino.CasinoRules.HIGH_ROLLER_MULT[2]), 1e-6),
+			"a two-rung hold triples the next STAKE: %s off a table stake of %s"
+			% [(armed["staked"] as BigMoney).text(), plain_stake.text()])
+	t.near(float(armed["multiplier"]), Casino.payout_rate(Game.stats), 1e-9,
+			"and leaves the payout exactly where the odds put it")
+	t.near(Game.casino.armed_multiplier(), 1.0, 1e-9, "the ladder is spent on that bet")
 
 	Game.casino.open_visit()
 	var clean_before := Game.wallet.clean

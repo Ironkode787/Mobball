@@ -18,6 +18,8 @@ func run(t: TestCtx) -> void:
 	Game.save = SaveGame.new(SAVE_PATH)
 	Game.save.erase()
 	_meeting_money(t)
+	_collection_respect_is_nightly(t)
+	_wire_money(t)
 	_save_round_trip(t)
 	Game.save.erase()
 	Game.save = real_save
@@ -156,6 +158,17 @@ func _collection(t: TestCtx) -> void:
 	t.ok(not lapse.on_collected(&"storefront_pizzeria"),
 			"the shop collected in the lapsed round does not count toward the new one")
 
+	# THE RULING (balance sim): the ☆10 is once a NIGHT, like the combo's tiers. A repeatable
+	# ☆10 made the block 87% of a shark's whole Respect, and rank is meant to track the Jobs
+	# board. Later rounds still pay double and still light the back room.
+	var stars := CollectionRound.new()
+	stars.begin_night()
+	t.eq(stars.take_respect(), CollectionRound.RESPECT, "the first perfect round is worth ☆10")
+	t.eq(stars.take_respect(), 0, "the second one is worth money and a Meeting, no ☆")
+	t.eq(stars.take_respect(), 0, "and so is every one after it")
+	stars.begin_night()
+	t.eq(stars.take_respect(), CollectionRound.RESPECT, "tomorrow's first round pays again")
+
 
 # --- the Family Meeting -------------------------------------------------------
 
@@ -236,6 +249,106 @@ func _meeting_money(t: TestCtx) -> void:
 	t.ok(Game.night_clean.equals_approx(paid, 1e-9), "and books its own Count line")
 	t.ok(not Game.night_laundered.is_positive(),
 			"it is NOT laundering: nothing came out of the dirty pile")
+
+
+## The ruling on the money path, not just in the rulebook: two perfect rounds in one Night,
+## one lot of ☆ — and the second still pays its double and still lights the back room.
+func _collection_respect_is_nightly(t: TestCtx) -> void:
+	Game.new_game(90210)
+	Game.start_night()
+	Game.heat.reset()
+	Game.combo.reset()
+	var value := BigMoney.from_float(1_000.0)
+
+	var before := Game.respect
+	Game.collection.on_all_armed()
+	for id in [&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn"]:
+		Game.collection.on_collected(id)
+	var first := Game.collection_completed(&"storefront_pawn", value)
+	t.eq(Game.respect - before, CollectionRound.RESPECT, "the first perfect round pays ☆10")
+	t.ok(first.is_positive(), "…and the last shop pays its value again")
+
+	before = Game.respect
+	Game.collection.tick(CollectionRound.RETRIGGER_GAP + 0.1)
+	Game.collection.on_all_armed()
+	for id in [&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn"]:
+		Game.collection.on_collected(id)
+	var second := Game.collection_completed(&"storefront_pawn", value)
+	t.eq(Game.respect - before, 0, "the second perfect round of the Night pays no ☆")
+	t.ok(second.is_positive(), "…but it still pays the double")
+	t.ok(Game.meeting.lit or Game.meeting.active, "…and it still lights the back room")
+
+	# A new Night re-arms it: this is a rhythm, not a one-off.
+	Game.end_night({"guys_lost": 3, "tilts": 0, "raid": ""})
+	Game.start_night()
+	before = Game.respect
+	Game.collection.on_all_armed()
+	for id in [&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn"]:
+		Game.collection.on_collected(id)
+	Game.collection_completed(&"storefront_pawn", value)
+	t.eq(Game.respect - before, CollectionRound.RESPECT, "tomorrow's first round pays again")
+
+
+## THE RULING (balance sim): the Wire prices its ticket off the spinner's BASE line and pays
+## FLAT. Off the post-multiplier take and back through the money path, the Heat band and a
+## Meeting were on the same money twice and the draws came out at 165% of the whole spinner
+## lane they are supposed to be a side bet on.
+func _wire_money(t: TestCtx) -> void:
+	Game.new_game(0xB0A7D)
+	Game.start_night()
+	Game.heat.reset()
+	Game.combo.reset()
+	Game.wire.begin_night(0xB0A7D, 1)
+
+	var base := BigMoney.from_float(400.0)
+	var quiet := Game.earn_switch(&"spinner", base, {"no_combo": true})
+	t.ok(quiet.equals_approx(Game.night_group_base_dirty(&"spinner"), 1e-9),
+			"with a cold meter the two lines are the same money")
+
+	# Now make the Night hot: band 2 plus a Family Meeting is ×2.5 × ×2 on every dirty payout.
+	Game.heat.value = 75.0
+	Game.meeting.start({"id": 1, "name": "Sal", "trait": ""})
+	var loud := Game.earn_switch(&"spinner", base, {"no_combo": true})
+	var mult := Game.heat.multiplier() * Game.mode_multiplier()
+	t.ok(mult > 1.0, "the Night is multiplying dirty (×%.2f)" % mult)
+	t.ok(loud.equals_approx(base.mul(mult), 1e-9), "the spinner itself is paid the ×%.2f" % mult)
+	var line := Game.night_group_base_dirty(&"spinner")
+	t.ok(line.equals_approx(base.mul(2.0), 1e-9),
+			"but the BASE line counts two spins at face value, whatever the Night is doing")
+	t.ok(line.cmp(BigMoney.of(WireDraws.MIN_BASE_MANTISSA, WireDraws.MIN_BASE_EXP)) > 0,
+			"…and it is over the cold-spinner floor, so the floor is not what is under test")
+	t.ok(Game.night_group_dirty(&"spinner").cmp(line) > 0,
+			"…while the take is much bigger, which is exactly the double the ruling removed")
+
+	# A last-digit hit: ×6 of the base line, paid flat into the wallet.
+	var want := WireDraws.base_for(line).mul(WireDraws.LAST_DIGIT_MULT)
+	var dirty_before := Game.wallet.dirty
+	var pending_before := Game.heat.pending_units()
+	var chain_before := Game.combo.count
+	var number := Game.wire.peek()
+	var ticket := (number + 10) % WireDraws.NUMBERS
+	if ticket == number:
+		ticket = (number + 20) % WireDraws.NUMBERS
+	var hit := Game.wire_draw(ticket)
+	t.eq(StringName(hit["hit"]), WireDraws.HIT_LAST, "the ticket matched the last digit")
+	t.ok((hit["won"] as BigMoney).equals_approx(want, 1e-6),
+			"a hit is ×6 of the BASE line (%s), not of the take"
+			% (hit["won"] as BigMoney).text())
+	t.ok((hit["paid"] as BigMoney).equals_approx(want, 1e-6),
+			"and it is paid flat: the Heat band and the Meeting are not on it a second time")
+	t.ok(Game.wallet.dirty.equals_approx(dirty_before.add(want), 1e-6), "…into the dirty pile")
+	t.ok(Game.heat.pending_units() > pending_before, "…as hot money, because it is dirty cash")
+	t.eq(Game.combo.count, chain_before, "…and it is not a shot, so it cannot price a chain")
+
+	# The exact number is the one the house cannot pay in cash: ×80, clean, as before.
+	var clean_before := Game.wallet.clean
+	var exact := Game.wire_draw(Game.wire.peek())
+	t.eq(StringName(exact["hit"]), WireDraws.HIT_EXACT, "the exact number is an exact hit")
+	t.ok(bool(exact["clean"]), "…and it pays clean")
+	t.ok(Game.wallet.clean.equals_approx(clean_before.add(exact["paid"] as BigMoney), 1e-6),
+			"…straight into the clean pile")
+	Game.meeting.end()
+	Game.heat.reset()
 
 
 func _save_round_trip(t: TestCtx) -> void:

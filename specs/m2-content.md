@@ -7,6 +7,14 @@ balance sim's first report. Numbers are opening bids, sim-tunable; RULES are des
 
 One bet vehicle, one multiplier vehicle, one grind vehicle — legible under pressure (P4):
 
+> **SUPERSEDED IN PART (balance-sim rulings, applied):** the Influence edge is payout-only
+> (`PAYOUT` 1.48 → cap 1.68, +0.625% EV per point, **exactly +5.0% at full investment**;
+> pockets stay 5/8 — `casino_pocket_add` remains vocabulary for future content). The High
+> Roller ladder multiplies the **next BET**, never the payout (variance, not expectation).
+> Pre-Wash winnings pay face value as **hot money** (they feed the Heat window until the
+> Wash is bought — the Wash now also buys "winnings stop raising Heat"). Collection-Round
+> ☆ pays once per Night; the Wire prices off the spinner's base line and pays flat.
+
 - **Roulette (the bet).** Entering the deck arms "table stakes": each `roulette_landed`
   resolves an auto-bet of `min(held_dirty × STAKE_FRACTION, stake_cap)`. Player pockets
   (5 of 8) pay `PAYOUT×` the stake **in clean** (the Casino Wash — the house launders for

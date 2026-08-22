@@ -258,7 +258,9 @@ func _wire_text() -> String:
 func _casino_text() -> String:
 	var armed := Game.casino.armed_multiplier()
 	if armed > 1.0:
-		return "HIGH ROLLER   ·   NEXT PAYOUT x%d" % int(armed)
+		# The ladder rides the BET, not the payout (balance-sim ruling), and the HUD has to say
+		# so — a player who reads "next payout" is being sold an edge he did not buy.
+		return "HIGH ROLLER   ·   NEXT BET x%d" % int(armed)
 	if Game.casino.loss_streak >= Casino.CasinoRules.COOLER_STREAK:
 		return "THE COOLER GOT FIRED   ·   NEXT WIN PAYS MORE"
 	return ""

@@ -49,9 +49,10 @@ func _initialize() -> void:
 	# Flat is the production rule now (balance ruling); --rank-skill re-enables the old
 	# ×rank_scale behavior for A/B archaeology.
 	SimState.skill_shot_scales_with_rank = bool(args.get("rank-skill", false))
-	# M2 counterfactuals (SIM-2 report). Both default OFF, so a bare run always measures the
-	# shipped economy; both are sim-side because `game/flow` is not this lane's to change.
-	SimState.high_roller_scales_stake = bool(args.get("stake-ladder", false))
+	# M2 counterfactual (SIM-2 report), default OFF so a bare run measures the shipped economy.
+	# `--stake-ladder` is retired the way `--flat-skill` is: the counterfactual won the
+	# argument and is the shipped rule now (`Casino.stake_with_ladder`), so the flag still
+	# parses and does nothing.
 	SimState.clean_eats_wash_cap = bool(args.get("capped-clean", false))
 	var wanted := _profiles(String(args.get("profile", "all")))
 	if wanted.is_empty():
@@ -170,5 +171,5 @@ func _usage() -> void:
   --strict        exit non-zero when a docs/03 §9 target FAILs
   --content PATH  run against a candidate upgrades.json instead of the shipped one
   --rank-skill    experiment: restore the retired ×rank_scale skill shot (A/B archaeology)
-  --stake-ladder  experiment: the High Roller arms the next STAKE, not the next PAYOUT
+  --stake-ladder  retired: the stake ladder is the shipped rule now — this flag does nothing
   --capped-clean  experiment: `earn_clean` money counts against the per-Night wash cap""" % DEFAULT_REPORT)

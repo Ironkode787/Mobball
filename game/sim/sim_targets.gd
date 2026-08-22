@@ -47,6 +47,9 @@ const CASINO_EV_LO := 0.02
 const CASINO_EV_HI := 0.05
 ## Anything past this is not an edge, it is a faucet.
 const CASINO_EV_FAIL := 0.08
+## The shipped ceiling lands EXACTLY on CASINO_EV_HI (5/8 × 1.68 − 1), so the comparison needs
+## a hair of room or binary floating point reports the design's own target as a miss.
+const CASINO_EV_EPSILON := 1.0e-6
 ## docs/03 §4 wants Heat to be a live dial, not a decoration: a career that never spends a
 ## tenth of its play above band 0 has the multipliers and the Raid as dead content.
 const HEAT_LIVE_SHARE := 0.10
@@ -248,7 +251,9 @@ static func _casino_ev(careers: Dictionary) -> Dictionary:
 			var s := (c as SimCareer).state
 			if not s.casino_staked.is_positive():
 				continue
-			staked = staked.add(s.casino_staked)
+			# The house's own comped stakes count as action: the wheel spun on them and paid on
+			# them, so leaving them out of the denominator reads as free edge that is not there.
+			staked = staked.add(s.casino_staked).add(s.casino_comped_staked)
 			paid = paid.add(s.casino_paid)
 			built = maxf(built, Casino.expected_value(s.stats))
 			seen += 1
@@ -257,7 +262,8 @@ static func _casino_ev(careers: Dictionary) -> Dictionary:
 				% [int(CASINO_EV_LO * 100.0), int(CASINO_EV_HI * 100.0)],
 				"never played", NA, "no career reached the Club deck")
 	var real := paid.ratio_to(staked) - 1.0
-	var verdict := PASS if (built >= CASINO_EV_LO and built <= CASINO_EV_HI) \
+	var verdict := PASS if (built >= CASINO_EV_LO - CASINO_EV_EPSILON
+			and built <= CASINO_EV_HI + CASINO_EV_EPSILON) \
 			else (FAIL if built > CASINO_EV_FAIL else WARN)
 	return _row("all", "casino EV", "+%d%%..+%d%% at max Influence"
 			% [int(CASINO_EV_LO * 100.0), int(CASINO_EV_HI * 100.0)],

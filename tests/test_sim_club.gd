@@ -127,8 +127,9 @@ func _jackpot_needs_one_visit(t: TestCtx) -> void:
 	t.ok(not state.casino.visit_open(), "coming downstairs closes the visit")
 
 
-## The ladder is greed: it multiplies the NEXT payout, it is not burned by a loss, and every
-## rung is flat Heat. `risk_appetite` is how far up a profile goes.
+## The ladder is greed, and greed buys VARIANCE: the rungs multiply the next BET, the wheel
+## still decides what it was worth, and every rung is flat Heat. `risk_appetite` is how far up
+## a profile goes. Balance-sim ruling — on the payout this was an unpriced +80% of realized EV.
 func _high_roller(t: TestCtx) -> void:
 	var owned := _club_owned({"fronts.casino_wash": 1, "fronts.high_roller": 1})
 	var state := _state(owned, BigMoney.of(1.0, 9))
@@ -136,15 +137,26 @@ func _high_roller(t: TestCtx) -> void:
 	var held := club.high_roller()
 	t.ok(held > 0.0, "a shark holds the saucer")
 	t.ok(state.heat.value > 0.0, "greed costs Heat immediately")
-	t.ok(state.casino.armed_multiplier() > 1.0, "…and arms the next payout")
+	t.ok(state.casino.armed_multiplier() > 1.0, "…and arms the next bet")
 	var armed := state.casino.armed_multiplier()
-	state.casino_roulette(RouletteWheel.HOUSE_POCKETS[0], true)
-	t.near(state.casino.armed_multiplier(), armed, 1e-6,
-			"a losing spin does NOT burn the ladder — the High Roller bought a payout")
+	var table_stake := Casino.stake_for(state.wallet.dirty, state.rank)
+	var ev_before := Casino.expected_value(state.stats)
+
+	var lost := state.casino_roulette(RouletteWheel.HOUSE_POCKETS[0], true)
+	t.ok((lost["staked"] as BigMoney).equals_approx(table_stake.mul(armed), 1e-6),
+			"the losing spin rode the ladder: staked %s against a table stake of %s"
+			% [(lost["staked"] as BigMoney).text(), table_stake.text()])
+	t.near(state.casino.armed_multiplier(), 1.0, 1e-6,
+			"…and it is spent, win or lose — it rode the wheel")
+	t.near(Casino.expected_value(state.stats), ev_before, 1e-9,
+			"a ladder must not move what a dollar staked is worth")
+
 	var r := state.casino_roulette(1, false)
-	t.near(float(r["multiplier"]), Casino.payout_rate(state.stats) * armed, 1e-6,
-			"the win paid the wheel × the ladder")
-	t.near(state.casino.armed_multiplier(), 1.0, 1e-6, "…and spent it")
+	t.near(float(r["multiplier"]), Casino.payout_rate(state.stats), 1e-6,
+			"a win pays the wheel's payout and nothing on top of it")
+	t.ok((r["paid"] as BigMoney).equals_approx(
+			(r["staked"] as BigMoney).mul(Casino.payout_rate(state.stats)), 1e-6),
+			"…so a payout is exactly stake × payout, whatever else is happening tonight")
 
 	var timid := _club(_state(owned, BigMoney.of(1.0, 9)), "duffer")
 	t.near(timid.high_roller(), 0.0, 1e-6, "a duffer never holds at all")

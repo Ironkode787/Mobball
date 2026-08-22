@@ -238,9 +238,14 @@ func _s1_casino_wash_gating() -> void:
 	check(Game.wallet.dirty.cmp(dirty_before.sub_clamped(want_stake)) > 0,
 			"the dirty win never landed")
 	check(not Game.casino.night_washed.is_positive(), "an unwashed win was booked as washed")
-	check(Game.heat.pending_units() <= 0.0,
-			"casino money fed the Heat window (%.4f units) — it is the wash, not hot money"
+	# Balance-sim ruling: a pre-Wash win is dirty cash in a pocket, so it IS hot money — and it
+	# is paid at face value, never back through the multipliers that priced the shots.
+	check(Game.heat.pending_units() > 0.0,
+			"a dirty casino win did not feed the Heat window (%.4f units)"
 			% Game.heat.pending_units())
+	check(money(r["paid"]).equals_approx(money(r["won"]), 1e-6),
+			"the wheel promised %s and the wallet took %s — a payout was multiplied twice"
+			% [money(r["won"]).text(), money(r["paid"]).text()])
 
 	Game.buy_upgrade("fronts.casino_wash", BigMoney.zero())
 	check(Game.stats.flag(&"casino_wash"), "buying the Wash did not set the flag")
@@ -445,17 +450,19 @@ func _s3_family_meeting() -> void:
 	finish()
 
 
-## 4 — the tote board. The ticket is the spinner's count, the last digit pays x6 dirty and
-## the exact number pays x80 clean.
+## 4 — the tote board. The ticket is the spinner's count, the last digit pays x6 FLAT dirty
+## off the spinner's BASE line and the exact number pays x80 clean (balance-sim ruling: the
+## take is already post-multiplier, so pricing off it put the Heat band on the same money
+## twice, and paying it back through the money path did it a third time).
 func _s4_wire_draws() -> void:
-	begin("the wire: 90s draws, spinner ticket, x6 dirty and x80 clean")
+	begin("the wire: 90s draws, spinner ticket, x6 flat off the BASE line and x80 clean")
 	Game.heat.reset()
 	check(Game.stats.hardware_unlocked(&"wire_bank"), "the fixture has no tote board")
 	await spin_the_lane(2)
 	var spins := int(TableAPI.call_if(table, "spinner_spins", [], 0))
 	check(spins > 0, "the numbers lane never turned")
-	var spinner_dirty := Game.night_group_dirty(&"spinner")
-	check(spinner_dirty.is_positive(), "the spinner earned nothing to price a ticket off")
+	var spinner_base := Game.night_group_base_dirty(&"spinner")
+	check(spinner_base.is_positive(), "the spinner earned nothing to price a ticket off")
 
 	# The Night's own clock draws it: nudge the timer rather than waiting 90 seconds.
 	_wire_events.clear()
@@ -473,7 +480,7 @@ func _s4_wire_draws() -> void:
 	check(Game.wire.draws == 1, "the Night's book says %d draws" % Game.wire.draws)
 
 	# Both winning branches, priced against the same base.
-	var base := WireDraws.base_for(Game.night_group_dirty(&"spinner"))
+	var base := WireDraws.base_for(Game.night_group_base_dirty(&"spinner"))
 	var last_digit_ticket := (Game.wire.peek() + 10) % WireDraws.NUMBERS
 	var dirty_before := Game.wallet.dirty
 	var clean_before := Game.wallet.clean
@@ -488,11 +495,14 @@ func _s4_wire_draws() -> void:
 	check(Game.wallet.clean.equals_approx(clean_before, 1e-9), "and it moved clean cash")
 	check(Game.wallet.dirty.cmp(dirty_before) > 0, "the x6 never landed")
 	check(money(hit["won"]).equals_approx(base.mul(WireDraws.LAST_DIGIT_MULT), 1e-4),
-			"the x6 was priced off %s, expected the spinner's %s"
+			"the x6 was priced off %s, expected the spinner's BASE line %s"
 			% [money(hit["won"]).div(WireDraws.LAST_DIGIT_MULT).text(), base.text()])
+	check(money(hit["paid"]).equals_approx(money(hit["won"]), 1e-6),
+			"a dirty hit paid %s against a ticket worth %s — it went back through the money path"
+			% [money(hit["paid"]).text(), money(hit["won"]).text()])
 
 	var exact_ticket := Game.wire.peek()
-	base = WireDraws.base_for(Game.night_group_dirty(&"spinner"))
+	base = WireDraws.base_for(Game.night_group_base_dirty(&"spinner"))
 	clean_before = Game.wallet.clean
 	_wire_events.clear()
 	Game.wire_draw(exact_ticket)
@@ -505,8 +515,8 @@ func _s4_wire_draws() -> void:
 			"the exact number paid %s, expected x80 of %s"
 			% [money(exact["paid"]).text(), base.text()])
 	check(Game.wire.exacts == 1, "the book did not record the exact")
-	print("        %d spins -> ticket %02d | x6 %s dirty | x80 %s clean"
-			% [spins, spins % WireDraws.NUMBERS,
+	print("        %d spins -> ticket %02d | base line %s | x6 %s flat dirty | x80 %s clean"
+			% [spins, spins % WireDraws.NUMBERS, spinner_base.text(),
 				money(hit["won"]).text(), money(exact["paid"]).text()])
 	finish()
 
@@ -551,6 +561,21 @@ func _s5_collection_round() -> void:
 			% [Game.respect - respect_before, CollectionRound.RESPECT])
 	check(Game.meeting.lit, "a perfect round did not light the Family Meeting")
 
+	# Balance-sim ruling: the ☆ are once a NIGHT. A second perfect round still pays its double
+	# and still lights the room; it just does not rank you up again.
+	Game.collection.tick(CollectionRound.RETRIGGER_GAP + 0.1)
+	check(Game.collection.on_all_armed(), "the block did not start a second round")
+	respect_before = Game.respect
+	dirty_before = Game.wallet.dirty
+	for shop in [&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn"]:
+		table.emit_signal(&"storefront_collected", shop, value)
+		await step(1)
+	check(Game.collection.night_won == 2, "the second round was not booked as perfect")
+	check(Game.wallet.dirty.cmp(dirty_before) > 0, "the second round paid no double")
+	check(Game.respect == respect_before,
+			"the second perfect round of the Night paid %d more ☆ — they are once a Night"
+			% (Game.respect - respect_before))
+
 	# The lapse branch: the clock runs out and it simply costs nothing.
 	var won_before := Game.collection.total_won
 	Game.collection.begin_night()
@@ -593,21 +618,32 @@ func _s6_cooler_pity() -> void:
 			"the apology paid x%.3f, expected x%.3f" % [float(win["multiplier"]), want])
 	check(Game.casino.loss_streak == 0, "a win did not clear the streak")
 
-	# The High Roller ladder rides the very next payout and is spent on it.
+	# The High Roller ladder rides the very next BET and is spent on it (balance-sim ruling:
+	# ×5 on a payout is an EV multiplier the wheel's odds were never told about; ×5 on the bet
+	# is the variance a High Roller is actually buying).
+	var ev_before := Casino.expected_value(Game.stats)
+	var table_stake := Casino.stake_for(Game.wallet.dirty, Game.rank)
 	table.emit_signal(&"high_roller_held", 3)
 	await step(2)
 	check(is_equal_approx(Game.casino.armed_multiplier(), 5.0),
 			"a full hold armed x%.1f" % Game.casino.armed_multiplier())
+	check(is_equal_approx(Casino.expected_value(Game.stats), ev_before),
+			"an armed ladder moved the wheel's EV from %.4f to %.4f"
+			% [ev_before, Casino.expected_value(Game.stats)])
 	_casino_events.clear()
 	table.emit_signal(&"roulette_landed", PLAYER_POCKET, false)
 	await step(2)
 	var armed: Dictionary = _casino_events[0]
-	check(absf(float(armed["multiplier"]) - Casino.payout_rate(Game.stats) * 5.0) < 1e-6,
-			"the armed win paid x%.3f" % float(armed["multiplier"]))
+	check(money(armed["staked"]).equals_approx(table_stake.mul(5.0), 1e-4),
+			"the armed bet staked %s against a table stake of %s"
+			% [money(armed["staked"]).text(), table_stake.text()])
+	check(absf(float(armed["multiplier"]) - Casino.payout_rate(Game.stats)) < 1e-6,
+			"the armed win paid x%.3f — the ladder must not touch the payout"
+			% float(armed["multiplier"]))
 	check(is_equal_approx(Game.casino.armed_multiplier(), 1.0), "the ladder was not spent")
-	print("        cooler x%.2f | high roller x%.0f | casino book: staked %s won %s washed %s"
-			% [float(win["multiplier"]), 5.0, Game.casino.night_staked.text(),
-				Game.casino.night_won.text(), Game.casino.night_washed.text()])
+	print("        cooler x%.2f | high roller staked %s (x5 of %s) | casino book: staked %s won %s"
+			% [float(win["multiplier"]), money(armed["staked"]).text(), table_stake.text(),
+				Game.casino.night_staked.text(), Game.casino.night_won.text()])
 	finish()
 
 
@@ -680,6 +716,16 @@ func _s8_influence_nodes() -> void:
 			"the payout ran past the design ceiling to %.3f" % bought_payout)
 	check(bought_ev > base_ev, "the edge did not move the EV")
 	check(Game.stats.casino_edge_add() > 0.0, "Stats reports no edge for an owned node")
+	# Balance-sim ruling: the edge is bought in PAYOUT only. A pocket is worth +18.5% EV in one
+	# purchase against a payout point's +0.625%, so no shipped node moves the wheel itself.
+	check(Game.stats.casino_player_pockets() == Stats.CASINO_POCKETS_BASE,
+			"a maxed Loaded Dice repainted the wheel to %d of 8"
+			% Game.stats.casino_player_pockets())
+	check(is_equal_approx(bought_ev - base_ev,
+			float(Casino.CasinoRules.PLAYER_POCKETS) / float(Casino.CasinoRules.POCKETS)
+			* Game.stats.casino_edge_add()),
+			"%d edge points moved the EV by %.4f, not by 5/8 of themselves"
+			% [int(round(Game.stats.casino_edge_add() * 100.0)), bought_ev - base_ev])
 
 	# The odds are what moved, not the wheel: a house pocket still takes the stake.
 	Game.wallet.earn_dirty(BigMoney.from_float(200_000.0))

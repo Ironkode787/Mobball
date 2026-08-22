@@ -211,12 +211,13 @@ func _run_night() -> Dictionary:
 	for hw in table.storefronts:
 		_fronts[hw] = {"state": &"armed", "down": 0, "timer": 0.0}
 	state.heat.raid_triggered.connect(_on_raid_triggered)
-	# `HeatMeter.raid_triggered` latches. `NightController` only listens during a Night, but
-	# `Game._process` ticks the meter in EVERY state — so a meter that crosses 100 at The
-	# Count (crediting the earn window a Night left behind) latches with nobody connected, and
-	# no raid can ever fire again. Mirrored exactly, and counted, because it is a real bug.
-	if state.heat.is_raid_pending():
-		state.raids_latched += 1
+	# `HeatMeter.raid_triggered` latches, and `Game._process` ticks the meter in EVERY state —
+	# so a meter that crosses 100 at The Count latches between Nights. `NightController.start`
+	# reads that latch and the raid kicks the door in on the first serve ("they were waiting
+	# for you to open up"); mirrored here, and counted, because it used to be a dead raid.
+	var open_with_raid := state.heat.is_raid_pending()
+	if open_with_raid:
+		state.raids_at_open += 1
 	_watch_switches = _jobs_watch_switches()
 	if table.deck != null:
 		club = SimClub.new(state, profile, table, _rng)
@@ -236,6 +237,9 @@ func _run_night() -> Dictionary:
 		_guy = _lineup[i]
 		state.set_fielded([_guy])
 		state.jobs.begin_ball(i)
+		if i == 0 and open_with_raid:
+			# `NightController.start`: the pending raid begins on the first serve.
+			_on_raid_triggered()
 		var alive := _serve()
 		# A Meeting the guy took with him ends here: one ball left is not the crew out
 		# together, and the man still standing is the one who is about to be pinched anyway.

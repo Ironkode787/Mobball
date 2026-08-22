@@ -45,14 +45,17 @@ feeling as "greed vs. sirens." That's the game working.
 ## 3. Collection Rounds
 
 Trigger: all 3 storefront banks armed simultaneously. 25s timer: collect all three in any
-order; finishing lights **Double Collection** on the last one. Perfect round = ☆10 + the
+order; finishing lights **Double Collection** on the last one. Perfect round = ☆10 (**first
+perfect round each Night** — sim-tuned; later rounds pay money and light the Meeting) + the
 pizzeria throws a pizza across the table (full-screen physics gag, +$).
 
 ## 4. The Wire (numbers draws)
 
 Every ~90s of play, the tote board draws 00–99. Your ticket = last two digits of the spinner's
 session spin count — **the spinner is the bet slip**, so grinding the spinner lane both earns
-and re-rolls your number. Last-digit match pays ×6 dirty; exact pays ×80 **clean**. Wiretap
+and re-rolls your number. Last-digit match pays ×6 of the Night's **base** spinner line, flat
+dirty *(sim-tuned: post-multiplier pricing double-dipped the Heat band)*; exact pays ×80
+**clean**. Wiretap
 upgrade (see [04](04-UPGRADE-TREE.md) E-T5) shows the next draw 15s early — suddenly the
 spinner lane is a precision instrument under a clock. Skill from chance.
 

@@ -5,10 +5,9 @@
 #   tools/balance.sh --days 3 --profile shark --seeds 1
 #   tools/balance.sh --report /tmp/run2.md --quiet
 #
-# M2 counterfactuals (SIM-2 report — both OFF by default, so a bare run always measures the
-# shipped economy). Use these to price a ruling before anybody edits game/flow:
-#   tools/balance.sh --stake-ladder            # High Roller arms the next STAKE, not the PAYOUT
-#   tools/balance.sh --capped-clean            # casino/Jackpot/Meeting clean eats the wash cap
+# Counterfactual flags: --capped-clean (casino/Jackpot/Meeting clean eats the wash cap)
+# is live; --stake-ladder and --flat-skill are retired — both counterfactuals WON and are
+# the shipped rules now (the flags parse and do nothing).
 #
 # `--help` prints the full option list.
 #

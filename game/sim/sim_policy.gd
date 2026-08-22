@@ -388,7 +388,9 @@ func _club_projection(table: SimTable, stats: Stats, rank: int, shots: float,
 		if Casino.wash_active(stats):
 			clean = clean.add(returned)
 		else:
-			dirty = dirty.add(returned.mul(stats.value_mult(&"casino") * heat_mult))
+			# `Game._pay_casino` pays the dirty branch FLAT: the wheel priced this money, and
+			# nothing on the money path is allowed to price it a second time.
+			dirty = dirty.add(returned)
 
 	# The grind: three columns cleared inside ONE visit pays eight minutes of the whole
 	# empire's idle rate, clean.

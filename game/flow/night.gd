@@ -203,7 +203,9 @@ func start() -> void:
 	Events.storefront_collected.connect(_on_storefront_collected)
 	Events.ball_launched.connect(_on_ball_launched)
 	Events.tilted.connect(_on_tilted)
-	Game.heat.raid_triggered.connect(_on_raid_triggered)
+	# `raid_triggered` is NOT connected here: the meter latches and it ticks between Nights
+	# too, so `Game` owns that one connection for the life of the process and calls
+	# `on_raid_called()` on whichever Night is live (see `Game._on_raid_triggered`).
 	Game.heat.band_changed.connect(_on_band_changed)
 	if not Balls.last_ball.is_connected(_on_last_ball):
 		Balls.last_ball.connect(_on_last_ball)
@@ -228,6 +230,11 @@ func start() -> void:
 	AudioDirector.music_set_state(_music_state())
 	guy_index = -1
 	_next_guy()
+	# They were waiting for you to open up: the meter crossed 100 while nobody was playing
+	# (The Count ticks Heat too), so the raid kicks the door in on the first serve rather than
+	# sitting latched forever. Ordinary mode from here — telegraph, magnet, 45 seconds.
+	if Game.heat.is_raid_pending():
+		on_raid_called()
 	set_physics_process(true)
 
 
@@ -1073,7 +1080,10 @@ func _on_table_storefront(id: StringName, amount: BigMoney) -> void:
 # =================================================================== raid =====
 
 
-func _on_raid_triggered() -> void:
+## The Inspector is at the door. Called by `Game._on_raid_triggered` when the meter latches
+## during this Night, and by `start()` when it latched before this Night opened. Idempotent:
+## a raid already on the table swallows the call, so a pending latch fires exactly one raid.
+func on_raid_called() -> void:
 	if not running or (raid != null and is_instance_valid(raid) and raid.active):
 		return
 	# The Commission does not share a Night with the Inspector: a boss fight is pure skill

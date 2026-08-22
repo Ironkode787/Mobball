@@ -161,7 +161,7 @@ func reel(column: int) -> bool:
 	return true
 
 
-## The High Roller saucer: hold for `risk_appetite`'s worth of rungs, arm the next payout and
+## The High Roller saucer: hold for `risk_appetite`'s worth of rungs, arm the next STAKE and
 ## take the flat Heat. Returns the deck seconds the greed cost — the ladder runs on its own
 ## cadence while the visit clock is running out, so holding is paid for twice.
 func high_roller() -> float:

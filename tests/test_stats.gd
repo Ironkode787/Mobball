@@ -133,8 +133,9 @@ func _fixture() -> Upgrades:
 			_node("crew.bigbail", 5, "5M", [
 				{"kind": "bail_discount", "value": 0.5},
 			]),
+			# Deliberately greedy: 12 levels of Eddie plus this is 0.24, past the Stats cap.
 			_node("crew.bigedge", 5, "6M", [
-				{"kind": "casino_edge_add", "value": 0.05},
+				{"kind": "casino_edge_add", "value": 0.12},
 			]),
 		],
 	}, "test_stats fixture")
@@ -366,15 +367,19 @@ func _test_specialist_powers(t: TestCtx, fixture: Upgrades) -> void:
 func _test_specialist_caps(t: TestCtx, fixture: Upgrades) -> void:
 	var s := _stats(fixture, {"crew.cohen": 8, "crew.bigbail": 1, "crew.eddie": 12, "crew.bigedge": 1})
 	t.near(s.bail_discount(), Stats.BAIL_DISCOUNT_MAX, 1e-9, "bail discount stops at 60 percent")
-	t.near(s.casino_edge_add(), Stats.CASINO_EDGE_MAX, 1e-9, "casino edge stops at 12 points")
+	t.near(s.casino_edge_add(), Stats.CASINO_EDGE_MAX, 1e-9, "casino edge stops at 20 points")
 	var under := _stats(fixture, {"crew.cohen": 4, "crew.eddie": 3})
 	t.near(under.bail_discount(), 0.20, 1e-9, "under the cap the sum is the sum")
 	t.near(under.casino_edge_add(), 0.03, 1e-9, "same for the edge")
-	# The loader must not be able to author a single effect past its own cap.
+	# The loader must not be able to author a single effect past the Stats cap. The edge cap is
+	# now a TOTAL that two nodes have to sum to (Eddie Odds ×12 + Loaded Dice ×8 = 0.20, the
+	# balance-sim ruling), so the loader's per-effect band is allowed to be tighter than it —
+	# what it may never be is looser, because then one line of content could own the wheel.
 	t.eq(float(Upgrades.EFFECT_SPECS[&"bail_discount"]["max"]), Stats.BAIL_DISCOUNT_MAX,
 		"the loader's bail ceiling is the Stats cap")
-	t.eq(float(Upgrades.EFFECT_SPECS[&"casino_edge_add"]["max"]), Stats.CASINO_EDGE_MAX,
-		"the loader's edge ceiling is the Stats cap")
+	t.ok(float(Upgrades.EFFECT_SPECS[&"casino_edge_add"]["max"]) <= Stats.CASINO_EDGE_MAX,
+		"the loader lets one effect author %.2f of a %.2f cap"
+		% [float(Upgrades.EFFECT_SPECS[&"casino_edge_add"]["max"]), Stats.CASINO_EDGE_MAX])
 
 
 func _test_min_and_max_buckets(t: TestCtx, fixture: Upgrades) -> void:

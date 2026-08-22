@@ -40,13 +40,18 @@ const BASE_COLLECT_MINUTES := 5.0
 ## Cohen can talk the bondsman down, never to nothing (docs/04 branch D).
 const BAIL_DISCOUNT_MAX := 0.6
 ## docs/03 §3 and specs/m2-content.md §1: influence buys the edge, never the outcome. The
-## opening bid is a −7.5% house edge, so +12 points is the far side of player-favored.
-const CASINO_EDGE_MAX := 0.12
+## opening bid is a −7.5% house edge and every point is worth 5/8 of itself, so this is the
+## whole distance from −7.5% to exactly +5.0% — and it is exactly what full investment owns
+## (Eddie Odds ×12 + Loaded Dice ×8, at a point each). Balance-sim ruling: the casino's entire
+## edge is bought here, in payout, one legible line.
+const CASINO_EDGE_MAX := 0.20
 ## The wheel as built: five of its eight pockets pay (game/table/hardware/roulette_wheel.gd,
-## Casino.CasinoRules.PLAYER_POCKETS). Loaded Dice buys pockets off the house one at a time
-## and the house always keeps one — a wheel that cannot lose is not a wheel.
+## Casino.CasinoRules.PLAYER_POCKETS). The ceiling is the base for now — a whole pocket is a
+## +18.5% jump in EV against a payout point's +0.625%, so no shipped node may buy one. The
+## `casino_pocket_add` kind and the getter below stay in the vocabulary for the content that
+## raises this line deliberately; the house always keeps at least one pocket either way.
 const CASINO_POCKETS_BASE := 5
-const CASINO_POCKETS_MAX := 7
+const CASINO_POCKETS_MAX := 5
 
 ## Which bucket an effect kind folds into. Public because the Ledger docket previews a level
 ## with `scaled_value` and must use the engine's own shape, not a second copy of it.

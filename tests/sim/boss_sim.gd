@@ -752,94 +752,91 @@ func _s6b_sammys_spare() -> void:
 	finish()
 
 
-## 7 — Loaded Dice's other half: pockets. The vocabulary, the getter and the wheel's paint.
+## 7 — Loaded Dice, after the balance ruling. The pocket half of the node is GONE from the
+## content: `casino_pocket_add` and `Stats.casino_player_pockets()` stay in the vocabulary for
+## the day design wants a pocket to be buyable, but the ceiling equals the base, so nothing
+## shipped can repaint the wheel. The whole edge is bought in payout, at +0.625% EV a point.
 func _s7_loaded_dice_pockets() -> void:
-	begin("loaded dice: casino_pocket_add buys pockets off the house, and the wheel repaints")
+	begin("loaded dice: the wheel stays 5/8 and the edge is bought in payout")
 	var wheel: RouletteWheel = null
 	var club: Variant = TableAPI.prop(table, "club", null)
 	if club is ClubDeck:
 		wheel = (club as ClubDeck).roulette
 	check(wheel != null, "the deck has no wheel")
 
+	# The vocabulary survives the ruling: the kind, the fold and the getter are all still here.
 	check(Stats.fold_of(&"casino_pocket_add") == Stats.Fold.SUM, "the new kind does not sum")
 	check(Upgrades.EFFECT_SPECS.has(&"casino_pocket_add"), "the loader does not know the kind")
+	check(Game.stats.has_method("casino_player_pockets"), "the pocket getter is gone")
 	check(Game.stats.casino_player_pockets() == Stats.CASINO_POCKETS_BASE,
 			"a career with no Influence has %d pockets" % Game.stats.casino_player_pockets())
 	check(Casino.player_pockets(Game.stats) == Casino.CasinoRules.PLAYER_POCKETS,
 			"the rulebook and the getter disagree on the base wheel")
-	if wheel != null:
-		wheel.refresh_pockets()
-		check(wheel.house_pocket_count() == 3, "the wheel opens with %d house pockets"
-				% wheel.house_pocket_count())
-		for p: int in RouletteWheel.HOUSE_POCKETS:
-			check(wheel.is_house_now(p), "pocket %d is not the house's on a bare wheel" % p)
+	check(Stats.CASINO_POCKETS_MAX == Stats.CASINO_POCKETS_BASE
+			and Casino.CasinoRules.PLAYER_POCKETS_MAX == Casino.CasinoRules.PLAYER_POCKETS,
+			"the pocket ceiling (%d) is not the base (%d) — a node could buy the wheel"
+			% [Stats.CASINO_POCKETS_MAX, Stats.CASINO_POCKETS_BASE])
 
-	# THE PROPOSAL (see the lane report): one pocket, off Loaded Dice, once — not per level.
-	# Six of eight at the payout ceiling is +16% EV, which is where tests/test_flow_casino
-	# already draws the "positive-EV laundry" line.
+	# The shipped node: no pocket effect on it any more, and every level is a payout point.
+	var shipped := Upgrades.shared().def("influence.loaded_dice")
+	check(not shipped.is_empty(), "the catalog lost influence.loaded_dice entirely")
+	var kinds := PackedStringArray()
+	for e: Variant in shipped.get("effects", []):
+		kinds.append(String((e as Dictionary)["kind"]))
+	check(not kinds.has("casino_pocket_add"),
+			"Loaded Dice still buys a pocket: %s" % ", ".join(kinds))
+	check(kinds.has("casino_edge_add"), "Loaded Dice stopped buying edge: %s" % ", ".join(kinds))
+
+	# Even a greedy fixture that DOES author pockets cannot get past the ceiling, so the day
+	# somebody writes that content the wheel is still the wheel until this constant moves.
 	var fixture := Upgrades.from_json(_POCKET_CONTENT, "boss_sim_pockets", true)
 	check(fixture.is_valid(), "the pocket fixture did not load: %s" % str(fixture.errors))
-	var probe := Stats.new()
-	probe.catalog = fixture
-	probe.recompute({"influence.loaded_dice": 1})
-	check(probe.casino_player_pockets() == Stats.CASINO_POCKETS_BASE + 1,
-			"the first level bought %d pockets" % probe.casino_player_pockets())
-	probe.recompute({"influence.loaded_dice": 8})
-	check(probe.casino_player_pockets() == Stats.CASINO_POCKETS_BASE + 1,
-			"a maxed Loaded Dice bought %d pockets — the effect is a one-off"
-			% probe.casino_player_pockets())
-	check(Casino.player_pockets(probe) == Stats.CASINO_POCKETS_BASE + 1,
-			"the rulebook and the getter disagree on a bought pocket")
-	check(Casino.expected_value(probe) > 0.0,
-			"a maxed wheel is still house-favoured (EV %.4f)" % Casino.expected_value(probe))
-
-	# THE CEILING: whatever content stacks on top of it, the house keeps one pocket.
 	var greedy := Stats.new()
 	greedy.catalog = fixture
 	greedy.recompute({"influence.marked_deck": 5})
 	check(greedy.casino_player_pockets() == Stats.CASINO_POCKETS_MAX,
 			"ten pockets of Influence gave the player %d of 8"
 			% greedy.casino_player_pockets())
-	check(Casino.player_pockets(greedy) == Stats.CASINO_POCKETS_MAX,
+	check(Casino.player_pockets(greedy) == Casino.CasinoRules.PLAYER_POCKETS_MAX,
 			"the rulebook clamps the ceiling somewhere else than Stats does")
 
+	# The edge, on the other hand, is a straight line the player can read: +0.625% a point,
+	# from the honest -7.5% house edge to exactly +5.0% at full investment.
+	var bare := Casino.expected_value(Game.stats)
+	check(absf(bare + 0.075) < 1e-9, "a bare wheel is %.4f, not -0.075" % bare)
+	var invested := Stats.new()
+	invested.recompute({"crew.eddie": 12, "influence.loaded_dice": 8})
+	check(absf(Casino.expected_value(invested) - 0.05) < 1e-9,
+			"full investment runs at %.4f, not +0.05" % Casino.expected_value(invested))
+	check(absf(Casino.payout_rate(invested) - Casino.CasinoRules.PAYOUT_MAX) < 1e-9,
+			"full investment pays x%.4f, not the ceiling x%.4f"
+			% [Casino.payout_rate(invested), Casino.CasinoRules.PAYOUT_MAX])
+
+	# The wheel's paint follows the getter, and with the ceiling at the base it never moves.
 	if wheel != null:
 		var real := Game.stats
-		Game.stats = probe
+		Game.stats = invested
 		wheel.refresh_pockets()
-		check(wheel.player_pockets() == Stats.CASINO_POCKETS_BASE + 1,
-				"the wheel did not read the new count")
-		check(wheel.house_pocket_count() == 2, "the house kept %d pockets after one was bought"
-				% wheel.house_pocket_count())
-		check(not wheel.is_house_now(RouletteWheel.HOUSE_GIVE_ORDER[0]),
-				"the house gave up the wrong pocket first")
-		check(wheel.is_house_now(RouletteWheel.HOUSE_GIVE_ORDER[1])
-				and wheel.is_house_now(RouletteWheel.HOUSE_GIVE_ORDER[2]),
-				"the house gave up more than it sold")
-
-		Game.stats = greedy
-		wheel.refresh_pockets()
-		var still_house := 0
-		for i in range(RouletteWheel.POCKETS):
-			if wheel.is_house_now(i):
-				still_house += 1
-		check(still_house == 1, "%d pockets are painted the house's at the ceiling" % still_house)
-		check(wheel.is_house_now(RouletteWheel.HOUSE_GIVE_ORDER[
-				RouletteWheel.HOUSE_GIVE_ORDER.size() - 1]),
-				"the house gave up the wrong pocket last")
-
+		check(wheel.player_pockets() == Stats.CASINO_POCKETS_BASE,
+				"a fully-invested Club repainted the wheel to %d pockets"
+				% wheel.player_pockets())
+		check(wheel.house_pocket_count() == RouletteWheel.HOUSE_POCKETS.size(),
+				"the house kept %d of its three pockets" % wheel.house_pocket_count())
+		for p: int in RouletteWheel.HOUSE_POCKETS:
+			check(wheel.is_house_now(p), "pocket %d stopped being the house's" % p)
 		Game.stats = real
 		wheel.refresh_pockets()
-		check(wheel.house_pocket_count() == 3, "the wheel did not come back to the bare table")
-	print("        base %d/8 | bought %d/8 | ceiling %d/8 | EV %.4f -> %.4f"
-			% [Stats.CASINO_POCKETS_BASE, probe.casino_player_pockets(),
-				greedy.casino_player_pockets(), Casino.expected_value(Game.stats),
-				Casino.expected_value(probe)])
+		check(wheel.house_pocket_count() == RouletteWheel.HOUSE_POCKETS.size(),
+				"the wheel did not come back to the bare table")
+	print("        wheel %d/8 fixed | edge %.0f points -> payout x%.2f | EV %.4f -> %.4f"
+			% [Stats.CASINO_POCKETS_BASE, invested.casino_edge_add() * 100.0,
+				Casino.payout_rate(invested), bare, Casino.expected_value(invested)])
 	finish()
 
 
-## The content patch this lane is asking design for, run here as a fixture so the effect is
-## proven end-to-end before it ships (see the lane report's proposed JSON).
+## A greedy fixture, kept so the CEILING is proven against content that actually tries to buy
+## pockets. Nothing shipped authors `casino_pocket_add` any more (the balance ruling took it
+## off Loaded Dice); this is what the day it comes back has to survive.
 const _POCKET_CONTENT := """{
   "schema": 1,
   "nodes": [

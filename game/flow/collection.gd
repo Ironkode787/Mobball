@@ -1,14 +1,21 @@
 class_name CollectionRound
 extends RefCounted
 ## COLLECTION ROUNDS (docs/05 §3). All three storefront banks armed at once starts a 25 s
-## round: collect all three in any order and the last one pays double, worth ☆10, and it
-## lights the Family Meeting. Miss the clock and the round simply lapses — a Collection Round
-## costs nothing to fail, which is what makes it a tempo change rather than a threat.
+## round: collect all three in any order and the last one pays double and lights the Family
+## Meeting. Miss the clock and the round simply lapses — a Collection Round costs nothing to
+## fail, which is what makes it a tempo change rather than a threat.
+##
+## The ☆10 lands on the FIRST perfect round of a Night and no other (`take_respect`), the same
+## way the combo's tiers do. Balance-sim ruling: paid per round it was 87% of a good player's
+## whole Respect, so rank tracked how many laps you could run round three shops instead of the
+## Jobs board it is supposed to track. The money is per round; the ladder is per Night.
 ##
 ## Pure logic on a fed clock. The NightController watches the storefronts and forwards the
 ## collects; `Game` pays the double.
 
 const SECONDS := 25.0
+## The FIRST perfect round of a Night is worth this; every one after it pays money and lights
+## the back room, and nothing else. See `take_respect`.
 const RESPECT := 10
 ## The last collect pays its own value again — "Double Collection" (docs/05 §3).
 const LAST_PAYS_EXTRA := 1.0
@@ -27,6 +34,8 @@ var total_won: int = 0
 
 var _collected: Dictionary = {}
 var _cooldown: float = 0.0
+## Tonight's ☆10 is still on the table. See `take_respect`.
+var _respect_left: bool = true
 
 
 func begin_night() -> void:
@@ -36,6 +45,18 @@ func begin_night() -> void:
 	_cooldown = 0.0
 	night_started = 0
 	night_won = 0
+	_respect_left = true
+
+
+## The ☆ a won round pays, and it is once a Night (balance-sim ruling: a repeatable ☆10 made
+## the block 87% of a career's Respect, and rank is supposed to track the Jobs board, not the
+## number of laps you can run round three shops). Consumed on the first perfect round; every
+## round after it still pays double and still lights the back room, and returns 0 here.
+func take_respect() -> int:
+	if not _respect_left:
+		return 0
+	_respect_left = false
+	return RESPECT
 
 
 func collected_count() -> int:

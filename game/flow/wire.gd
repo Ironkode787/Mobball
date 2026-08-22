@@ -8,6 +8,12 @@ extends RefCounted
 ## Pure logic on a fed clock, seeded per Night, so a replayed Night draws the same numbers.
 ## The next number is rolled the moment the last one lands — that is what makes the T5
 ## Wiretap ("see the next draw 15 s early") a read of state rather than a peek at an RNG.
+##
+## The base is the spinner's BASE line for the Night, not what the lane actually paid, and a
+## hit is paid FLAT (`Game.wire_draw`). Both halves of that are the same balance-sim ruling:
+## pricing the ticket off post-multiplier earnings and then paying it through the money path
+## put the Heat band and a Family Meeting on the same money twice, and the draws came out at
+## 165% of the entire spinner line they were supposed to be a side bet on.
 
 ## Seconds of night time between draws.
 const PERIOD := 90.0
@@ -80,17 +86,18 @@ func tick(delta: float) -> bool:
 	return true
 
 
-## The base a hit multiplies: what the spinner has earned tonight, floored.
-static func base_for(spinner_dirty: BigMoney) -> BigMoney:
+## The base a hit multiplies: what the spinner has earned tonight at its BASE value, floored.
+## The caller owes this the pre-multiplier line (`Game.night_group_base_dirty(&"spinner")`).
+static func base_for(spinner_base: BigMoney) -> BigMoney:
 	var floor_amount := BigMoney.of(MIN_BASE_MANTISSA, MIN_BASE_EXP)
-	if spinner_dirty == null:
+	if spinner_base == null:
 		return floor_amount
-	return BigMoney.max_of(spinner_dirty, floor_amount)
+	return BigMoney.max_of(spinner_base, floor_amount)
 
 
 ## Roll the drawn number against a ticket. `ticket` is the last two digits of the spinner's
 ## count; anything else is taken modulo 100 so a caller cannot hand in a three-digit slip.
-func draw(ticket: int, spinner_dirty: BigMoney) -> Dictionary:
+func draw(ticket: int, spinner_base: BigMoney) -> Dictionary:
 	var number := _next
 	_next = _rng.randi() % NUMBERS
 	var slip := posmod(ticket, NUMBERS)
@@ -115,7 +122,7 @@ func draw(ticket: int, spinner_dirty: BigMoney) -> Dictionary:
 		total_hits += 1
 	last_hit = hit
 
-	var base := base_for(spinner_dirty)
+	var base := base_for(spinner_base)
 	return {
 		"number": number,
 		"ticket": slip,

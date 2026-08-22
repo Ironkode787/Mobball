@@ -99,8 +99,13 @@ var night_laundered: BigMoney = BigMoney.zero()
 ## Clean paid straight out (casino wins under the Wash, Jackpots, exact Wire numbers) —
 ## money that was never dirty, as opposed to `night_laundered`, which was.
 var night_clean: BigMoney = BigMoney.zero()
-## Dirty booked per value group tonight. The Wire prices its ticket off the spinner's line.
+## Dirty booked per value group tonight, at what actually landed in the wallet.
 var night_group: Dictionary = {}
+## The same groups at their BASE — the Ledger's own value for the shot, before tonight's
+## volatile multipliers (Heat band, mode, combo). The Wire prices its ticket off this line:
+## pricing off the post-multiplier take let the Heat band and a Family Meeting multiply the
+## same Night twice (balance-sim ruling — a draw was paying 165% of the whole spinner line).
+var night_group_base: Dictionary = {}
 var night_respect: int = 0
 var night_jobs: Array[String] = []
 var night_skill_shots: int = 0
@@ -138,6 +143,7 @@ func _init() -> void:
 	_wire(combo.changed, _on_combo_changed)
 	_wire(combo.respect_earned, _on_combo_respect)
 	_wire(jobs.completed, _on_job_completed)
+	_wire(heat.raid_triggered, _on_raid_triggered)
 
 
 func _ready() -> void:
@@ -146,11 +152,25 @@ func _ready() -> void:
 	_wire(combo.changed, _on_combo_changed)
 	_wire(combo.respect_earned, _on_combo_respect)
 	_wire(jobs.completed, _on_job_completed)
+	_wire(heat.raid_triggered, _on_raid_triggered)
 
 
 ## The Inspector's first report turns a face-down card over (docs/04 influence branch).
 func _on_tilted() -> void:
 	mark_reveal_event(&"first_tilt")
+
+
+## THE ONE listener on `HeatMeter.raid_triggered`, owned here for the life of the process.
+##
+## The meter LATCHES at 100 and `_process` above ticks it in every state — so when only the
+## NightController listened, a crossing at The Count (the earn window a hot Night left behind,
+## still crediting) latched with nobody home and killed the Raid for the rest of the career.
+## The balance sim measured that on 89 of 120 shark Nights. Game holds the connection instead
+## and defers to whatever Night is live; a crossing with no Night running is simply left
+## pending, and `NightController.start()` opens the next one with the door coming in.
+func _on_raid_triggered() -> void:
+	if night != null and is_instance_valid(night) and night.has_method("on_raid_called"):
+		night.call("on_raid_called")
 
 
 static func _wire(sig: Signal, to: Callable) -> void:
@@ -175,10 +195,10 @@ func _process(delta: float) -> void:
 ##
 ## `meta` options:
 ##   `no_combo` — idle/mode payouts that must not extend a chain.
-##   `no_heat`  — the money does not feed the Heat window. This is the Casino Wash: casino
-##                winnings are laundry, not hot money (specs/m2-content.md §1), so they land
-##                in the wallet and pay the Heat *multiplier* like anything else, but they do
-##                not raise the meter. Everything else on the table is hot.
+##   `no_heat`  — dirty that lands in the wallet without warming the meter. Nothing on the
+##                shipped table asks for this any more (casino winnings, which used to, are
+##                paid by `earn_flat_dirty` and ARE hot money); it stays because "this payout
+##                is not hot" is a real thing a future racket may need to say.
 ##   `switch`   — the hardware id, for Jobs that count specific switches.
 ##
 ## Two things can refuse a payout before it is made, and both hand the money somewhere rather
@@ -186,7 +206,8 @@ func _process(delta: float) -> void:
 ## live **Commission fight** pauses the economy outright — a boss is pure skill (docs/05 §6),
 ## so the table earns nothing at all and the fight is told what it refused.
 func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {}) -> BigMoney:
-	var v := preview_switch(group, base_value)
+	var base := ledger_value(group, base_value)
+	var v := base.mul(heat.multiplier()).mul(mode_multiplier())
 	var armored := is_group_armored(group)
 	if armored:
 		_bank_armored(group, v)
@@ -202,20 +223,57 @@ func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {})
 		heat.on_dirty_earned(v, Rates.rank_scale(rank))
 	Events.dirty_earned.emit(v, group)
 	night_dirty = night_dirty.add(v)
-	var group_total: Variant = night_group.get(group, null)
-	night_group[group] = v if not (group_total is BigMoney) else (group_total as BigMoney).add(v)
+	_book_group(group, v, base)
 	jobs.on_earn(v, group)
 	return v
+
+
+## Money that arrives already priced — a bet's winnings, a Wire ticket. It lands in the wallet
+## at FACE VALUE: the switch multipliers priced the shots that funded it, and pricing the
+## payout again multiplies the same Night twice (balance-sim ruling — the casino was paying
+## 2.9× the stake at Heat band 2 on a wheel whose whole edge is ±7.5%). It is still dirty cash
+## in a pocket, so it is hot money like any other dirty and the Jobs still count it; it is
+## never a shot, so it can neither open nor extend a chain.
+func earn_flat_dirty(amount: BigMoney, group: StringName) -> BigMoney:
+	if amount == null or not amount.is_positive():
+		return BigMoney.zero()
+	var armored := is_group_armored(group)
+	if armored:
+		_bank_armored(group, amount)
+	if economy_paused():
+		_boss_denied(group, amount)
+		return BigMoney.zero()
+	if armored:
+		return BigMoney.zero()
+	wallet.earn_dirty(amount)
+	heat.on_dirty_earned(amount, Rates.rank_scale(rank))
+	Events.dirty_earned.emit(amount, group)
+	night_dirty = night_dirty.add(amount)
+	# Flat money is its own base: nothing multiplied it, so both lines move together.
+	_book_group(group, amount, amount)
+	jobs.on_earn(amount, group)
+	return amount
+
+
+func _book_group(group: StringName, value: BigMoney, base: BigMoney) -> void:
+	var total: Variant = night_group.get(group, null)
+	night_group[group] = value if not (total is BigMoney) else (total as BigMoney).add(value)
+	var raw: Variant = night_group_base.get(group, null)
+	night_group_base[group] = base if not (raw is BigMoney) else (raw as BigMoney).add(base)
+
+
+## What a switch is worth before tonight's volatile multipliers: the base plus everything the
+## Ledger has bought for that group. This is the line the Wire prices off, so a bought empire
+## still grows the numbers draw while a hot Night does not double it.
+func ledger_value(group: StringName, base_value: BigMoney) -> BigMoney:
+	return base_value.add(stats.value_add(group)).mul(stats.value_mult(group))
 
 
 ## What a switch WOULD pay right now, without paying it or touching anything. Everything the
 ## money path does before the combo — the combo is a chain of shots that landed, so a denied
 ## hit must not be able to extend or price one.
 func preview_switch(group: StringName, base_value: BigMoney) -> BigMoney:
-	var v := base_value.add(stats.value_add(group))
-	v = v.mul(stats.value_mult(group))
-	v = v.mul(heat.multiplier())
-	return v.mul(mode_multiplier())
+	return ledger_value(group, base_value).mul(heat.multiplier()).mul(mode_multiplier())
 
 
 ## Everything that multiplies dirty because of who is on the table and what mode is running:
@@ -226,9 +284,15 @@ func mode_multiplier() -> float:
 	return meeting.dirty_multiplier() * GuyTraits.dirty_mult_for(fielded)
 
 
-## Dirty booked in one value group tonight (the Wire prices off `&"spinner"`).
+## Dirty booked in one value group tonight, as it landed in the wallet.
 func night_group_dirty(group: StringName) -> BigMoney:
 	var v: Variant = night_group.get(group, null)
+	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
+
+
+## The same group at its base, before Heat, mode and combo (the Wire prices off `&"spinner"`).
+func night_group_base_dirty(group: StringName) -> BigMoney:
+	var v: Variant = night_group_base.get(group, null)
 	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
 
 
@@ -292,17 +356,20 @@ func launder_cap_left() -> BigMoney:
 # ================================================================ the club =====
 ##
 ## The deck reports outcomes and this file pays them (specs/m2-empire.md casino API). Every
-## casino payout is routed by ONE rule: clean if `casino_wash` is owned, otherwise dirty
-## through the ordinary money path with the Heat feed switched off. Until the Wash is bought
-## the house pays you in the same dirty money you handed it — which is exactly the reason to
-## buy it (specs/m2-content.md §3: "REQUIRED for clean payouts").
+## casino payout is routed by ONE rule: clean if `casino_wash` is owned, otherwise FLAT dirty.
+## Until the Wash is bought the house pays you in the same dirty money you handed it — which
+## is exactly the reason to buy it (specs/m2-content.md §3: "REQUIRED for clean payouts").
+## Neither branch goes back through the switch multipliers: a bet's winnings are already
+## priced by the wheel, and the shot that fed the wallet was priced when it was taken.
 
 
 ## One `roulette_landed`. Stakes 5% of held dirty (capped by rank), resolves it, pays it.
 ## A comped stake (`fronts.comps`) is the house's money: the bet is placed and paid exactly
 ## as usual, the wallet is simply never asked.
 func casino_roulette(pocket: int, house: bool) -> Dictionary:
-	var stake := Casino.stake_for(wallet.dirty, rank)
+	# The High Roller's rungs ride the BET (balance-sim ruling): greed buys variance, and the
+	# wheel's own odds decide what it was worth.
+	var stake := casino.stake_with_ladder(Casino.stake_for(wallet.dirty, rank), wallet.dirty)
 	var comped := casino.take_comp(stake)
 	if stake.is_positive() and not comped and not wallet.spend_dirty(stake):
 		stake = BigMoney.zero()
@@ -315,7 +382,7 @@ func casino_roulette(pocket: int, house: bool) -> Dictionary:
 	return result
 
 
-## A High Roller hold ended: arm the next payout, take the Heat the greed cost.
+## A High Roller hold ended: arm the next stake, take the Heat the greed cost.
 func casino_high_roller(steps: int) -> float:
 	var added := casino.arm(steps)
 	if added > 0.0:
@@ -337,42 +404,46 @@ func casino_reels(cleared_columns: Array) -> BigMoney:
 	return paid
 
 
-## The one place a casino payout can enter the wallet.
+## The one place a casino payout can enter the wallet. The wheel already priced this money —
+## it is `stake × payout`, and the stake came out of a wallet the table's multipliers filled —
+## so the dirty branch pays FACE VALUE (balance-sim ruling) and only the Wash changes the pile
+## it lands in.
 func _pay_casino(won: BigMoney, clean: bool, switch: StringName) -> BigMoney:
 	if won == null or not won.is_positive():
 		return BigMoney.zero()
-	var paid := earn_clean(won, switch) if clean \
-			else earn_switch(&"casino", won,
-					{"no_heat": true, "no_combo": true, "switch": switch})
+	var paid := earn_clean(won, switch) if clean else earn_flat_dirty(won, &"casino")
 	casino.book_payout(paid, clean)
 	return paid
 
 
-## One Wire draw (docs/05 §4). The ticket is the spinner's count; the base is what the
-## spinner has earned tonight, floored at $500.
+## One Wire draw (docs/05 §4). The ticket is the spinner's count; the base is what the spinner
+## has earned tonight AT ITS BASE — floored at $500, and deliberately not the post-multiplier
+## take, which the Heat band and a Meeting had already multiplied once (balance-sim ruling).
+## A last-digit hit pays ×6 of that line FLAT dirty; the exact number pays ×80 clean.
 func wire_draw(ticket: int) -> Dictionary:
-	var result := wire.draw(ticket, night_group_dirty(&"spinner"))
+	var result := wire.draw(ticket, night_group_base_dirty(&"spinner"))
 	var won: BigMoney = result["won"]
 	var paid := BigMoney.zero()
 	if won.is_positive():
-		if bool(result["clean"]):
-			paid = earn_clean(won, &"wire")
-		else:
-			paid = earn_switch(&"wire", won, {"no_combo": true, "switch": &"wire_bank"})
+		paid = earn_clean(won, &"wire") if bool(result["clean"]) \
+				else earn_flat_dirty(won, &"wire")
 		wire.book_payout(paid)
 	result["paid"] = paid
 	wire_drawn.emit(result)
 	return result
 
 
-## The third storefront of a Collection Round: the last one pays its value again, ☆10 lands,
-## and the back room lights up (docs/05 §3).
+## The third storefront of a Collection Round: the last one pays its value again, the back
+## room lights up, and the FIRST perfect round of the Night is worth ☆10 (docs/05 §3).
+## Balance-sim ruling: the ☆ are once a Night, like the combo's — a repeatable ☆10 made the
+## block 87% of a career's Respect, and the Respect ladder belongs to Jobs. Later rounds still
+## pay the double and still light the Meeting; they just do not rank you up.
 func collection_completed(id: StringName, base_value: BigMoney) -> BigMoney:
 	var bonus := BigMoney.zero()
 	if base_value != null and base_value.is_positive():
 		bonus = earn_switch(&"storefronts", base_value.mul(CollectionRound.LAST_PAYS_EXTRA),
 				{"no_combo": true, "switch": id})
-	add_respect(CollectionRound.RESPECT, &"collection")
+	add_respect(collection.take_respect(), &"collection")
 	if meeting.note_collection_round():
 		meeting_changed.emit(meeting.active, meeting.lit)
 	return bonus
@@ -934,6 +1005,7 @@ func _reset_night_tallies() -> void:
 	night_laundered = BigMoney.zero()
 	night_clean = BigMoney.zero()
 	night_group = {}
+	night_group_base = {}
 	night_respect = 0
 	night_jobs = []
 	night_skill_shots = 0

@@ -9,13 +9,16 @@ extends RefCounted
 ##
 ## The edge is real and legible. Five of the wheel's eight pockets are the player's and a win
 ## pays 1.48× the stake, so a spin returns 5/8 × 1.48 = 0.925 of what it costs — a −7.5%
-## house edge. Influence upgrades buy pockets and payout, never outcomes (P2), so every knob
-## below moves the EV honestly and `expected_value()` will tell you what it moved it to.
+## house edge. Influence buys the PAYOUT and nothing else (balance-sim ruling): every edge
+## point is worth exactly 5/8 of itself, +0.625% EV, and a fully-bought book pays 1.68× for
+## exactly +5.0%. `expected_value()` is the whole story of what a spin is worth, and it stays
+## a pure function of pockets × payout — nothing on this table may move it anywhere else.
 ##
-## Casino money is the *wash*, not hot money: wins never feed the Heat window (`Game` sends
-## the dirty branch through `earn_switch(..., {"no_heat": true})`). The High Roller ladder and
-## the Jackpot add flat Heat instead — the deck is where you go to cool the wallet and warm
-## the meter.
+## Casino money is *priced money*: a win is paid at face value, never back through the switch
+## multipliers that already priced the shot which funded it (`Game._pay_casino`). Pre-Wash it
+## is dirty cash in a pocket and therefore hot money like any other dirty; under the Wash it
+## is clean and clean never warms the meter. The High Roller ladder and the Jackpot add flat
+## Heat on top — the deck is where you go to launder the wallet and warm the meter.
 
 ## Every tuning knob for the deck, in one block, data-like — nothing else in the casino code
 ## may hard-code a rate (the same rule `Rates` holds the rest of the economy to).
@@ -26,20 +29,27 @@ class CasinoRules:
 	const STAKE_FRACTION := 0.05
 	## A player pocket pays this × the stake. 5/8 × 1.48 = −7.5% EV.
 	const PAYOUT := 1.48
-	## Loaded Dice ↻ at max level, per specs/m2-content.md §1.
-	const PAYOUT_MAX := 1.55
+	## Every edge point Influence can own (Eddie Odds ×12 + Loaded Dice ×8 = +0.20), and no
+	## more: 5/8 × 1.68 = exactly +5.0% EV at full investment, which is the top of the design
+	## band. Balance-sim ruling — the edge is bought in payout only, so the curve from −7.5%
+	## to +5.0% is one straight, legible line of +0.625% per point.
+	const PAYOUT_MAX := 1.68
 	## Stake cap at R0, ×3.5 per rank — the same income curve `Rates.rank_scale` tracks, so a
 	## capped stake is worth the same slice of a Night at every rank.
 	const STAKE_CAP_MANTISSA := 5.0
 	const STAKE_CAP_EXP := 3
 	const STAKE_CAP_PER_RANK := 3.5
 	## The wheel as built (game/table/hardware/roulette_wheel.gd): 8 pockets, 3 of them the
-	## house's. Loaded Dice converts one house pocket at max level.
+	## house's.
 	const POCKETS := 8
 	const PLAYER_POCKETS := 5
-	## Ceiling on what Influence can buy off the house, mirroring `Stats.CASINO_POCKETS_MAX`:
-	## the house always keeps one pocket, because a wheel that cannot lose is not a wheel.
-	const PLAYER_POCKETS_MAX := 7
+	## Ceiling on what Influence can buy off the house, mirroring `Stats.CASINO_POCKETS_MAX`.
+	## Balance-sim ruling: it is the BASE for now — a bought pocket is worth 1/8 of the payout
+	## in one jump (+18.5% EV at 6/8 × 1.48), which no amount of pricing makes legible next to
+	## a payout point's +0.625%. The wheel stays 5/8 and the whole edge is bought in payout;
+	## `casino_pocket_add` and `Stats.casino_player_pockets()` stay in the vocabulary for the
+	## content that raises this line deliberately.
+	const PLAYER_POCKETS_MAX := 5
 	## The Cooler: five straight losing spins and the next win pays +50% ("the cooler got
 	## fired"); the `coolers_fired` node doubles the apology.
 	const COOLER_STREAK := 5
@@ -80,7 +90,7 @@ var total_wins: int = 0
 var total_jackpots: int = 0
 ## Consecutive losing spins. Survives a save: the Cooler owes you across Nights.
 var loss_streak: int = 0
-## The High Roller's ladder, waiting on the NEXT payout. 1.0 = nothing armed.
+## The High Roller's ladder, waiting on the NEXT STAKE. 1.0 = nothing armed.
 var armed: float = 1.0
 
 var _visit: bool = false
@@ -160,9 +170,15 @@ static func expected_value(stats: Object) -> float:
 
 
 # =============================================================== the High Roller =====
+##
+## The ladder rides the STAKE, not the payout (balance-sim ruling). A payout multiplier on a
+## wheel Influence can push positive is an unpriced EV bomb — the audit measured a realized
+## +95.7% against a built +16.3%, and none of it was in `expected_value`. A stake multiplier
+## is pure variance: ×5 on a bet the wheel still decides is exactly the drama a High Roller is
+## buying, and it costs the same rungs of flat Heat it always did.
 
 
-## A hold ended `steps` rungs up the ladder: arm the NEXT payout and return the flat Heat the
+## A hold ended `steps` rungs up the ladder: arm the NEXT stake and return the flat Heat the
 ## greed cost. Steps outside the ladder are clamped, so a table that grows a longer ladder
 ## cannot index this off the end.
 func arm(steps: int) -> float:
@@ -178,15 +194,31 @@ func armed_multiplier() -> float:
 	return armed
 
 
+## What the next bet actually is: the auto-bet with the armed ladder on it, never more than
+## what is in the pocket. The ladder is SPENT here — it rode the wheel whether the pocket paid
+## or not, which is what makes it a bet rather than a coupon. A landing the player could not
+## bet on at all (no stake) leaves the ladder armed for the next one.
+func stake_with_ladder(stake: BigMoney, held: BigMoney) -> BigMoney:
+	if stake == null or not stake.is_positive():
+		return stake if stake != null else BigMoney.zero()
+	if armed <= 1.0:
+		return stake
+	var scaled := stake.mul(armed)
+	armed = 1.0
+	return scaled if held == null else BigMoney.min_of(scaled, held)
+
+
 # ==================================================================== the wheel =====
 
 
 ## Resolve one auto-bet. Pure: everything it needs is an argument, so a unit test can walk the
 ## whole EV curve without a wallet. `stake` is what the caller ALREADY took out of the wallet
-## (zero = the player had nothing to bet with, which is not a spin at all).
+## (zero = the player had nothing to bet with, which is not a spin at all), the High Roller's
+## ladder included — see `stake_with_ladder`.
 ##
-## Order of multipliers on a win: base payout → Cooler apology → the armed High Roller ladder.
-## The ladder is consumed whether or not the Cooler fired; the streak resets on any win.
+## Order of multipliers on a win: base payout → Cooler apology. Nothing else may multiply a
+## payout: `payout × pockets/8` is the EV, and anything on top of it is an edge the odds were
+## never told about. The streak resets on any win.
 ##
 ## A `comped` spin is the same bet with the house's money: it plays and pays exactly like any
 ## other, but it is not booked as staked, because The Count's staked line is what came out of
@@ -218,8 +250,6 @@ func resolve(pocket: int, house: bool, stake: BigMoney, payout: float,
 	total_spins += 1
 
 	if house:
-		# The ladder is NOT burned by a loss: the High Roller bought the next PAYOUT, and a
-		# pocket that pays nothing is not one.
 		loss_streak += 1
 		out["streak"] = loss_streak
 		return out
@@ -228,8 +258,6 @@ func resolve(pocket: int, house: bool, stake: BigMoney, payout: float,
 	if loss_streak >= CasinoRules.COOLER_STREAK:
 		out["cooler"] = true
 		mult *= 1.0 + maxf(pity, 0.0)
-	mult *= armed
-	armed = 1.0
 	loss_streak = 0
 	night_wins += 1
 	total_wins += 1

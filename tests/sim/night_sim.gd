@@ -206,6 +206,7 @@ func _run() -> void:
 	await _s2_raid_survived()
 	await _s3_raid_lost()
 	await _s4_bail_and_bench()
+	await _s7_raid_pending_at_open()
 	await _s5_save_roundtrip()
 	await _s6_offline_safe()
 
@@ -402,6 +403,78 @@ func _s4_bail_and_bench() -> void:
 	check(Game.bench.available().size() >= 1, "the bench cannot field anybody — hard lock")
 	print("        bail %s | roster %d | available %d"
 			% [cost.text(), Game.bench.guys.size(), Game.bench.available().size()])
+	finish()
+
+
+## 7 — THE LATCH (balance-sim ruling). `HeatMeter.raid_triggered` fires once and latches, and
+## `Game._process` ticks the meter in EVERY state — so the meter can cross 100 at The Count,
+## with no Night listening. That used to kill the Raid for the rest of the career (89 of 120
+## shark Nights in the audit). Now the Inspector is simply waiting at the door: the next Night
+## opens, the first ball is served, and the raid begins — exactly once.
+func _s7_raid_pending_at_open() -> void:
+	begin("the latch: heat crosses 100 at The Count, the raid opens the next Night")
+	if Game.state == &"night":
+		await _finish_night_by_force()
+		await _wait_for_state(&"count", 6.0)
+	check(Game.state != &"night", "this scenario has to start between Nights")
+	check(main.night == null, "a NightController is still alive between Nights")
+
+	# The Count, and the earn window a hot Night left behind finally tips the meter over.
+	var raids_before := count_of("raid_started")
+	Game.heat.reset()
+	Game.heat.value = Rates.RAID_THRESHOLD
+	await step(2)
+	check(count_of("raid_started") == raids_before,
+			"a raid began with no Night running — nobody is on the table to raid")
+	check(Game.heat.is_raid_pending(), "the meter did not latch the raid it called for")
+
+	Game.start_night()
+	await step(4)
+	check(main.night != null and is_instance_valid(main.night), "the Night never started")
+	if main.night == null:
+		finish()
+		return
+	main.night.raid_duration = RAID_SECONDS
+	check(count_of("raid_started") == raids_before + 1,
+			"the pending raid fired %d times at Night start, expected exactly one"
+			% (count_of("raid_started") - raids_before))
+	check(main.night.raid != null and main.night.raid.active,
+			"no RaidMode is running on a Night that opened with the latch set")
+	check(TableAPI.ball(table) != null, "the raid began before the first ball was served")
+	if main.night.raid == null:
+		finish()
+		return
+	# The mode was built before this scenario could hand the Night its shortened duration —
+	# the branch logic is what is under test, not the length of the mode.
+	main.night.raid.duration = RAID_SECONDS
+	main.night.raid.time_left = minf(main.night.raid.time_left, RAID_SECONDS)
+
+	# …and exactly once: the latch is still set until the raid is settled, and nothing about
+	# the meter climbing further may start a second one.
+	Game.heat.value = Rates.RAID_THRESHOLD + 20.0
+	await step(4)
+	check(count_of("raid_started") == raids_before + 1,
+			"a second raid started on top of the first")
+
+	# Survive it, and the latch clears the way it always did.
+	_keep_alive = true
+	var plunger: Plunger = TableAPI.prop(table, "plunger") as Plunger
+	if plunger != null and plunger.ball_ready():
+		plunger.launch(1.0)
+	await wait(RAID_SECONDS + 1.2)
+	_keep_alive = false
+	check(_raid_results.size() > 0 and _raid_results[-1] == true,
+			"the raid the latch opened never finished")
+	check(not Game.heat.is_raid_pending(), "reset_after_raid did not clear the latch")
+	print("        latched at The Count | raid on serve 1 | %d raid(s) | heat %.0f after"
+			% [count_of("raid_started") - raids_before, Game.heat.value])
+
+	await _finish_night_by_force()
+	check(await _wait_for_state(&"count", 6.0), "the latched-raid Night never reached The Count")
+	# Put the meter back the way this scenario found it: the save round-trip that runs next
+	# compares serialized state byte for byte, and a decaying earn window is a float with more
+	# digits than JSON keeps.
+	Game.heat.reset()
 	finish()
 
 
