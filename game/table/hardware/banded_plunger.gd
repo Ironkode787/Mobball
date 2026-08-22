@@ -6,7 +6,9 @@ extends Plunger
 ## then on this is the M0 plunger, charge bands and all, and plunge power becomes a skill.
 
 var bands_enabled: bool = false
-var fixed_power: float = 0.75
+## Overridden by the table with ProgressionTable.PLUNGER_FIXED_POWER; hard enough to clear
+## the arch on its own, because a launch that dies in the lane is not a game.
+var fixed_power: float = 0.92
 
 
 func set_pressed(pressed: bool) -> void:

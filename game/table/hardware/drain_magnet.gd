@@ -3,12 +3,16 @@ extends Node2D
 ## The Captain's magnet — raid hardware (specs/m1-hook.md Lane 1 "Raid v1"). Under the
 ## playfield by the drain; while a raid is running it winds up, warns, and yanks.
 ##
-## The warning is the whole point: 1.2 s of visible, audible tell before the pull, so a
-## player who is paying attention can flip or lean out of it. A magnet that grabs without
-## warning is not difficulty, it is a coin flip.
+## The warning is the whole point: 1.2 s of visible tell before the pull, so a player who is
+## paying attention can flip or lean out of it. A magnet that grabs without warning is not
+## difficulty, it is a coin flip.
 ##
-## The flow lane (RaidMode) owns the raid clock and applies the pull itself, so this runs
-## the telegraph and leaves the impulse alone unless `self_driven` is set.
+## Visual only, deliberately: the flow lane's RaidMode owns the raid soundscape (a looping
+## siren bed), and a 7 s wail retriggered every 6 s telegraph is a machine gun. A short
+## squelch cue for this belongs to a future audio wave.
+##
+## RaidMode also owns the raid clock and applies the pull itself, so this runs the telegraph
+## and leaves the impulse alone unless `self_driven` is set.
 
 signal telegraph_started()
 signal pulled(ball: Ball)
@@ -77,7 +81,6 @@ func _physics_process(delta: float) -> void:
 	_phase += delta
 	if not _telegraphing and _phase >= PERIOD - TELEGRAPH:
 		_telegraphing = true
-		AudioDirector.play(&"siren")
 		telegraph_started.emit()
 		queue_redraw()
 	if _phase < PERIOD:

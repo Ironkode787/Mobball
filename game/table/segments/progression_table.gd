@@ -136,7 +136,10 @@ const KICKBACK_AT := Vector2(95.0, 1520.0)
 const KICKBACK_SIZE := Vector2(86.0, 56.0)
 const MAGNET_AT := Vector2(490.0, 1810.0)
 
-const PLUNGER_FIXED_POWER := 0.75
+## The rubber band is meant to be reliable-but-uncontrollable, not broken: below ~0.90 the
+## ball never clears the shooter lane on this geometry, so a bare alley would earn nothing
+## at all. One power, and it always feeds the playfield.
+const PLUNGER_FIXED_POWER := 0.92
 
 # ---------------------------------------------------------------- ball search
 ## Real machines hunt for a lost ball, and this one has to as well. The playfield grows new

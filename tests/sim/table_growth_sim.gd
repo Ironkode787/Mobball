@@ -621,42 +621,48 @@ func _s10_purchase_refresh() -> void:
 
 ## 11 — the coils hunt for a ball that has stopped where it should not have.
 func _s11_ball_search() -> void:
-	begin("ball search frees a balanced ball")
+	begin("ball search frees a stuck ball")
 	use("T3")
-	# The exact spot a seeded soak found: balanced on the rounded cap of the first
-	# payphone, with no tangential force to tip it either way.
-	var phone: StandupTarget = table.wire_bank.targets()[0]
-	var perch: Vector2 = phone.to_global(Vector2(0.0, 0.0)) \
-			+ Vector2(-3.0, -(ProgressionTable.TARGET_LENGTH * 0.5 + phone.thickness * 0.5
-			+ Feel.BALL_RADIUS))
-	var searches := 0
-	var tap := func(_at: Vector2) -> void: searches += 1
+	# a one-slot Array, not an int: GDScript lambdas capture locals by value, so a captured
+	# counter would be incremented on a copy and read back as zero forever
+	var searches := [0]
+	var tap := func(_at: Vector2) -> void: searches[0] += 1
 	table.ball_searched.connect(tap)
 
-	await drop_at(perch)
-	var b := table.ball
-	await wait(2.0)
-	check(searches == 0, "the coils fired after only 2 s of stillness")
-	await wait(ProgressionTable.BALL_SEARCH_DELAY - 1.0)
-	check(searches >= 1, "a ball parked for %.0f s was never searched for"
+	# A real wedge is a ball with no force left to move it. Holding it in place each tick
+	# is the same thing to the table and, unlike balancing one on a rounded cap, it is
+	# reproducible: a seeded soak found that perch once and could not be asked to find it
+	# again on demand.
+	var perch := Vector2(700.0, 950.0)
+	var b := await drop_at(perch)
+	for i in range(ticks(ProgressionTable.BALL_SEARCH_DELAY - 0.5)):
+		b.place(perch)
+		await step(1)
+	check(int(searches[0]) == 0, "the coils fired before %.1fs of stillness"
 			% ProgressionTable.BALL_SEARCH_DELAY)
-	await wait(0.6)
-	var freed := b == null or not is_instance_valid(b) \
-			or b.global_position.distance_to(perch) > Feel.BALL_RADIUS * 2.0
-	check(freed, "the search pulse did not move the ball off its perch")
-	if b != null and is_instance_valid(b):
-		print("        parked at %s, freed to %s after %d pulse(s)"
-				% [perch, b.global_position, searches])
+
+	var guard := 0
+	while int(searches[0]) == 0 and guard < ticks(4.0):
+		b.place(perch)
+		await step(1)
+		guard += 1
+	check(int(searches[0]) >= 1, "a ball parked for %.0f s was never searched for"
+			% ProgressionTable.BALL_SEARCH_DELAY)
+	check(b.speed() > 300.0,
+			"the search pulse left the ball at %.0f px/s — not enough to free it" % b.speed())
+	check(b.linear_velocity.y < 0.0, "the search pulse shoved the ball drain-ward")
+	print("        parked at %s, pulse gave it %.0f px/s up-field" % [perch, b.speed()])
 	table.ball_searched.disconnect(tap)
 	table.despawn_ball()
 
 	# a cradled ball is resting on purpose and must never be kicked off the bat
-	searches = 0
+	searches[0] = 0
 	table.ball_searched.connect(tap)
+	table.flipper_left.set_pressed(false)
 	await drop_at(table.flipper_left.cradle_point(0.5)
 			+ table.flipper_left.strike_normal() * 10.0)
 	await wait(ProgressionTable.BALL_SEARCH_DELAY + 1.5)
-	check(searches == 0, "the ball search kicked a cradled ball off the bat")
+	check(int(searches[0]) == 0, "the ball search kicked a cradled ball off the bat")
 	table.ball_searched.disconnect(tap)
 	table.despawn_ball()
 	finish()
