@@ -168,6 +168,13 @@ func is_music_playing() -> bool:
 	return _music_player != null and _music_player.playing
 
 
+## CONTRACT STUB (specs/audio-wave2.md §2): state mixes over the synced stack.
+## calm | hot | raid | count. The audio workstream's wave-2 delivery replaces this
+## no-op with the real per-state mix; gameplay may call it freely today.
+func music_set_state(_state: StringName) -> void:
+	pass
+
+
 ## Fade the stack out and stop it. `fade` false stops immediately.
 func music_stop(fade: bool = true) -> void:
 	_ensure_init()

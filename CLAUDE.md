@@ -26,12 +26,13 @@ workstreams live in `specs/`.
 
 ## Ownership map (parallel workstreams — stay in your lane)
 
-| Area | Owner |
+| Area | Owner (M1 wave) |
 |------|-------|
-| `project.godot`, `CLAUDE.md`, `docs/`, `specs/`, `tests/run_tests.gd`, `tests/t.gd` | orchestrator only |
-| `game/core/`, `game/table/`, `game/ui/`, `game/main.tscn` | feel/table workstream |
-| `game/economy/`, `tests/test_economy*.gd` | economy workstream |
-| `tools/audiogen/`, `assets/audio/`, `game/audio/` | audio workstream |
+| `project.godot`, `CLAUDE.md`, `docs/`, `specs/`, `game/content/`, `tests/run_tests.gd`, `tests/t.gd`, `game/core/` (frozen — request changes via report), `game/economy/` (frozen) | orchestrator only |
+| `game/flow/` (public surface of `game.gd` is contract-locked), `game/ui/count/`, `game/ui/hud*`, `game/main.gd`, `game/main.tscn`, `tests/sim/night_sim*`, flow tests | flow workstream |
+| `game/meta/` (`stats.gd` API contract-locked), `game/ui/ledger/`, `tests/test_stats.gd`, `tests/test_upgrades_data.gd` | meta workstream |
+| `game/table/` (keep `tests/sim/feel_sim` green; `table_main.tscn` path is contract), `tests/sim/table_growth_sim*` | table workstream |
+| `tools/audiogen/`, `assets/audio/`, `game/audio/`, `tests/test_audio_assets.gd` | audio workstream |
 
 Do not edit outside your lane; if you need a change elsewhere (a new Events signal, a Feel
 constant, a check.sh tweak), note it in your final report instead.

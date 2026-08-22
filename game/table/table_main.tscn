@@ -1,0 +1,5 @@
+[gd_scene load_steps=2 format=3 uid="uid://kingpin_table_main"]
+
+[ext_resource type="PackedScene" path="res://game/table/segments/alley_debug.tscn" id="1"]
+
+[node name="TableMain" instance=ExtResource("1")]

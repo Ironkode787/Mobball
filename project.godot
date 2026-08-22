@@ -16,6 +16,7 @@ config/features=PackedStringArray("4.5", "GL Compatibility")
 Events="*res://game/core/events.gd"
 Feel="*res://game/core/feel.gd"
 AudioDirector="*res://game/audio/audio_director.gd"
+Game="*res://game/flow/game.gd"
 
 [display]
 
