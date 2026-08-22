@@ -49,8 +49,15 @@ func nudge(dir_name: StringName) -> bool:
 	_cooldown = Feel.NUDGE_COOLDOWN
 	var dir: Vector2 = (DIRS[dir_name] as Vector2).normalized()
 
-	if _ball != null and is_instance_valid(_ball):
-		_ball.kick(dir * Feel.NUDGE_IMPULSE)
+	# Multiball: a lean shoves the whole cabinet, so every live ball feels it. With an
+	# empty registry (M0 alley scenes) the single compat ref still works.
+	var live := Balls.live()
+	if live.is_empty():
+		if _ball != null and is_instance_valid(_ball):
+			_ball.kick(dir * Feel.NUDGE_IMPULSE)
+	else:
+		for b in live:
+			b.kick(dir * Feel.NUDGE_IMPULSE)
 	# camera moves *with* the impulse so the cabinet appears to jump the other way
 	_offset_vel += dir * Feel.NUDGE_VISUAL_OFFSET * sqrt(Feel.NUDGE_SPRING)
 	AudioDirector.play(&"nudge_thump")

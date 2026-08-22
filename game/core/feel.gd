@@ -79,6 +79,8 @@ const COL_FELT := Color("1E3D2F")
 const COL_BRASS := Color("C9A227")
 const COL_DIRTY := Color("E23D3D")
 const COL_CLEAN := Color("3FBF6F")
+const COL_VIOLET := Color("8C4DFF")
+const COL_NEON_ROSE := Color("FF2E63")
 
 # --- desktop dev keys (touch zones handled by InputController) ---
 const _KEYS := {

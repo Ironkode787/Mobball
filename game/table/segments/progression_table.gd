@@ -741,6 +741,23 @@ func spawn_ball() -> Ball:
 	balls_served += 1
 	_from_lane = true
 	_bind_ball()
+	Balls.register(b)
+	AudioDirector.play(&"ball_spawn")
+	Events.ball_spawned.emit(b)
+	ball_spawned.emit(b)
+	return b
+
+
+## Multiball service (specs/ball-registry.md): an ADDITIONAL live ball, released at a
+## given point (default: the back-room area feeds Family Meeting from the deck). The
+## primary `ball` ref and its bindings are untouched — extras exist only in the registry.
+func spawn_extra_ball(at: Vector2 = Vector2.ZERO) -> Ball:
+	var b: Ball = BALL_SCENE.instantiate()
+	b.name = "BallExtra%d" % balls_served
+	b.position = spawn_point() if at == Vector2.ZERO else at
+	add_child(b)
+	balls_served += 1
+	Balls.register(b)
 	AudioDirector.play(&"ball_spawn")
 	Events.ball_spawned.emit(b)
 	ball_spawned.emit(b)
@@ -769,16 +786,25 @@ func _bind_ball() -> void:
 
 
 func _on_drain_entered(body: Node2D) -> void:
-	if not (body is Ball) or body != ball:
+	if not (body is Ball):
 		return
 	var lost: Ball = body
-	ball = null
-	_bind_ball()
+	var was_primary := lost == ball
+	if was_primary:
+		# Multiball: the lowest surviving extra becomes the new primary so the flipper/
+		# plunger/magnet bindings stay on a live ball. The lost ball is still registered
+		# here, so pick the survivor by hand rather than via Balls.primary().
+		ball = null
+		for b in Balls.live():
+			if b != lost and (ball == null or b.global_position.y > ball.global_position.y):
+				ball = b
+		_bind_ball()
+	Balls.unregister(lost)
 	lost.queue_free()
 	AudioDirector.play(&"drain")
 	Events.ball_drained.emit(lost)
 	ball_lost.emit(lost)
-	if auto_respawn:
+	if auto_respawn and ball == null:
 		_respawn_in = Feel.RESPAWN_DELAY
 
 

@@ -28,16 +28,20 @@ const HARDWARE_IDS: PackedStringArray = [
 	"spinner_numbers", "wire_bank", "laundromat_loop",
 	"storefront_laundromat", "storefront_pizzeria", "storefront_pawn",
 	"orbit_left", "kickback_left", "kickback_right", "bribe_target", "cop_targets",
+	# M2 Club deck (specs/m2-content.md)
+	"club_deck", "staircase_ramp", "roulette_wheel", "slot_reels",
+	"high_roller_saucer", "backroom_saucer", "club_flippers",
 ]
 
 ## Switch groups `Game.earn_switch` pays out to. `all` folds into every other group.
 const VALUE_GROUPS: PackedStringArray = [
 	"all", "bumpers", "slings", "spinner", "rollovers", "wire", "storefronts", "orbit",
+	"ramps", "casino",
 ]
 
 ## Boolean gameplay flags. A new flag needs code that reads it, so adding one here is a
 ## deliberate act — that is the point of validating against a list.
-const FEATURE_FLAGS: PackedStringArray = ["plunger_bands"]
+const FEATURE_FLAGS: PackedStringArray = ["plunger_bands", "casino_wash"]
 
 ## Milestone marks the reveal engine understands (docs/04 "Milestone reveals").
 const REVEAL_EVENTS: PackedStringArray = [

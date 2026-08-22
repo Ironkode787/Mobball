@@ -318,6 +318,51 @@
       "cost": "150K", "repeat": null, "requires": ["rackets.protection_pizzeria"],
       "effects": [{"kind": "passive_wash_add", "value": 0.01}],
       "table_change": "a CASH ONLY sign appears in Nonna's window"
+    },
+
+    {
+      "id": "rackets.club_license",
+      "branch": "rackets", "tier": 4,
+      "name": "The Club License",
+      "flavor": "Signed by three officials. Two of them exist.",
+      "cost": "2M", "repeat": null, "requires": ["rackets.protection_pawn"],
+      "reveal": {"rank": 4},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "club_deck"},
+        {"kind": "unlock_hardware", "target": "staircase_ramp"},
+        {"kind": "unlock_hardware", "target": "roulette_wheel"},
+        {"kind": "unlock_hardware", "target": "slot_reels"},
+        {"kind": "unlock_hardware", "target": "backroom_saucer"},
+        {"kind": "idle_rate_add", "target": "casino", "value": "300"}
+      ],
+      "table_change": "scaffolding rises over the arch — THE CLUB opens upstairs"
+    },
+    {
+      "id": "fronts.casino_wash",
+      "branch": "fronts", "tier": 4,
+      "name": "The Casino Wash",
+      "flavor": "You gamble dirty. You win clean. The house insists.",
+      "cost": "3.5M", "repeat": null, "requires": ["rackets.club_license"],
+      "effects": [{"kind": "feature_flag", "target": "casino_wash"}],
+      "table_change": "a golden coin tray appears on the deck — winnings pay out clean"
+    },
+    {
+      "id": "fronts.high_roller",
+      "branch": "fronts", "tier": 4,
+      "name": "The High Roller Room",
+      "flavor": "Velvet rope. Bad decisions. Enormous cushions.",
+      "cost": "5M", "repeat": null, "requires": ["fronts.casino_wash"],
+      "effects": [{"kind": "unlock_hardware", "target": "high_roller_saucer"}],
+      "table_change": "the velvet-rope saucer opens at the top of the left lane"
+    },
+    {
+      "id": "muscle.second_set",
+      "branch": "muscle", "tier": 4,
+      "name": "The Second Set",
+      "flavor": "Smaller bats. Bigger stakes.",
+      "cost": "8M", "repeat": null, "requires": ["rackets.club_license"],
+      "effects": [{"kind": "unlock_hardware", "target": "club_flippers"}],
+      "table_change": "mini flippers bolt onto the Club deck, riding your same thumbs"
     }
   ]
 }

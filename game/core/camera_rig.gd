@@ -119,6 +119,12 @@ func _read_bounds() -> void:
 func _physics_process(delta: float) -> void:
 	if not follow_enabled:
 		return
+	# Multiball: always frame the ball nearest danger (specs/ball-registry.md). With one
+	# registered ball primary() IS the current target, so single-ball behavior is identical.
+	if Balls.count() > 0:
+		var p := Balls.primary()
+		if p != null:
+			target = p
 	_read_bounds()
 	var lo := min_center_y()
 	var hi := max_center_y()
