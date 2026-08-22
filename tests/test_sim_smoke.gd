@@ -14,9 +14,11 @@ const DAYS := 2
 
 
 func run(t: TestCtx) -> void:
-	# The `--flat-skill` experiment switch is process-wide; pin it so this file tests the
-	# shipped behaviour no matter what ran before it.
-	SimState.skill_shot_scales_with_rank = true
+	# The experiment switches are process-wide statics; pin all three to the SHIPPED values so
+	# this file measures the shipped economy no matter what ran before it in the same process.
+	SimState.skill_shot_scales_with_rank = false
+	SimState.high_roller_scales_stake = false
+	SimState.clean_eats_wash_cap = false
 	_mirrored_constants(t)
 	_profiles_load(t)
 	_career(t)
@@ -243,6 +245,29 @@ func _money_path_matches_game(t: TestCtx) -> void:
 			"SimState.earn_switch pays what Game.earn_switch pays (%s vs %s)" % [mine.text(), theirs.text()])
 	t.ok(sim.wallet.dirty.equals_approx(Game.wallet.dirty, 1e-9), "…and the wallets agree")
 	t.near(sim.heat.pending_units(), Game.heat.pending_units(), 1e-9, "…and the heat windows agree")
+
+	# M2: the same comparison with the mode multiplier live — a Loud guy on the table and a
+	# Family Meeting running. `Game.preview_switch` folds both; so must the sim's copy.
+	var loud := {"id": 7, "name": "Loud Guy", "trait": GuyTraits.LOUD}
+	sim.set_fielded([loud])
+	Game.set_fielded([loud])
+	sim.meeting.active = true
+	Game.meeting.active = true
+	t.near(sim.mode_multiplier(), Game.mode_multiplier(), 1e-9,
+			"SimState.mode_multiplier is Game.mode_multiplier (Meeting ×2 × traits)")
+	sim.combo.reset()
+	Game.combo.reset()
+	var mine_hot := sim.earn_switch(&"bumpers", BigMoney.from_float(TableScore.BUMPER))
+	var their_hot := Game.earn_switch(&"bumpers", BigMoney.from_float(TableScore.BUMPER))
+	t.ok(mine_hot.equals_approx(their_hot, 1e-9),
+			"…and the doubled, Loud payout matches too (%s vs %s)"
+			% [mine_hot.text(), their_hot.text()])
+	t.near(sim.heat.gain_scale, Game.heat.gain_scale, 1e-9,
+			"…and both meters took the same trait scale")
+	sim.meeting.active = false
+	Game.meeting.active = false
+	sim.set_fielded([])
+	Game.set_fielded([])
 
 	Game.save.erase()
 	Game.save = real_save

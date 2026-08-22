@@ -9,6 +9,13 @@ extends RefCounted
 ## around geometry, switches arrive as a Poisson process whose rate and target mix come from
 ## the skill profile (see SimTable).
 ##
+## M2 adds the rest of the Night the flow lane grew (specs/m2-content.md): the Staircase and
+## the Club deck as a second shot menu (SimClub), the Collection Round's 25 s clock, the Wire's
+## 90 s draws, Manny's and Nussbaum's own clocks, the guys' traits on the money path, and the
+## Commission fight that replaces a Night outright (`play_boss`). Every one of them is fed the
+## same `_advance` clock the rest of the Night runs on, so a fight and a Meeting and a raid all
+## see the same timeline.
+##
 ## ## Why this is closed-form where it matters
 ##
 ## Time advances by exact jumps between events, never by fixed physics ticks. Every clock in

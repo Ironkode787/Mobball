@@ -78,10 +78,22 @@ static func markdown(careers: Dictionary, targets: Array[Dictionary], catalog: U
 	out.append("")
 	out.append("Catalog: `%s` — %d nodes." % [
 			catalog.source if catalog.source != "" else Upgrades.DEFAULT_PATH, catalog.nodes.size()])
-	if not SimState.skill_shot_scales_with_rank:
+	var switches := PackedStringArray()
+	if SimState.skill_shot_scales_with_rank:
+		switches.append("`--rank-skill`: the skill shot is back on `rank_scale(rank)/rank_scale(0)` "
+				+ "(×10 per rank), the behaviour the M1 sim retired")
+	if SimState.high_roller_scales_stake:
+		switches.append("`--stake-ladder`: the High Roller arms the next STAKE instead of the next "
+				+ "PAYOUT — same rungs, same Heat, variance instead of expectation")
+	if SimState.clean_eats_wash_cap:
+		switches.append("`--capped-clean`: money paid through `earn_clean` (casino wins, Jackpots, "
+				+ "Meeting jackpots, exact Wire numbers) counts against the per-Night wash cap")
+	if not switches.is_empty():
 		out.append("")
-		out.append("**Counterfactual run (`--flat-skill`): the skill shot is pinned to its R0 value "
-				+ "instead of `rank_scale(rank)/rank_scale(0)` (×10 per rank).**")
+		out.append("**COUNTERFACTUAL RUN — this is not the shipped economy:**")
+		out.append("")
+		for s in switches:
+			out.append("- " + s)
 	out.append("")
 	out.append("## Targets (docs/03 §9)")
 	out.append("")
@@ -263,6 +275,22 @@ static func _club_findings(careers: Dictionary) -> PackedStringArray:
 					s.meeting_jackpots] + "jackpots worth %s)" % s.meeting_paid.text())
 		else:
 			out.append("%s: the back room never opened — no Family Meeting all career" % id)
+		if s.wire_draws > 0:
+			var wire_group: Variant = s.total_by_group.get(&"wire", null)
+			var wire_total: BigMoney = wire_group as BigMoney if wire_group is BigMoney \
+					else BigMoney.zero()
+			out.append("%s: %d Wire draws, %d hits, %d exact — %s paid, which is %s of the "
+					% [id, s.wire_draws, s.wire_hits, s.wire_exacts, s.wire_paid.text(),
+					_pct(s.wire_paid, wire_total)]
+					+ "whole `wire` line. A draw pays ×6 of TONIGHT'S spinner take and that "
+					+ "take is already post-multiplier, so the Heat band and a Meeting "
+					+ "multiply it twice")
+		if s.raids_latched > 0:
+			out.append("%s: %d Nights opened with the Heat meter's raid latch already set and "
+					% [id, s.raids_latched]
+					+ "no raid ever came. `HeatMeter.raid_triggered` latches, but only the "
+					+ "NightController listens for it and `Game._process` ticks the meter at "
+					+ "The Count too — a crossing between Nights kills the Raid for good")
 		if s.boss_nights > 0:
 			out.append("%s: the Commission cost %d Nights (%d fights won); the ☆ were in the "
 					% [id, s.boss_nights, s.boss_wins]

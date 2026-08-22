@@ -9,12 +9,22 @@ extends RefCounted
 ## Combo, Jobs, Bench, Rates and Upgrades objects do the actual work; nothing here
 ## re-implements economy math.
 ##
-## DRIFT RISK, stated plainly: if `Game.earn_switch`, `Game.end_night`'s pocket-money wash,
-## `Game.award_skill_shot` or `Game.RANK_RESPECT` change, this file must change with them.
-## `tests/test_sim_smoke.gd` asserts the constants against the live `Game` autoload so at
-## least the numbers cannot drift silently; the composition order cannot be asserted from
-## outside, so it is spelled out above. The right long-term fix is extracting flow's money
-## path into a pure `Session` object both can drive — proposed in the SIM report.
+## M2 (specs/m2-content.md) added four more mirrors, and all four delegate their RULES to the
+## real flow object rather than restating them: `casino_roulette` / `casino_reels` /
+## `casino_high_roller` drive a real `Casino`, the back room drives a real `FamilyMeeting`,
+## the block drives a real `CollectionRound`, and `_check_rank` asks a real `Commission` what
+## rank the ladder is allowed to reach. What is copied is only the ORDER of the money — which
+## pipe a payout goes down (`earn_clean` vs `earn_switch(..., no_heat)`) and what folds into it
+## (`mode_multiplier`, the fielded guys' traits).
+##
+## DRIFT RISK, stated plainly: if `Game.earn_switch`, `Game.mode_multiplier`, `Game.end_night`'s
+## pocket-money wash, `Game.award_skill_shot`, `Game._pay_casino`, `Game.RANK_RESPECT` or
+## `Game._check_rank`'s use of the Commission change, this file must change with them.
+## `tests/test_sim_smoke.gd` asserts the constants against the live `Game` autoload and the
+## live `Casino` / `FamilyMeeting` / `Commission` rulebooks so at least the numbers cannot
+## drift silently; the composition order cannot be asserted from outside, so it is spelled out
+## above. The right long-term fix is extracting flow's money path into a pure `Session` object
+## both can drive — proposed in the SIM report.
 
 ## Mirrors `Game.RANK_RESPECT` (docs/02 §1). Asserted equal in tests/test_sim_smoke.gd.
 const RANK_RESPECT: PackedInt32Array = [0, 10, 50, 150, 400, 1000, 2500, 6000]
@@ -161,6 +171,25 @@ var play_clock: float = 0.0
 ## a question for design, not a fix: the sim only measures both worlds.
 static var skill_shot_scales_with_rank: bool = false
 
+## EXPERIMENT (`tools/balance.sh --stake-ladder`): the High Roller arms the next STAKE instead
+## of the next PAYOUT. Same drama, same Heat bill, same rung ladder — but ×5 on a bet is
+## variance, where ×5 on a payout is an EV multiplier the wheel's odds never priced. Shipped
+## behaviour is the payout multiplier (`Casino.resolve`); this is the counterfactual the SIM
+## report argues from, and it is a sim-side switch precisely because `game/flow` is not this
+## lane's to change.
+static var high_roller_scales_stake: bool = false
+
+## EXPERIMENT (`tools/balance.sh --capped-clean`): money paid through `earn_clean` counts
+## against the per-Night laundering cap like any other wash. Shipped behaviour is that it does
+## not (docs/03 §2 caps the LOOP, and casino money was never dirty), which is what makes the
+## deck an uncapped laundry.
+static var clean_eats_wash_cap: bool = false
+## Which `earn_clean` sources `--capped-clean` treats as laundering. A boss purse and a raid's
+## "Exhibit A returned" are prizes, not washes, and were never dirty in the first place.
+const CAPPED_CLEAN_SOURCES: PackedStringArray = [
+	"roulette_wheel", "slot_reels", "meeting", "wire",
+]
+
 var _rng := RandomNumberGenerator.new()
 var _seed: int = 0
 
@@ -229,14 +258,28 @@ func set_fielded(guys: Array) -> void:
 func earn_clean(amount: BigMoney, source: StringName = &"") -> BigMoney:
 	if amount == null or not amount.is_positive():
 		return BigMoney.zero()
-	wallet.earn_clean(amount)
-	night_clean = night_clean.add(amount)
-	total_clean_earned = total_clean_earned.add(amount)
-	total_clean_direct = total_clean_direct.add(amount)
+	var paid := amount
+	var overflow := BigMoney.zero()
+	if clean_eats_wash_cap and CAPPED_CLEAN_SOURCES.has(String(source)):
+		# The counterfactual's rule in full: the house can only launder tonight's allowance.
+		# Past it you are still PAID — in the cash you walked in with, which is the whole
+		# point of a cap rather than a wall. The return value stays "what landed in the
+		# wallet", so the deck's book still balances.
+		paid = BigMoney.min_of(paid, launder_cap_left())
+		overflow = amount.sub_clamped(paid)
+		if overflow.is_positive():
+			overflow = earn_switch(&"casino", overflow, {"no_heat": true, "no_combo": true})
+		if not paid.is_positive():
+			return overflow
+		night_laundered = night_laundered.add(paid)
+	wallet.earn_clean(paid)
+	night_clean = night_clean.add(paid)
+	total_clean_earned = total_clean_earned.add(paid)
+	total_clean_direct = total_clean_direct.add(paid)
 	var acc: Variant = clean_direct_from.get(source, null)
-	clean_direct_from[source] = amount if not (acc is BigMoney) else (acc as BigMoney).add(amount)
-	jobs.on_launder(amount)
-	return amount
+	clean_direct_from[source] = paid if not (acc is BigMoney) else (acc as BigMoney).add(paid)
+	jobs.on_launder(paid)
+	return paid.add(overflow)
 
 
 func night_group_dirty(group: StringName) -> BigMoney:
@@ -308,6 +351,11 @@ func launder_cap_left() -> BigMoney:
 ## One `roulette_landed`. Stakes 5% of held dirty (capped by rank), resolves it, pays it.
 func casino_roulette(pocket: int, house: bool) -> Dictionary:
 	var stake := Casino.stake_for(wallet.dirty, rank)
+	if high_roller_scales_stake and casino.armed_multiplier() > 1.0:
+		# The counterfactual: the ladder is spent making the BET bigger, and the wheel's own
+		# odds then decide what that is worth. Cap it at what is actually in the wallet.
+		stake = BigMoney.min_of(stake.mul(casino.armed_multiplier()), wallet.dirty)
+		casino.armed = 1.0
 	var comped := casino.take_comp(stake)
 	if stake.is_positive() and not comped and not wallet.spend_dirty(stake):
 		stake = BigMoney.zero()

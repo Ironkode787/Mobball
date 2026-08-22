@@ -49,6 +49,10 @@ func _initialize() -> void:
 	# Flat is the production rule now (balance ruling); --rank-skill re-enables the old
 	# ×rank_scale behavior for A/B archaeology.
 	SimState.skill_shot_scales_with_rank = bool(args.get("rank-skill", false))
+	# M2 counterfactuals (SIM-2 report). Both default OFF, so a bare run always measures the
+	# shipped economy; both are sim-side because `game/flow` is not this lane's to change.
+	SimState.high_roller_scales_stake = bool(args.get("stake-ladder", false))
+	SimState.clean_eats_wash_cap = bool(args.get("capped-clean", false))
 	var wanted := _profiles(String(args.get("profile", "all")))
 	if wanted.is_empty():
 		printerr("balance: no such profile — have %s" % ", ".join(SimProfile.ids()))
@@ -111,7 +115,8 @@ func _profiles(want: String) -> PackedStringArray:
 ## `--days 14 --profile all --seed 1 --seeds 3 --report path --quiet --strict`.
 func _parse(argv: PackedStringArray) -> Dictionary:
 	const VALUED: PackedStringArray = ["days", "profile", "seed", "seeds", "report", "content"]
-	const FLAGS: PackedStringArray = ["quiet", "strict", "help", "flat-skill"]
+	const FLAGS: PackedStringArray = ["quiet", "strict", "help", "flat-skill", "rank-skill",
+			"stake-ladder", "capped-clean"]
 	var out: Dictionary = {}
 	var i := 0
 	while i < argv.size():
@@ -164,4 +169,6 @@ func _usage() -> void:
   --quiet         skip the console tables
   --strict        exit non-zero when a docs/03 §9 target FAILs
   --content PATH  run against a candidate upgrades.json instead of the shipped one
-  --flat-skill    experiment: pin the skill shot to its R0 value instead of ×10 per rank""" % DEFAULT_REPORT)
+  --rank-skill    experiment: restore the retired ×rank_scale skill shot (A/B archaeology)
+  --stake-ladder  experiment: the High Roller arms the next STAKE, not the next PAYOUT
+  --capped-clean  experiment: `earn_clean` money counts against the per-Night wash cap""" % DEFAULT_REPORT)
