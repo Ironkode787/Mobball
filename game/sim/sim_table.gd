@@ -18,7 +18,7 @@ enum Kind { BUMPER, SLING, ROLLOVER, SPINNER, WIRE, STOREFRONT, ORBIT, WASH }
 ## Mirrored rather than referenced: `Spinner` is a Node2D in the table lane's tree and
 ## reaching for it drags the whole hardware stack (and `AudioDirector`) into a RefCounted
 ## sim. tests/test_sim_smoke.gd asserts these three against the real class.
-const SPIN_FRICTION := 7.0
+const SPIN_FRICTION := 25.0
 const SPIN_MAX_SPEED := 78.0
 const SPIN_MIN_KICK := 6.0
 
