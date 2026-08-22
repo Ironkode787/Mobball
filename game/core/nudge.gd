@@ -51,7 +51,8 @@ func nudge(dir_name: StringName) -> bool:
 
 	if _ball != null and is_instance_valid(_ball):
 		_ball.kick(dir * Feel.NUDGE_IMPULSE)
-	_offset_vel += -dir * Feel.NUDGE_VISUAL_OFFSET * Feel.NUDGE_SPRING * 0.02
+	# camera moves *with* the impulse so the cabinet appears to jump the other way
+	_offset_vel += dir * Feel.NUDGE_VISUAL_OFFSET * sqrt(Feel.NUDGE_SPRING)
 	AudioDirector.play(&"nudge_thump")
 	Events.nudged.emit(dir)
 
@@ -79,11 +80,6 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if shake_target == null or not is_instance_valid(shake_target):
-		return
-	if not _base_captured:
-		_base = shake_target.position
-		_base_captured = true
 	if _offset == Vector2.ZERO and _offset_vel == Vector2.ZERO:
 		return
 	var accel := -_offset * Feel.NUDGE_SPRING - _offset_vel * Feel.NUDGE_DAMP
@@ -93,5 +89,19 @@ func _process(delta: float) -> void:
 	if _offset.length() < 0.05 and _offset_vel.length() < 1.0:
 		_offset = Vector2.ZERO
 		_offset_vel = Vector2.ZERO
-	shake_target.position = _base + _offset
+	_apply_shake()
 	shake_changed.emit(_offset)
+
+
+## Camera2D has a dedicated `offset` for exactly this; anything else gets moved bodily
+## (with its authored position remembered so repeated leans don't drift it).
+func _apply_shake() -> void:
+	if shake_target == null or not is_instance_valid(shake_target):
+		return
+	if shake_target is Camera2D:
+		(shake_target as Camera2D).offset = _offset
+		return
+	if not _base_captured:
+		_base = shake_target.position
+		_base_captured = true
+	shake_target.position = _base + _offset

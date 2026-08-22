@@ -33,6 +33,9 @@ echo "boot ok"
 
 # Physics/gameplay scenario sims: each scene must run its scripted scenario headless and
 # quit itself with exit code 0 on success, non-zero on failure (they print their own report).
+# NOTE: the grep below matches SCRIPT ERROR only, deliberately — Godot prints a benign
+# "ERROR: N resources still in use at exit" during sim shutdown; widening the pattern to
+# plain ERROR would fail every sim for no reason.
 for SIM in tests/sim/*.tscn; do
 	[ -e "$SIM" ] || continue
 	echo "== sim: $SIM =="

@@ -9,6 +9,7 @@ extends RigidBody2D
 signal hit_wall(strength: float)
 
 const RIM_WIDTH := 4.0
+const WALL_TAP_SPEED := 700.0   ## below this a wall hit is silent — no machine-gun ticking
 
 var top_speed: float = 0.0          ## fastest this ball has been (debug HUD)
 var launched: bool = false          ## has left the shooter lane under power at least once
@@ -84,8 +85,12 @@ func _process(delta: float) -> void:
 
 
 func _on_body_entered(body: Node) -> void:
-	if body is StaticBody2D and (body.collision_layer & Feel.LAYER_WALLS) != 0:
-		hit_wall.emit(speed())
+	if not (body is StaticBody2D) or ((body as StaticBody2D).collision_layer & Feel.LAYER_WALLS) == 0:
+		return
+	var s := speed()
+	hit_wall.emit(s)
+	if s > WALL_TAP_SPEED:
+		AudioDirector.play(&"wall_tap")
 
 
 func _draw() -> void:

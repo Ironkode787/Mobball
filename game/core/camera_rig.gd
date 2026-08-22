@@ -15,6 +15,13 @@ extends Camera2D
 var target: Node2D = null
 
 
+## Physics interpolation is on project-wide, so Camera2D is forced into physics-process mode
+## regardless. Declaring it before the node enters the tree just stops the engine warning
+## about it on every single boot.
+func _init() -> void:
+	process_callback = Camera2D.CAMERA2D_PROCESS_PHYSICS
+
+
 func _ready() -> void:
 	enabled = true
 	make_current()
@@ -26,7 +33,9 @@ func set_target(t: Node2D) -> void:
 	target = t
 
 
-func _process(delta: float) -> void:
+## Runs on the physics tick, not the idle frame: with interpolation on, an idle-frame write
+## to `position` fights the interpolator instead of feeding it.
+func _physics_process(delta: float) -> void:
 	if not follow_enabled:
 		return
 	if target == null or not is_instance_valid(target):

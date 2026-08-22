@@ -8,7 +8,9 @@ extends TableSegment
 ##   · flipper pivots moved out to x=293/687 so the *surface* gap between the bat tips is the
 ##     ~66 px the spec asks for (the spec's 312/668 leaves only 33 px — a 56 px ball can't drain).
 ##   · slingshots moved inward so their outer edge forms the inlane's inner wall; at the
-##     spec's x=196 the sling sat inside the inlane and sealed it shut.
+##     spec's x=196 the sling sat inside the inlane and sealed it shut. Their top edge is
+##     raked rather than horizontal: a flat ledge anywhere on a playfield is somewhere a
+##     ball can sit down and stop, and the soak caught it doing exactly that.
 ##   · the lane/playfield divider is 20 px thick (spec: 6) — nothing thinner than 12 px is
 ##     allowed to be a wall here — and its top sits at y=430 rather than y=340: at 340 the
 ##     wall's cap stands inside the curve a launched ball traces round the arch, and every
@@ -50,7 +52,7 @@ const OUTLANE_X := 150.0
 const OUTLANE_TOP := 1440.0
 const OUTLANE_BOTTOM := 1580.0
 const INLANE_END := Vector2(296.0, 1668.0)
-const SLING_CORNER := Vector2(256.0, 1430.0)
+const SLING_CORNER := Vector2(256.0, 1494.0)
 const SLING_TOP := Vector2(368.0, 1430.0)
 const SLING_BOTTOM := Vector2(256.0, 1560.0)
 const MIRROR_X := 490.0
@@ -310,6 +312,7 @@ func _update_gate() -> void:
 		return
 	_gate_closed = want_closed
 	_gate.collision_layer = Feel.LAYER_WALLS if want_closed else 0
+	queue_redraw()
 	if not want_closed:
 		AudioDirector.play(&"wall_tap")
 

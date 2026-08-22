@@ -30,7 +30,10 @@ Feel targets, tuned in M0 before anything else exists ([10-ROADMAP](10-ROADMAP.m
 
 - **120 Hz fixed-tick physics** with continuous collision detection; render interpolated at 60fps. A tunneling ball is a dead game.
 - **Flippers snap.** Full extension in ≤ 45ms, with a tuned power curve along the bat (tip = fast/flat, base = slow/high). Input buffer of ~50ms so mobile touch latency never eats a flip.
-- **The ball is heavy.** Gravity ~5.5–6.5 m/s² table-relative (steeper than most mobile pinball — we want danger), high ball mass, low bounciness on steel, controlled bounce on rubbers.
+- **The ball is heavy.** *(Settled in M0: 3800 px/s² at the 1080-wide scale — the original
+  5.5–6.5 m/s² figure mapped to ~10k px/s² and was uncontrollable; current value gives a
+  ~1.0 s full-table drop and validated flipper control. Revisit only with hands on a device.)*
+  High ball mass, low bounciness on steel, controlled bounce on rubbers.
 - **Live catch, dead bounce, drop catch, post pass, tap pass** must all be physically possible. We tune until an experienced pinball player can do their whole toolkit. This is the skill ceiling and it's sacred (P2).
 - **Slow-mo drama frames:** 80ms micro-slowdowns on jackpot shots and near-drain saves. Never during aimed play.
 - Camera: smart vertical follow with look-ahead, slight zoom-out during multiball ([09-TECH](09-TECH.md)).

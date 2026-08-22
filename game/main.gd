@@ -47,6 +47,22 @@ func _ready() -> void:
 	if auto_start:
 		table.spawn_ball()
 
+	AudioDirector.music_start()
+	AudioDirector.music_set_level(_music_level)
+
+
+## Debug: M cycles the empire's music level 0..8 so the growing band can be auditioned.
+var _music_level: int = 2
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	if key == null or not key.pressed or key.echo:
+		return
+	if key.physical_keycode == KEY_M:
+		_music_level = (_music_level + 1) % 9
+		AudioDirector.music_set_level(_music_level)
+
 
 func _on_ball_spawned(ball: Ball) -> void:
 	nudge.set_ball(ball)

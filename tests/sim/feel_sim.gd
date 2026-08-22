@@ -30,16 +30,26 @@ var _bound_escapes: int = 0
 var _worst: Vector2 = Vector2.ZERO
 var _fired: Dictionary = {&"left": 0, &"right": 0}
 var _tilt_count: int = 0
+var _switches: int = 0
+var _dirty: int = 0
+var _last_pos: Vector2 = Vector2.INF
+var _still: int = 0
+var _still_max: int = 0
+var _still_at: Vector2 = Vector2.ZERO
 
 
 var soak_seconds: float = SOAK_SECONDS
+var soak_seed: int = SEED
 
 
 func _ready() -> void:
+	# --soak=<s> / --seed=<n> after a bare `--` let this be fuzzed; check.sh passes neither.
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--soak="):
 			soak_seconds = maxf(arg.split("=")[1].to_float(), 0.5)
-	_rng.seed = SEED
+		elif arg.begins_with("--seed="):
+			soak_seed = arg.split("=")[1].to_int()
+	_rng.seed = soak_seed
 	main = MAIN_SCENE.instantiate()
 	main.auto_start = false
 	main.show_hud = false
@@ -48,6 +58,9 @@ func _ready() -> void:
 	table.auto_respawn = false
 	Events.flipper_fired.connect(func(side: StringName) -> void: _fired[side] = int(_fired[side]) + 1)
 	Events.tilted.connect(func() -> void: _tilt_count += 1)
+	Events.scored.connect(func(_id: StringName, v: int) -> void:
+		_switches += 1
+		_dirty += v)
 	_run()
 
 
@@ -104,6 +117,16 @@ func _physics_process(_delta: float) -> void:
 	var p := b.global_position
 	_worst.x = maxf(_worst.x, absf(p.x - 540.0))
 	_worst.y = maxf(_worst.y, p.y)
+	# a ball that stops moving for seconds on end is wedged in geometry, which the bounds
+	# assert alone would happily call a pass
+	if _last_pos != Vector2.INF and p.distance_to(_last_pos) < 0.5:
+		_still += 1
+		if _still > _still_max:
+			_still_max = _still
+			_still_at = p
+	else:
+		_still = 0
+	_last_pos = p
 	if p.x < BOUND_MIN.x or p.x > BOUND_MAX.x or p.y < BOUND_MIN.y or p.y > BOUND_MAX.y:
 		_bound_escapes += 1
 		if _bound_escapes <= 5:
@@ -114,7 +137,7 @@ func _physics_process(_delta: float) -> void:
 
 func _run() -> void:
 	print("== KINGPIN M0 feel sim ==")
-	print("physics %d Hz | seed 0x%X" % [Engine.physics_ticks_per_second, SEED])
+	print("physics %d Hz | seed 0x%X" % [Engine.physics_ticks_per_second, soak_seed])
 	await step(4)
 
 	await _s1_no_tunnel()
@@ -131,6 +154,9 @@ func _run() -> void:
 	print("---")
 	print("scenarios: %d  passed: %d  failed: %d" % [_results.size(), _results.size() - failed, failed])
 	print("OK" if failed == 0 else "SIM FAILED")
+	table.despawn_ball()
+	main.queue_free()
+	await step(2)
 	get_tree().quit(0 if failed == 0 else 1)
 
 
@@ -145,6 +171,9 @@ func _s1_no_tunnel() -> void:
 
 	_bound_escapes = 0
 	_worst = Vector2.ZERO
+	_still = 0
+	_still_max = 0
+	_last_pos = Vector2.INF
 	_watch_bounds = true
 
 	var total := ticks(soak_seconds)
@@ -178,10 +207,13 @@ func _s1_no_tunnel() -> void:
 	main.nudge.clear_tilt()
 	table.auto_respawn = false
 
-	print("        balls served %d | relaunches %d | max |x-540| %.0f | max y %.0f"
-			% [table.balls_served, relaunches, _worst.x, _worst.y])
+	var stuck := float(_still_max) / float(Engine.physics_ticks_per_second)
+	print("        balls served %d | relaunches %d | switches %d ($%d) | max |x-540| %.0f | max y %.0f | longest still %.1fs at %s"
+			% [table.balls_served, relaunches, _switches, _dirty, _worst.x, _worst.y, stuck, _still_at])
 	check(_bound_escapes == 0, "ball escaped table bounds %d times" % _bound_escapes)
 	check(table.balls_served >= 1, "no ball was ever served")
+	check(_switches > 0, "no hardware was ever hit — the ball never reached the playfield")
+	check(stuck < 2.0, "ball sat motionless for %.1fs — wedged in geometry" % stuck)
 	finish()
 
 

@@ -14,9 +14,11 @@ const BALL_FRICTION := 1.0
 const BALL_BOUNCE := 0.0
 
 # --- surfaces ---
+# Rule of thumb: any surface a ball is not meant to park on must be steeper than its own
+# friction coefficient, or the ball sits down on it and the night stops.
 const WALL_FRICTION := 0.14
 const WALL_BOUNCE := 0.28
-const RUBBER_FRICTION := 0.45
+const RUBBER_FRICTION := 0.30
 const RUBBER_BOUNCE := 0.42
 const FLIPPER_FRICTION := 0.78
 const FLIPPER_BOUNCE := 0.10
@@ -53,6 +55,7 @@ const TILT_DECAY_SECONDS := 7.0
 const BUMPER_RADIUS := 46.0
 const BUMPER_IMPULSE := 900.0
 const BUMPER_COOLDOWN := 0.10
+const HARDWARE_STALL_SPEED := 80.0    # a ball asleep on live hardware gets popped loose
 const BUMPER_VALUE := 10
 const SLING_IMPULSE := 750.0
 const SLING_COOLDOWN := 0.08

@@ -33,6 +33,7 @@ func _ready() -> void:
 	_charge.offset_top = -46.0
 	_charge.offset_bottom = -14.0
 	_charge.max_value = 1.0
+	_charge.step = 0.001
 	_charge.show_percentage = false
 	_charge.value = 0.0
 	_charge.mouse_filter = Control.MOUSE_FILTER_IGNORE

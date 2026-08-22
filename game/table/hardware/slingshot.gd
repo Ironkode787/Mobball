@@ -12,6 +12,7 @@ var face_normal: Vector2 = Vector2.UP
 var _cooldown: float = 0.0
 var _pulse: float = 0.0
 var _band: Area2D = null
+var _inside: Array[Ball] = []
 
 
 ## p0 is the square corner; p1 → p2 is the kicker face. Coordinates are table-space.
@@ -58,6 +59,7 @@ func _ready() -> void:
 	_band.add_child(bs)
 	add_child(_band)
 	_band.body_entered.connect(_on_ball_entered)
+	_band.body_exited.connect(_on_ball_exited)
 
 
 func _process(delta: float) -> void:
@@ -68,13 +70,35 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	if _inside.is_empty():
+		return
+	for i in range(_inside.size() - 1, -1, -1):
+		if not is_instance_valid(_inside[i]):
+			_inside.remove_at(i)
+	if _cooldown > 0.0:
+		return
+	for b in _inside:                      # nothing sleeps on a live kicker face
+		if b.speed() < Feel.HARDWARE_STALL_SPEED:
+			_kick(b)
+			return
+
+
+func _on_ball_exited(body: Node2D) -> void:
+	if body is Ball:
+		_inside.erase(body as Ball)
 
 
 func _on_ball_entered(body: Node2D) -> void:
-	if _cooldown > 0.0 or not (body is Ball):
+	if not (body is Ball):
 		return
+	_inside.append(body as Ball)
+	if _cooldown > 0.0:
+		return
+	_kick(body as Ball)
+
+
+func _kick(ball: Ball) -> void:
 	_cooldown = Feel.SLING_COOLDOWN
-	var ball: Ball = body
 	var dir := (face_normal.rotated(global_rotation)).normalized()
 	ball.kick(dir * Feel.SLING_IMPULSE)
 	_pulse = 1.0
