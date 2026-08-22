@@ -118,27 +118,27 @@ func _test_earn_credits_over_the_window(t: TestCtx) -> void:
 	drip.tick(1000.0)
 	t.near(drip.value, 1.0, 1e-6, "100 small earns credit the same +1 as one big one")
 
-	# Scale: $500k at the R0 scale of $50k is ten units.
+	# Scale: ten rank-scales of dirty is ten units, whatever the scale is set to.
 	var burst := _quiet_meter()
-	burst.on_dirty_earned(BigMoney.of(5.0, 5), _r0())
+	burst.on_dirty_earned(_r0().mul(10.0), _r0())
 	burst.tick(1000.0)
-	t.near(burst.value, 10.0, 1e-9, "$500k at R0 scale is +10 heat")
+	t.near(burst.value, 10.0, 1e-9, "10x the R0 scale is +10 heat")
 
-	# Rank scaling: the same $500k at R1 ($500k per unit) is one unit.
+	# Rank scaling: one R1 rank-scale of dirty at the R1 threshold is one unit.
 	var ranked := _quiet_meter()
-	ranked.on_dirty_earned(BigMoney.of(5.0, 5), Rates.rank_scale(1))
+	ranked.on_dirty_earned(Rates.rank_scale(1), Rates.rank_scale(1))
 	ranked.tick(1000.0)
-	t.near(ranked.value, 1.0, 1e-9, "the same haul at R1 is only +1 heat")
+	t.near(ranked.value, 1.0, 1e-9, "one R1-scale haul at R1 is only +1 heat")
 
 
 func _test_step_size_independence(t: TestCtx) -> void:
 	# The window integration is closed-form, so the balance sim can take huge steps.
 	var coarse := _quiet_meter()
-	coarse.on_dirty_earned(BigMoney.of(5.0, 5), _r0())
+	coarse.on_dirty_earned(_r0().mul(10.0), _r0())
 	coarse.tick(4.0)
 
 	var fine := _quiet_meter()
-	fine.on_dirty_earned(BigMoney.of(5.0, 5), _r0())
+	fine.on_dirty_earned(_r0().mul(10.0), _r0())
 	for i in 400:
 		fine.tick(0.01)
 
@@ -235,7 +235,7 @@ func _test_tick_guards(t: TestCtx) -> void:
 
 
 func _test_scripted_night(t: TestCtx) -> void:
-	# A hot streak: $500k of dirty every second at R0 rank scale. Heat should climb
+	# A hot streak: six rank-scales of dirty every second. Heat should climb
 	# through every band and end in a raid, with the multiplier tracking the table.
 	var h := HeatMeter.new()
 	# Lambdas capture locals by value, so a counter has to live in a reference type.
@@ -246,8 +246,8 @@ func _test_scripted_night(t: TestCtx) -> void:
 
 	var last := -1.0
 	var monotonic := true
-	for i in 20:
-		h.on_dirty_earned(BigMoney.of(5.0, 5), _r0())
+	for i in 30:
+		h.on_dirty_earned(_r0().mul(6.0), _r0())
 		h.tick(1.0)
 		if h.value < last:
 			monotonic = false
@@ -255,7 +255,7 @@ func _test_scripted_night(t: TestCtx) -> void:
 		t.ok(h.multiplier() == Rates.heat_multiplier(h.value), "multiplier tracks the table at step %d" % i)
 
 	t.ok(monotonic, "heat climbs monotonically while the earnings keep coming")
-	t.eq(h.value, 100.0, "a sustained $500k/s streak pins the meter")
+	t.eq(h.value, 100.0, "a sustained hot streak pins the meter")
 	t.eq(h.band(), 4, "which is the raid band")
 	t.eq(h.multiplier(), 4.0, "the raid band still pays x4.0")
 	t.eq(seen_bands, [1, 2, 3, 4], "every band was entered exactly once, in order")

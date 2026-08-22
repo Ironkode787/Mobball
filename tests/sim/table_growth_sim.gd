@@ -180,6 +180,27 @@ func earned_total() -> float:
 	return sum
 
 
+## One effect value read straight out of the shipped Ledger data. These scenarios are about
+## the *plumbing* — that a multiplier or a flat add reaches the payout at all — not about
+## what design has the number set to this week, so the expected value comes from the same
+## file the game reads rather than from a second copy of it in here.
+func effect_value(node_id: String, kind: String, target: String) -> float:
+	var parsed: Variant = JSON.parse_string(
+			FileAccess.get_file_as_string(FixtureStats.FIXTURE_UPGRADES_PATH))
+	if not (parsed is Dictionary):
+		return 0.0
+	for entry: Variant in (parsed as Dictionary).get("nodes", []):
+		if not (entry is Dictionary) or String((entry as Dictionary).get("id", "")) != node_id:
+			continue
+		for effect: Variant in (entry as Dictionary).get("effects", []):
+			var e := effect as Dictionary
+			if String(e.get("kind", "")) != kind or String(e.get("target", "")) != target:
+				continue
+			var v: Variant = e.get("value", 0.0)
+			return BigMoney.parse(str(v)).approx_float() if v is String else float(v)
+	return 0.0
+
+
 func hit_switch(id: String) -> bool:
 	for s in _switches:
 		if s == id:
@@ -299,8 +320,10 @@ func _s2_dormant_is_absent() -> void:
 func _s3_switch_values() -> void:
 	begin("switch values (T3)")
 	var stats := use("T3")
-	near(stats.flipper_power(), 1.05 * 1.1, 0.0001, "T3 flipper power (fresh rubbers + steel toes)")
-	near(table.flipper_left.power_scale, 1.05 * 1.1, 0.0001, "flippers took the Stats power")
+	check(stats.flipper_power() > 1.0,
+			"T3 buys two bat upgrades; Stats reports %.4f" % stats.flipper_power())
+	near(table.flipper_left.power_scale, stats.flipper_power(), 0.0001,
+			"flippers took the Stats power")
 
 	await _expect_hit("bumper", table._bumpers[0].global_position + Vector2(-73.0, 0.0),
 			Vector2.ZERO, "bumper_1", &"bumpers", TableScore.BUMPER)
@@ -389,23 +412,29 @@ func _expect_hit(what: String, at: Vector2, velocity: Vector2, switch_id: String
 ## 4 — the Ledger's multipliers and flat adds reach the table's payouts.
 func _s4_multipliers() -> void:
 	begin("stats multipliers reach the switch")
+	var can_mult := effect_value("rackets.can_deposits", "value_mult", "bumpers")
+	check(can_mult > 1.0, "Can Deposits is not a multiplier any more (%.3f)" % can_mult)
 	Game.stats = FixtureStats.new({"rackets.can_deposits": 2})
 	table.refresh_hardware()
 	reset_log()
 	await drop_at(table._bumpers[0].global_position + Vector2(-73.0, 0.0))
 	var e := first_earn()
-	near(float(e.get("amount", 0.0)), TableScore.BUMPER * 1.25 * 1.25, 0.001,
-			"two levels of Can Deposits on a $10 can")
+	near(float(e.get("amount", 0.0)), TableScore.BUMPER * can_mult * can_mult, 0.001,
+			"two levels of Can Deposits on a $%d can" % int(TableScore.BUMPER))
 	table.despawn_ball()
 
-	# The Getaway Loop carries value_add orbit +500, so a T3 orbit is worth 1000, not 500.
+	# The Getaway Loop carries a flat value_add on the orbit group, so a T3 orbit is worth
+	# the switch's base plus that add.
+	var orbit_add := effect_value("rackets.getaway_loop", "value_add", "orbit")
+	check(orbit_add > 0.0, "the Getaway Loop no longer adds to the orbit")
 	use("T3")
 	await _orbit_run()
 	var orbit_pay := last_earn_in(&"orbit")
-	near(float(orbit_pay.get("amount", 0.0)), TableScore.ORBIT + 500.0, 0.001,
+	near(float(orbit_pay.get("amount", 0.0)), TableScore.ORBIT + orbit_add, 0.001,
 			"orbit with the loop's flat add")
-	print("        can ×1.5625 = $%.2f | orbit $%d + $500 add"
-			% [TableScore.BUMPER * 1.5625, int(TableScore.ORBIT)])
+	print("        can ×%.4f = $%.2f | orbit $%d + $%.0f add"
+			% [can_mult * can_mult, TableScore.BUMPER * can_mult * can_mult,
+			int(TableScore.ORBIT), orbit_add])
 	finish()
 
 
@@ -630,7 +659,7 @@ func _s10_purchase_refresh() -> void:
 	check(table.hardware_present(&"orbit_left"),
 			"the getaway loop did not appear on upgrade_purchased")
 	check(table.storefronts[0].bank_enabled, "the laundromat bank did not arrive with it")
-	near(table.flipper_left.power_scale, 1.05 * 1.1, 0.0001,
+	near(table.flipper_left.power_scale, Game.stats.flipper_power(), 0.0001,
 			"flipper power did not follow the purchase")
 	finish()
 
