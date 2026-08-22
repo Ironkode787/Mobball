@@ -11,6 +11,9 @@ extends RefCounted
 
 ## Seconds of night time between draws.
 const PERIOD := 90.0
+## The T5 Wiretap (`influence.wiretap_wire`) shows the next number this long before it lands —
+## which turns the spinner lane into a precision instrument under a clock (docs/05 §4).
+const WIRETAP_LEAD := 15.0
 const NUMBERS := 100
 const LAST_DIGIT_MULT := 6.0
 const EXACT_MULT := 80.0
@@ -55,6 +58,14 @@ func begin_night(seed_value: int, night_no: int) -> void:
 
 ## The number that is coming (the Wiretap's whole product). Never consumed by reading it.
 func peek() -> int:
+	return _next
+
+
+## What the tote board is allowed to show early: the next number once it is inside the
+## Wiretap's lead, or -1 when the player has not bought the ear for it.
+func early_number(wiretapped: bool) -> int:
+	if not wiretapped or time_left > WIRETAP_LEAD:
+		return -1
 	return _next
 
 

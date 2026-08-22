@@ -256,12 +256,15 @@ func launder_cap_left() -> BigMoney:
 
 
 ## One `roulette_landed`. Stakes 5% of held dirty (capped by rank), resolves it, pays it.
+## A comped stake (`fronts.comps`) is the house's money: the bet is placed and paid exactly
+## as usual, the wallet is simply never asked.
 func casino_roulette(pocket: int, house: bool) -> Dictionary:
 	var stake := Casino.stake_for(wallet.dirty, rank)
-	if stake.is_positive() and not wallet.spend_dirty(stake):
+	var comped := casino.take_comp(stake)
+	if stake.is_positive() and not comped and not wallet.spend_dirty(stake):
 		stake = BigMoney.zero()
 	var result := casino.resolve(pocket, house, stake, Casino.payout_rate(stats),
-			Casino.wash_active(stats), Casino.cooler_bonus(stats))
+			Casino.wash_active(stats), Casino.cooler_bonus(stats), comped)
 	var won: BigMoney = result["won"]
 	var paid := _pay_casino(won, bool(result["clean"]), &"roulette_wheel")
 	result["paid"] = paid
@@ -442,7 +445,7 @@ func start_night() -> void:
 	jobs.roll(rank, stats, stats.job_slots(), _rng)
 	jobs.begin_night()
 	combo.reset_night()
-	casino.begin_night()
+	casino.begin_night(Casino.comps_for(stats))
 	meeting.begin_night()
 	collection.begin_night()
 	wire.begin_night(session_seed, night_no)

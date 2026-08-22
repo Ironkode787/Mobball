@@ -43,6 +43,8 @@ class CasinoRules:
 	const COOLER_STREAK := 5
 	const COOLER_BONUS := 0.5
 	const COOLER_BONUS_FIRED := 1.0
+	## Comps: the house buys this many stakes a Night once `fronts.comps` is owned.
+	const COMPS_PER_NIGHT := 1
 	## High Roller ladder, indexed by the rungs the hold climbed (0 = no hold).
 	const HIGH_ROLLER_MULT: PackedFloat32Array = [1.0, 2.0, 3.0, 5.0]
 	const HIGH_ROLLER_HEAT: PackedFloat32Array = [0.0, 3.0, 6.0, 12.0]
@@ -55,6 +57,7 @@ class CasinoRules:
 ## house pays you in the same dirty money you gave it — the wash is a purchase, not a given.
 const WASH_FLAG := &"casino_wash"
 const COOLERS_FIRED_FLAG := &"coolers_fired"
+const COMPS_FLAG := &"comps"
 
 # --- tonight's book -----------------------------------------------------------
 var night_staked: BigMoney = BigMoney.zero()
@@ -63,6 +66,8 @@ var night_washed: BigMoney = BigMoney.zero()
 var night_spins: int = 0
 var night_wins: int = 0
 var night_jackpots: int = 0
+## Stakes the house is still buying tonight (`fronts.comps`).
+var comps_left: int = 0
 
 # --- the career book (saved) --------------------------------------------------
 var total_staked: BigMoney = BigMoney.zero()
@@ -131,6 +136,21 @@ static func cooler_bonus(stats: Object) -> float:
 	return CasinoRules.COOLER_BONUS
 
 
+## Free stakes a Night: the house comps a regular (`fronts.comps`, specs/m2-content.md §3).
+static func comps_for(stats: Object) -> int:
+	if stats != null and stats.has_method("flag") and bool(stats.call("flag", COMPS_FLAG)):
+		return CasinoRules.COMPS_PER_NIGHT
+	return 0
+
+
+## Is the house buying this one? Consumes the comp, so ask once per bet.
+func take_comp(stake: BigMoney) -> bool:
+	if comps_left <= 0 or stake == null or not stake.is_positive():
+		return false
+	comps_left -= 1
+	return true
+
+
 ## Return per unit staked, minus the unit: −0.075 on a bare wheel. Positive means the house
 ## is losing, which is exactly what full Influence investment is supposed to buy.
 static func expected_value(stats: Object) -> float:
@@ -165,8 +185,12 @@ func armed_multiplier() -> float:
 ##
 ## Order of multipliers on a win: base payout → Cooler apology → the armed High Roller ladder.
 ## The ladder is consumed whether or not the Cooler fired; the streak resets on any win.
+##
+## A `comped` spin is the same bet with the house's money: it plays and pays exactly like any
+## other, but it is not booked as staked, because The Count's staked line is what came out of
+## the player's pocket.
 func resolve(pocket: int, house: bool, stake: BigMoney, payout: float,
-		wash: bool, pity: float = CasinoRules.COOLER_BONUS) -> Dictionary:
+		wash: bool, pity: float = CasinoRules.COOLER_BONUS, comped: bool = false) -> Dictionary:
 	var out := {
 		"pocket": pocket,
 		"house": house,
@@ -175,6 +199,7 @@ func resolve(pocket: int, house: bool, stake: BigMoney, payout: float,
 		"won": BigMoney.zero(),
 		"clean": wash,
 		"cooler": false,
+		"comped": comped,
 		"multiplier": 1.0,
 		"payout": payout,
 		"streak": loss_streak,
@@ -183,9 +208,10 @@ func resolve(pocket: int, house: bool, stake: BigMoney, payout: float,
 		return out
 
 	out["bet"] = true
-	out["staked"] = stake
-	night_staked = night_staked.add(stake)
-	total_staked = total_staked.add(stake)
+	out["staked"] = BigMoney.zero() if comped else stake
+	if not comped:
+		night_staked = night_staked.add(stake)
+		total_staked = total_staked.add(stake)
 	night_spins += 1
 	total_spins += 1
 
@@ -274,13 +300,14 @@ static func jackpot_value(idle_rate: BigMoney) -> BigMoney:
 # ====================================================================== the book =====
 
 
-func begin_night() -> void:
+func begin_night(free_stakes: int = 0) -> void:
 	night_staked = BigMoney.zero()
 	night_won = BigMoney.zero()
 	night_washed = BigMoney.zero()
 	night_spins = 0
 	night_wins = 0
 	night_jackpots = 0
+	comps_left = maxi(free_stakes, 0)
 	armed = 1.0
 	close_visit()
 

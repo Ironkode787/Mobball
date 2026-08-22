@@ -219,8 +219,13 @@ func _wire_text() -> String:
 		ticket = posmod(int(TableAPI.call_if(live.table, "spinner_spins", [], 0)),
 				WireDraws.NUMBERS)
 	var drawn := "--" if Game.wire.last_number < 0 else "%02d" % Game.wire.last_number
-	return "THE WIRE   ·   DREW %s   ·   YOUR TICKET %02d   ·   NEXT %ds" \
+	var line := "THE WIRE   ·   DREW %s   ·   YOUR TICKET %02d   ·   NEXT %ds" \
 			% [drawn, ticket, int(ceilf(maxf(Game.wire.time_left, 0.0)))]
+	# The Wiretap: the number arrives before the draw does, and the spinner is the bet slip.
+	var early := Game.wire.early_number(Game.stats.flag(&"wiretap_wire"))
+	if early >= 0:
+		line += "   ·   WIRETAP SAYS %02d" % early
+	return line
 
 
 func _casino_text() -> String:

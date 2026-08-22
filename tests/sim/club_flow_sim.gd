@@ -190,6 +190,7 @@ func _run() -> void:
 	await _s5_collection_round()
 	await _s6_cooler_pity()
 	await _s7_slippery_outlane()
+	await _s8_influence_nodes()
 
 	var failed := 0
 	for r: Dictionary in _results:
@@ -655,4 +656,67 @@ func _s7_slippery_outlane() -> void:
 	check(main.night.guys_lost == lost_before + 1, "the Night did not count the pinch")
 	print("        %s (%s) slipped once, then went inside" % [String(guy.get("name", "?")),
 			GuyTraits.label(GuyTraits.SLIPPERY)])
+	finish()
+
+
+## 8 — the Influence nodes bite. Loaded Dice and Eddie Odds buy edge points, `coolers_fired`
+## doubles the apology, and `fronts.comps` puts the first stake of the Night on the house
+## (specs/m2-content.md §1/§3). Influence buys the odds, never the outcome (P2).
+func _s8_influence_nodes() -> void:
+	begin("influence: edge points, a doubled Cooler and a comped stake")
+	Game.heat.reset()
+	var base_payout := Casino.payout_rate(Game.stats)
+	var base_ev := Casino.expected_value(Game.stats)
+	check(is_equal_approx(base_payout, Casino.CasinoRules.PAYOUT),
+			"the wheel should still be at its base 1.48x, reads %.3f" % base_payout)
+
+	for i in range(12):
+		Game.buy_upgrade("influence.loaded_dice", BigMoney.zero())
+	var bought_payout := Casino.payout_rate(Game.stats)
+	var bought_ev := Casino.expected_value(Game.stats)
+	check(bought_payout > base_payout,
+			"Loaded Dice bought no payout at all (%.3f)" % bought_payout)
+	check(bought_payout <= Casino.CasinoRules.PAYOUT_MAX + 1e-9,
+			"the payout ran past the design ceiling to %.3f" % bought_payout)
+	check(bought_ev > base_ev, "the edge did not move the EV")
+	check(Game.stats.casino_edge_add() > 0.0, "Stats reports no edge for an owned node")
+
+	# The odds are what moved, not the wheel: a house pocket still takes the stake.
+	Game.wallet.earn_dirty(BigMoney.from_float(200_000.0))
+	_casino_events.clear()
+	table.emit_signal(&"roulette_landed", HOUSE_POCKET, true)
+	await step(2)
+	check(not money(_casino_events[0]["won"]).is_positive(),
+			"buying edge started paying out house pockets")
+
+	Game.buy_upgrade("influence.coolers_fired", BigMoney.zero())
+	check(is_equal_approx(Casino.cooler_bonus(Game.stats), Casino.CasinoRules.COOLER_BONUS_FIRED),
+			"coolers_fired did not double the apology")
+
+	# Comps: the first stake of a Night is the house's money.
+	Game.buy_upgrade("fronts.comps", BigMoney.zero())
+	Game.casino.begin_night(Casino.comps_for(Game.stats))
+	check(Game.casino.comps_left == Casino.CasinoRules.COMPS_PER_NIGHT,
+			"a comped career opened the Night with %d free stakes" % Game.casino.comps_left)
+	var dirty_before := Game.wallet.dirty
+	_casino_events.clear()
+	table.emit_signal(&"roulette_landed", PLAYER_POCKET, false)
+	await step(2)
+	var comped: Dictionary = _casino_events[0]
+	check(bool(comped["comped"]), "the first stake of the Night was not comped")
+	check(not money(comped["staked"]).is_positive(), "a comped stake was booked against the player")
+	check(money(comped["won"]).is_positive(), "a comped bet did not pay")
+	check(Game.wallet.dirty.cmp(dirty_before) >= 0,
+			"the comped stake came out of the wallet anyway")
+
+	dirty_before = Game.wallet.dirty
+	_casino_events.clear()
+	table.emit_signal(&"roulette_landed", HOUSE_POCKET, true)
+	await step(2)
+	check(not bool(_casino_events[0]["comped"]), "the house comped a second stake")
+	check(Game.wallet.dirty.cmp(dirty_before) < 0, "the second stake was free too")
+	print("        payout %.3f -> %.3f | EV %.4f -> %.4f | pockets %d/%d | comps %d"
+			% [base_payout, bought_payout, base_ev, bought_ev,
+				Casino.player_pockets(Game.stats), Casino.CasinoRules.POCKETS,
+				Casino.CasinoRules.COMPS_PER_NIGHT])
 	finish()

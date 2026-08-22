@@ -9,6 +9,7 @@ const SAVE_PATH := "user://test_flow_casino.json"
 func run(t: TestCtx) -> void:
 	_odds(t)
 	_stakes(t)
+	_comps(t)
 	_cooler(t)
 	_high_roller(t)
 	_jackpot(t)
@@ -84,6 +85,36 @@ func _stakes(t: TestCtx) -> void:
 	t.ok(not bool(no_bet["bet"]), "no stake, no bet")
 	t.eq(c.night_spins, 0, "and no spin on the book")
 	t.eq(c.loss_streak, 0, "a landing you could not bet on is not a loss")
+
+
+## `fronts.comps`: the house buys a regular one stake a Night. It plays like any other bet
+## and it never shows up on the player's staked line, because it did not cost him anything.
+func _comps(t: TestCtx) -> void:
+	var c := Casino.new()
+	var stake := BigMoney.from_float(100.0)
+	c.begin_night(0)
+	t.ok(not c.take_comp(stake), "with no comps bought, nobody is buying")
+
+	c.begin_night(Casino.CasinoRules.COMPS_PER_NIGHT)
+	t.eq(c.comps_left, 1, "comps arrive one a Night")
+	t.ok(not c.take_comp(BigMoney.zero()), "a bet that was never placed does not burn one")
+	t.ok(c.take_comp(stake), "the first stake of the Night is on the house")
+	t.ok(not c.take_comp(stake), "and only the first")
+
+	var free_win := c.resolve(1, false, stake, 1.48, true, Casino.CasinoRules.COOLER_BONUS, true)
+	t.ok(bool(free_win["bet"]), "a comped spin is a real bet")
+	t.ok(bool(free_win["comped"]), "flagged as the house's money")
+	t.ok((free_win["won"] as BigMoney).equals_approx(stake.mul(1.48), 1e-9), "and it pays in full")
+	t.ok(not (free_win["staked"] as BigMoney).is_positive(), "but it cost the player nothing")
+	t.ok(not c.night_staked.is_positive(), "so the Count's staked line stays honest")
+	t.eq(c.night_spins, 1, "the spin still happened")
+
+	c.resolve(0, true, stake, 1.48, true)
+	t.ok(c.night_staked.equals_approx(stake, 1e-9), "a paid-for spin books its stake")
+
+	# A fresh Night hands the regular another one.
+	c.begin_night(Casino.CasinoRules.COMPS_PER_NIGHT)
+	t.ok(c.take_comp(stake), "next Night, next comp")
 
 
 # --- the Cooler ---------------------------------------------------------------

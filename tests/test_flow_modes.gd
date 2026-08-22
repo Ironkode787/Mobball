@@ -81,6 +81,18 @@ func _wire_tickets(t: TestCtx) -> void:
 	t.eq(int(result["ticket"]), 34, "the ticket is the last two digits of the spin count")
 	t.eq(int(w2.draw(-1, spinner)["ticket"]), 99, "and a negative count still reads as a slip")
 
+	# The T5 Wiretap: the number arrives before the draw does, but only inside its lead.
+	var tap := WireDraws.new()
+	tap.begin_night(11, 1)
+	t.eq(tap.early_number(false), -1, "without the Wiretap the board keeps its number")
+	t.eq(tap.early_number(true), -1, "and it stays quiet until the draw is close")
+	tap.tick(WireDraws.PERIOD - WireDraws.WIRETAP_LEAD + 0.1)
+	t.eq(tap.early_number(true), tap.peek(), "inside the lead it shows the next number")
+	t.eq(tap.early_number(false), -1, "to the people who bought the ear for it")
+	var told := tap.early_number(true)
+	t.eq(int(tap.draw(told, BigMoney.zero())["number"]), told,
+			"and the number it told you is the number it draws")
+
 	var floor_amount := BigMoney.of(WireDraws.MIN_BASE_MANTISSA, WireDraws.MIN_BASE_EXP)
 	t.ok(WireDraws.base_for(BigMoney.zero()).equals_approx(floor_amount, 1e-9),
 			"a Night with a cold spinner still has a $500 base")
