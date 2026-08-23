@@ -349,10 +349,12 @@ func launder_cap_mult() -> float:
 ## inside `Game.earn_switch`, after the payout `v` is final — base × Ledger × Heat band ×
 ## mode × combo — and after the wallet, Heat and Jobs have already seen the whole of it:
 ##
-##     var share := Game.stats.clean_share()
+##     var share := stats.clean_share()
 ##     if share > 0.0:
-##         var slice := BigMoney.min_of(v.mul(share), Game.launder_cap_left())
-##         # move `slice` dirty -> clean, booked as laundered
+##         launder(1.0, BigMoney.min_of(v.mul(share), launder_cap_left()))
+##
+## (`launder(1.0, cap)` moves `min(held dirty, cap)`, and the payout is in the wallet by then,
+## so the cap argument IS the amount — no new Wallet call is needed for this.)
 ##
 ## Three properties that make this safe, and that a consumer must not quietly drop:
 ##   1. It is drawn AGAINST the per-Night wash cap (`Game.launder_cap_left()`), so it cannot

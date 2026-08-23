@@ -62,6 +62,16 @@ class Painter:
 
 
 func _ready() -> void:
+	_ensure_layers()
+	if not resized.is_connected(_on_resized):
+		resized.connect(_on_resized)
+
+
+## The cork and the sheet, built on demand rather than only in `_ready` — the headless test
+## runner never reaches a frame, so a board it builds has to raise its own layers first.
+func _ensure_layers() -> void:
+	if _sheet != null:
+		return
 	_font = get_theme_default_font()
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -74,7 +84,6 @@ func _ready() -> void:
 	(_sheet as Painter).paint = _paint_sheet
 	_sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_sheet)
-	resized.connect(_on_resized)
 
 
 # --- construction -------------------------------------------------------------
@@ -82,6 +91,7 @@ func _ready() -> void:
 
 ## Builds one card per catalog node (plus one per trophy) and freezes their positions.
 func build(from_catalog: Upgrades, trophies: Array[Dictionary] = []) -> void:
+	_ensure_layers()
 	catalog = from_catalog
 	_trophies = trophies.duplicate()
 	for child in _sheet.get_children():
@@ -271,6 +281,13 @@ func _build_edges(states: Dictionary) -> void:
 
 func content_size() -> Vector2:
 	return _content
+
+
+## Where a card sits on the sheet, or `Vector2.ZERO` for a card this board does not carry.
+## Positions are frozen at build time (see `_layout`), so this is also the answer to "did the
+## board actually nail this one up".
+func slot_of(id: String) -> Vector2:
+	return _slots.get(id, Vector2.ZERO)
 
 
 func zoom() -> float:

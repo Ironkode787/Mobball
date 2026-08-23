@@ -471,7 +471,7 @@ func _test_shipped_book(t: TestCtx) -> void:
 	for id in ["blackbook.double_life", "blackbook.the_big_sleep", "blackbook.museum_of_crime",
 			"blackbook.the_golden_era", "blackbook.silent_empire", "blackbook.the_sixth_family"]:
 		t.eq(rich.block_for(id), BlackBook.Block.DEFERRED, "%s is deferred, not for sale" % id)
-		t.eq(rich.buy(id), 0, "…and 500 Juice does not change that" % [])
+		t.eq(rich.buy(id), 0, "…and 500 Juice in hand does not change that")
 	t.eq(rich.juice, 500, "…and none of those refusals cost anything")
 
 	# The shared instance is the one the flow lane saves; it must survive being asked for twice.

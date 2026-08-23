@@ -55,7 +55,10 @@ const T3_FIXTURE: Array = [
 ## only 25 px wider than the ball, so a shot posted anywhere else in the corner crosses it
 ## diagonally and clips the guide or the ceiling before it reaches either mouth.
 const CHANNEL_ENTRY := Vector2(920.0, -806.0)
-const APPROACH_DIR := Vector2(-1.0, 0.0)
+## Still climbing a little as it turns: dead level, a shot posted here drifts to the floor of
+## the channel and grazes the orbit guide 36 px later — the channel's own centre line rises
+## 12 px over that stretch. A real lap arrives on the same slope for the same reason.
+const APPROACH_DIR := Vector2(-0.98, -0.2)
 
 var host: Node2D = null
 var table: ProgressionTable = null
@@ -396,8 +399,10 @@ func _s3_gate() -> void:
 	var b := table.ball
 	check(b != null and is_instance_valid(b), "the refused ball vanished")
 	if b != null and is_instance_valid(b):
-		check(b.global_position.y < 0.0,
-				"the refused ball fell off the Club at %s" % str(b.global_position))
+		# Anywhere on the machine is fine — the deck has no floor and its return lane is
+		# entitled to take a refused ball home. What is not fine is losing it.
+		check(table.bounds().grow(80.0).has_point(b.global_position),
+				"the refused ball ended up at %s" % str(b.global_position))
 	table.despawn_ball()
 
 	# and with the dome unbought, a ball that WOULD have made the gate simply goes past it

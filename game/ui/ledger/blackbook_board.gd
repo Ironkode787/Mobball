@@ -41,6 +41,17 @@ var _buy: Button = null
 
 
 func _ready() -> void:
+	_ensure_button()
+	if not resized.is_connected(_relayout):
+		resized.connect(_relayout)
+	_relayout()
+
+
+## Built on demand, not only in `_ready`: the headless runner never reaches a frame, and a
+## page it builds still has to lay its cards out. Same reason as `LedgerBoard._ensure_layers`.
+func _ensure_button() -> void:
+	if _buy != null:
+		return
 	_font = get_theme_default_font()
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -55,14 +66,13 @@ func _ready() -> void:
 	_buy.pressed.connect(func() -> void: buy_pressed.emit(_selected))
 	LedgerStyle.style_button(_buy, LedgerStyle.BRASS.darkened(0.1), LedgerStyle.INK)
 	add_child(_buy)
-	resized.connect(_relayout)
-	_relayout()
 
 
 # --- construction -------------------------------------------------------------
 
 
 func build(from_book: BlackBook, from_prestige: Prestige) -> void:
+	_ensure_button()
 	book = from_book
 	prestige = from_prestige
 	_order = PackedStringArray()
@@ -81,6 +91,17 @@ func refresh() -> void:
 
 func selected() -> String:
 	return _selected
+
+
+## Where a perk's card sits on the page, in page coordinates before the scroll offset.
+## An empty Rect2 means the page is not carrying that perk.
+func rect_of(id: String) -> Rect2:
+	return _rects.get(id, Rect2())
+
+
+## How tall the whole Book is, footer included — what the scroll clamps against.
+func content_height() -> float:
+	return _content_h
 
 
 func select(id: String) -> void:

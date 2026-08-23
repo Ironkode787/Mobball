@@ -137,8 +137,6 @@ static func juice_for(career: Dictionary) -> int:
 ## see WHY the number is what it is) and for tests that need to know which term moved.
 ## Keys: `clean`, `bosses`, `heists`, `raids`, `respect`, `total`.
 static func juice_breakdown(career: Dictionary) -> Dictionary:
-	if career == null:
-		career = {}
 	var clean := juice_from_clean(_as_money(career.get("lifetime_clean", null)))
 	var bosses := _as_count(career.get("bosses_beaten", 0))
 	var heists := _as_count(career.get("heists_cleared", 0))
@@ -174,14 +172,11 @@ static func juice_from_clean(lifetime_clean: BigMoney) -> int:
 	var root_m := sqrt(m)
 	var root_e := e / 2
 	if root_e >= 16:
-		# Past a float64's exact-integer range there is nothing to floor precisely, and the
-		# answer is "more Juice than the Book can spend" either way.
+		# Past a float64's exact-integer range there is nothing left to floor precisely, and
+		# the answer is "more Juice than the Book can spend" either way.
 		return JUICE_MAX
-	if root_e < 0:
-		# Under a billion of lifetime clean: the sqrt term is less than 1 and floors to zero,
-		# except for the one order where it does not (e.g. 0.81e9 -> 0). Compute it honestly.
-		var small := root_m * pow(10.0, float(root_e))
-		return clampi(int(floorf(small)), 0, JUICE_MAX)
+	# A negative exponent lands here too: under a billion of lifetime clean the root is less
+	# than 1, and flooring it is how docs/06 §2 says the first city pays nothing for wealth.
 	return clampi(int(floorf(root_m * pow(10.0, float(root_e)))), 0, JUICE_MAX)
 
 

@@ -7,14 +7,21 @@ extends Node2D
 ## leaves the Club's ceiling channel, runs under the dome, climbs the far side, crosses the
 ## sky over the top of it and comes back down onto the deck. That is the whole of it.
 ##
-## **The gate is the point.** The mouth demands 1000 px/s *along the rail* — more pace than
-## anything else on the table asks for, half again what the Penthouse wants and twice what a
-## staircase arrival carries. The three shots that share this channel are therefore a ladder,
-## and the ladder is read off one number:
+## **The gate is the point.** The mouth demands 1350 px/s *along the rail* — half again what
+## the Penthouse asks for and nearly three times a staircase arrival. The three shots that
+## share this channel are a ladder, and the ladder is read off one number:
 ##
-##   under 900 px/s   the ball runs out of channel and drops into the roulette bowl
-##   900–1000 px/s    the Penthouse wireform takes it (its mouth is further west)
-##   over 1000 px/s   the dome takes it first, because its mouth is the one you meet first
+##   under ~985 px/s     the ball runs out of channel and drops into the roulette bowl
+##   ~985 – 1350 px/s    the Penthouse wireform takes it (its mouth is further west)
+##   over 1350 px/s      the dome takes it, because its mouth is the one you meet first
+##
+## The dome's mouth has to be the eastern one or the ladder cannot exist: the Penthouse's
+## gate is the lower of the two, so if a westbound ball met it first it would take everything
+## and the dome would never fire once. The size of the gap between the two numbers is a
+## measured thing rather than a taste: the Penthouse's nominal 900 becomes about 985 by the
+## time a ball has fallen the 100 px between the two mouths, and a dome gate set anywhere
+## near that left the Penthouse with a 30 px/s window — buying the crown would have quietly
+## taken the room below it out of the game.
 ##
 ## Nothing is refused rudely: a ball that is not fast enough is simply not picked up, and
 ## carries on down the channel it was already in. There is no way to fail this shot that

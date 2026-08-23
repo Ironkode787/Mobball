@@ -169,10 +169,11 @@ func _finish(ran_to_the_end: bool) -> void:
 
 
 ## The share of the nominal take this run earned. A cleared job with nothing blown is 1.0;
-## a job that ended in a drain pays only for the beats that were actually finished.
+## a job that ended in a drain pays only for the beats that were actually finished. While the
+## job is still live this is the preview — what it is worth if the crew gets out from here.
 func take_share() -> float:
 	var share := Heists.degrade_share(blown, effect) * float(effect.get("take", 1.0))
-	if cleared:
+	if cleared or active:
 		return share
 	# Blown out mid-sequence: the crew gets out with what they had, pro-rata on the beats
 	# that were closed. Nothing at all is not a setback, it is an erasure (P5).
