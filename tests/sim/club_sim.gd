@@ -852,17 +852,18 @@ func _s12_camera() -> void:
 	near(top_seen, bounds.position.y, 12.0, "the camera reached the top of the table")
 	near(bottom_seen, bounds.end.y, 12.0, "the camera reached the bottom of the table")
 	check(camera.follow_enabled, "vertical follow is switched off")
-	# With no deck bought the frame is taller than the table, so the M0/M1 overscan is all
-	# the void there can ever be — and the camera must not add to it by climbing.
+	# With no deck bought the frame is taller than the table. Design ruling (device
+	# feedback): the camera BOTTOM-ANCHORS — flippers at thumb level, all overscan above
+	# the arch — and a ball fired upward must not budge it from that park.
 	table.despawn_ball()
 	table.force_hardware(CLUB_IDS, false)
 	await drop_at(Vector2(490.0, 300.0), Vector2(0.0, -1200.0))
 	await wait(1.2)
 	var r2 := camera.view_rect()
-	var overscan: float = maxf((view.y - table.bounds().size.y) * 0.5, 0.0)
-	check(r2.position.y >= -overscan - 1.0,
-			"the camera climbed above a table with no upstairs (top %.0f, overscan %.0f)"
-			% [r2.position.y, overscan])
+	var short_bounds := (table.bounds() as Rect2)
+	check(absf(r2.end.y - short_bounds.end.y) <= 1.5,
+			"a short table parks with its bottom on the screen bottom (view end %.0f, table end %.0f)"
+			% [r2.end.y, short_bounds.end.y])
 	table.force_hardware(CLUB_IDS, true)
 	table.despawn_ball()
 	print("        view %.0f×%.0f | framed %.0f..%.0f of %.0f..%.0f"
