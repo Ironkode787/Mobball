@@ -9,6 +9,10 @@ extends Control
 ##
 ## Layout is deterministic: branch = column band, tier = row, ties broken by file order.
 ## Nothing reflows when a card is revealed, so the board a player learns stays learned.
+##
+## One band is not a branch: TROPHIES, at the far right, holds the boss spoils a career took
+## (`spoil.*`). They are not catalog nodes, they have no strings and no price, and the only
+## thing that changes them is beating somebody new.
 
 signal card_tapped(id: String)
 
@@ -21,6 +25,9 @@ const TAP_SLOP := 14.0
 ## Zoom rungs: readable, mid, and "show me the whole conspiracy" (computed to fit the
 ## board's width, so it stays honest as content grows).
 const ZOOM_STEPS: PackedFloat64Array = [1.0, 0.62, 0.0]
+## The band spoils hang in. Not a branch: `LedgerStyle.branch_title` prints it and
+## `branch_color` falls through to brass, which is exactly the colour a trophy wants.
+const TROPHY_BAND := "trophies"
 
 var catalog: Upgrades = null
 
@@ -29,6 +36,7 @@ var _ground: Control = null
 var _font: Font = null
 
 var _cards: Dictionary = {}
+var _trophies: Array[Dictionary] = []
 var _slots: Dictionary = {}
 var _bands: Array[Dictionary] = []
 var _rows: Array[Dictionary] = []
@@ -72,9 +80,10 @@ func _ready() -> void:
 # --- construction -------------------------------------------------------------
 
 
-## Builds one card per catalog node and freezes their positions.
-func build(from_catalog: Upgrades) -> void:
+## Builds one card per catalog node (plus one per trophy) and freezes their positions.
+func build(from_catalog: Upgrades, trophies: Array[Dictionary] = []) -> void:
 	catalog = from_catalog
+	_trophies = trophies.duplicate()
 	for child in _sheet.get_children():
 		_sheet.remove_child(child)
 		child.queue_free()
@@ -87,8 +96,29 @@ func build(from_catalog: Upgrades) -> void:
 		card.position = _slots.get(String(n["id"]), Vector2.ZERO)
 		card.visible = false
 		_cards[String(n["id"])] = card
+	for trophy in _trophies:
+		var t := LedgerCard.new()
+		_sheet.add_child(t)
+		t.setup_trophy(trophy)
+		t.position = _slots.get(String(trophy.get("id", "")), Vector2.ZERO)
+		_cards[String(trophy.get("id", ""))] = t
 	_sheet.size = _content
 	_apply_view()
+
+
+## The spoils this board is showing. Rebuilding only when the set actually changed keeps the
+## pan, the zoom and every card's pin angle exactly where the player left them.
+func set_trophies(trophies: Array[Dictionary]) -> void:
+	if catalog == null or _trophy_ids(trophies) == _trophy_ids(_trophies):
+		return
+	build(catalog, trophies)
+
+
+static func _trophy_ids(list: Array[Dictionary]) -> PackedStringArray:
+	var out: PackedStringArray = []
+	for d in list:
+		out.append(String(d.get("id", "")))
+	return out
 
 
 func _layout() -> void:
@@ -146,9 +176,24 @@ func _layout() -> void:
 	for tier in range(min_tier, max_tier + 1):
 		_rows.append({"tier": tier, "y": MARGIN.y + float(tier - min_tier) * PITCH_Y})
 
+	# The trophy shelf: one column at the far right, one card a row from the top, because a
+	# spoil belongs to no tier — you did not reach it, you took it.
+	if not _trophies.is_empty():
+		_bands.append({
+			"branch": TROPHY_BAND,
+			"x": x - 30.0,
+			"w": PITCH_X - (PITCH_X - LedgerCard.W) + 60.0,
+		})
+		for i in _trophies.size():
+			_slots[String(_trophies[i].get("id", ""))] = Vector2(
+				x, MARGIN.y + float(i) * PITCH_Y
+			)
+		x += PITCH_X + BRANCH_GAP
+
 	_content = Vector2(
 		x - BRANCH_GAP + MARGIN.x,
-		MARGIN.y + float(max_tier - min_tier) * PITCH_Y + LedgerCard.H + MARGIN.y
+		MARGIN.y + float(maxi(max_tier - min_tier, maxi(_trophies.size() - 1, 0))) * PITCH_Y
+			+ LedgerCard.H + MARGIN.y
 	)
 
 

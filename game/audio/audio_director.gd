@@ -12,6 +12,13 @@ extends Node
 ##   * `say(specialist, mood)` plays the muted-brass phrase bank (docs/08 §5) on a
 ##     channel of its own — one wiseguy at a time.
 ##
+## Wave 4 adds the two pieces of the endgame that are mix automation rather than files:
+##   * `rico_dropout(step)` — the wiretap phase of the RICO raid (docs/05 §9). The Feds
+##     cut wires; wires do not fade, so every step is instant, and step 0 puts the mix
+##     back exactly as it was.
+##   * `play_farewell()` — Skip Town (docs/08 §1): the stem stack shed one player at a
+##     time on the beat grid, the last bass note left ringing alone, and a train.
+##
 ## Three Godot 4.5 details this file depends on, all verified headless:
 ##   * AudioStreamSynchronized.set_sync_stream_volume() takes DECIBELS, not a linear
 ##     gain. Passing 0.0 expecting silence gives full level instead; -80 is silence.
@@ -67,6 +74,14 @@ const EVENTS: PackedStringArray = [
 	# specs/m2-content.md §1/§4 — the Club deck, the casino and the Family Meeting
 	"wheel_clatter", "chip_stack", "card_riffle", "reel_stop", "jackpot",
 	"meeting_start", "meeting_jackpot", "meeting_end", "radio_squelch", "staircase_crest",
+	# specs/m3-fall-rise.md AUDIO-4 — the endgame: the Commission fights, the Docks, the
+	# Penthouse, the dome, the heists, the election, Empire Mode and Skip Town.
+	"boss_start", "boss_phase", "boss_beaten", "wrench_telegraph",
+	"crane_telegraph", "crane_pull", "container_break", "pier_splash",
+	"smuggling_start", "shipment_out", "chair_take", "sitdown", "dome_loop",
+	"heist_start", "heist_beat", "heist_blown", "election_win",
+	"empire_start", "empire_end", "reunion_start",
+	"briefcase_drop", "briefcase_leave", "skip_town", "train_away",
 ]
 
 ## Assets built as seamless loops rather than one-shots. Pass `{"loop": true}` to
@@ -131,6 +146,23 @@ const EVENT_PITCH_JITTER := {
 	&"wheel_clatter": 0.0,
 	&"reel_stop": 0.045, &"chip_stack": 0.060, &"card_riffle": 0.055,
 	&"radio_squelch": 0.030,
+	# Wave 4. Anything with brass, a bell or a cadence in it is tuned to the score and
+	# gets almost none: the dome's D6 is the crown of the tuned set and a detuned Empire
+	# Mode chord over the full stack is the single most audible mistake available here.
+	&"boss_start": 0.006, &"boss_phase": 0.006, &"boss_beaten": 0.005,
+	&"dome_loop": 0.004, &"election_win": 0.005, &"empire_start": 0.004,
+	&"empire_end": 0.005, &"reunion_start": 0.005, &"shipment_out": 0.008,
+	&"sitdown": 0.006, &"heist_blown": 0.008, &"heist_start": 0.010,
+	&"heist_beat": 0.006, &"briefcase_leave": 0.010,
+	# Three files whose LENGTH is a contract, so playback rate has to stay at 1.0: the
+	# two telegraphs are exactly as long as the tells they cover (sammy.gd's 2 s wrench,
+	# the crane's warning before the pull), and skip_town/train_away are timed against
+	# play_farewell()'s scripted sequence.
+	&"wrench_telegraph": 0.0, &"crane_telegraph": 0.0,
+	&"skip_town": 0.0, &"train_away": 0.0,
+	# Foley that fires often enough to need variety.
+	&"crane_pull": 0.045, &"container_break": 0.045, &"pier_splash": 0.035,
+	&"chair_take": 0.040, &"briefcase_drop": 0.035, &"smuggling_start": 0.020,
 }
 
 # --- specialist voices -----------------------------------------------------------
@@ -169,6 +201,14 @@ const FICTION_EVENTS: PackedStringArray = [
 	# the machine.
 	"chip_stack", "card_riffle", "jackpot", "meeting_start", "meeting_jackpot",
 	"meeting_end", "radio_squelch", "staircase_crest",
+	# Wave 4: the story's events — a rival arriving, a chair being taken, a heist, an
+	# election, an empire, a train leaving. What stays on Mechanics is what is bolted to
+	# the playfield: the wrench on your linkage, the crane and its magnet, a container
+	# stack going over and the water under the pier are all things the *machine* does.
+	"boss_start", "boss_phase", "boss_beaten", "smuggling_start", "shipment_out",
+	"chair_take", "sitdown", "dome_loop", "heist_start", "heist_beat", "heist_blown",
+	"election_win", "empire_start", "empire_end", "reunion_start",
+	"briefcase_drop", "briefcase_leave", "skip_town", "train_away",
 ]
 
 ## All eight stems at unity sum to about +1 dBFS, so the music bus carries the trim
@@ -200,6 +240,40 @@ const RAID_FADE_SECONDS := 0.4
 const COUNT_FADE_SECONDS := 1.0
 const PIANO_DB := 0.0
 
+# --- the RICO wiretap (docs/05 §9) ------------------------------------------------
+## Three cuts, in a fixed order, and nothing between them:
+##   1  the Fiction bus — the story goes quiet and the machine keeps working
+##   2  + the comfort instruments (docs/08 §4's three: vibes, organ, strings)
+##   3  + everything else, leaving the Mechanics bus and one stem: the bass.
+## The bass IS the heartbeat here. The game has no separate heartbeat stem — docs/08 §4's
+## Heat-90 kick lives inside 09_tense — and the bass is what the whole score is built on
+## top of, so it is the honest thing to leave beating under a dead mix.
+const RICO_STEPS := 3
+const RICO_HEARTBEAT := IDX_BASS
+
+# --- Skip Town (docs/08 §1) -------------------------------------------------------
+## The score's tempo, so the sequence below can be written in beats.
+const MUSIC_BPM := 92.0
+
+## When each player packs up, in beats from the start of the sequence. Bar-aware in the
+## only way that is cheap and honest: the interval asked for is ~1.6 s, one beat here is
+## 0.652 s, and 1.6 s is not a whole number of beats — so the sheds are quantised to the
+## grid and alternate 2-3-2-3 beats, which averages 1.63 s and lands every exit on a
+## beat. A player leaves on a beat or he is not a player.
+const FAREWELL_SHED_BEATS: PackedInt32Array = [0, 2, 5, 7, 10, 12, 15]
+## Eight beats — two bars — of the bass on its own before it lets go, and the train
+## arriving two beats into that last fade rather than after silence.
+const FAREWELL_BASS_BEAT := 23
+const FAREWELL_TRAIN_BEAT := 25
+## Sharper than any music fade: a stem going out here is a man packing an instrument
+## away, not a mix moving. The last note is the exception — it is the note ending, so it
+## gets a fade of its own, more than three times longer.
+const FAREWELL_FADE_SECONDS := 0.45
+const FAREWELL_LAST_FADE_SECONDS := 1.60
+## Only used if train_away is missing: the sequence still has to report a length.
+const FAREWELL_TRAIN_SECONDS := 3.80
+const FAREWELL_TRAIN_EVENT := &"train_away"
+
 var _missing_logged: Dictionary = {}
 var _sfx: Dictionary = {}                       # StringName -> AudioStream
 var _sfx_looping: Dictionary = {}               # StringName -> looping copy
@@ -223,6 +297,16 @@ var _piano_player: AudioStreamPlayer
 var _piano_db := SILENT_DB
 var _piano_target_db := SILENT_DB
 var _initialised := false
+
+var _rico_step := 0
+
+var _farewell_active := false
+var _farewell_t := 0.0
+var _farewell_lead := 0.0                       # wait for the next beat before shed #1
+var _farewell_shed := 0                         # players who have packed up, from the top
+var _farewell_bass_gone := false
+var _farewell_train_played := false
+var _farewell_total := 0.0
 
 
 func _ready() -> void:
@@ -339,6 +423,8 @@ func stop_all() -> void:
 ## Start the stem stack. Idempotent: calling it while playing does nothing.
 func music_start() -> void:
 	_ensure_init()
+	if _farewell_active:
+		return
 	var built := _build_music()
 	if _music_state == STATE_COUNT:
 		_build_piano()
@@ -360,8 +446,12 @@ func music_start() -> void:
 ## first n stems of the stack; the rest fade out. Fades take MUSIC_FADE_SECONDS.
 ## The current state still has the last word: setting a level during a raid or The
 ## Count is remembered and applied when that state ends.
+##
+## Refused outright during `play_farewell()` — see there.
 func music_set_level(level: int) -> void:
 	_ensure_init()
+	if _farewell_active:
+		return
 	_music_level = clampi(level, 0, STEMS.size())
 	_music_stopping = false
 	_fade_seconds = MUSIC_FADE_SECONDS
@@ -387,9 +477,11 @@ func is_music_playing() -> bool:
 ## starting a different one is the obvious implementation and it flams every time.
 ##
 ## Idempotent (re-entering the same state does nothing) and safe before music_start(),
-## before the assets exist, and headless.
+## before the assets exist, and headless. Refused during `play_farewell()` — see there.
 func music_set_state(state: StringName) -> void:
 	_ensure_init()
+	if _farewell_active:
+		return
 	if not MUSIC_STATES.has(String(state)):
 		if not _missing_logged.has(state):
 			_missing_logged[state] = true
@@ -412,8 +504,14 @@ func music_state() -> StringName:
 
 
 ## Fade the stack out and stop it. `fade` false stops immediately.
+##
+## The one music call the farewell does NOT refuse: it cancels the sequence and then
+## does its job. Refusing to stop audio while a scene is being torn down would be a bug
+## wearing a feature's coat.
 func music_stop(fade: bool = true) -> void:
 	_ensure_init()
+	if _farewell_active:
+		farewell_stop()
 	if _music_player == null and _piano_player == null:
 		return
 	_music_level = 0
@@ -432,6 +530,97 @@ func music_stop(fade: bool = true) -> void:
 	# _music_stopping overrides every target, so the state survives the stop: a later
 	# music_start() comes back up in whatever state the game is actually in.
 	_music_stopping = true
+	_fade_seconds = MUSIC_FADE_SECONDS
+	_recompute_targets()
+	set_process(true)
+
+
+## docs/05 §9 — the RICO wiretap phase. The Feds are cutting wires.
+##
+## `step` 0 is the full mix; 1, 2 and 3 take progressively more of it away in a fixed
+## order (RICO_STEPS above). Every step is INSTANT — no fades anywhere — because a fade
+## is a mixing desk and this is a pair of pliers; the whole phase reads as equipment
+## failing rather than as music ducking, and docs/08 §4 wants exactly that.
+##
+## `rico_dropout(0)` restores the mix EXACTLY, including the music level and state the
+## game asked for while the wires were cut: every stem target is a pure function of
+## level and state (`_stem_target_for`), so the restore is not a saved snapshot that can
+## drift — it is the same function, evaluated again.
+##
+## Idempotent, safe before music_start(), safe with no assets, safe headless. Gameplay
+## keeps its own visual/haptic redundancy for this phase (docs/08 §6): losing audio is
+## the point, so nothing here may be the only channel a cue arrives on.
+func rico_dropout(step: int) -> void:
+	_ensure_init()
+	var want: int = clampi(step, 0, RICO_STEPS)
+	if want == _rico_step:
+		return
+	_rico_step = want
+	_apply_rico_buses()
+	_apply_mix_now()
+
+
+## Which cut the wiretap is on: 0 = nothing cut.
+func rico_step() -> int:
+	return _rico_step
+
+
+## docs/08 §1 — Skip Town: the band packs up. Returns the sequence's length in seconds
+## so the flow lane can time the cutscene against it instead of guessing.
+##
+## One player leaves every two or three beats, top of the stack downwards, each with a
+## fade far sharper than a music fade; the bass is left alone for two bars; then the
+## last note lets go and a train takes the city away with it. The band that sheds is the
+## band the empire actually earned — the sequence starts from the calm level mix, so a
+## player who skips town at R4 hears four instruments leave, not eight.
+##
+## Callable once: while it runs, a second call changes nothing and returns the time
+## REMAINING. `music_set_level`, `music_set_state` and `music_start` are REFUSED (not
+## queued) for the duration — this is the last thing that happens in a city and nothing
+## the game has to say about empire size or Heat can be more important than it. The two
+## ways out are `farewell_stop()` and `music_stop()`, which cancel it.
+##
+## A dropped wiretap is lifted first: Skip Town is what docs/06 §1 offers you after a
+## failed RICO raid, and a muted Fiction bus would eat the train.
+func play_farewell() -> float:
+	_ensure_init()
+	if _farewell_active:
+		return maxf(_farewell_total - _farewell_t, 0.0)
+	rico_dropout(0)
+	_build_music()
+	_music_stopping = false
+	if _music_player != null and not _music_player.playing and _music_player.is_inside_tree():
+		_music_player.play()
+	_farewell_active = true
+	_farewell_t = 0.0
+	_farewell_shed = 0
+	_farewell_bass_gone = false
+	_farewell_train_played = false
+	_farewell_lead = _seconds_to_next_beat()
+	_farewell_total = (_farewell_lead + float(FAREWELL_TRAIN_BEAT) * _sec_per_beat()
+		+ _train_seconds())
+	_fade_seconds = FAREWELL_FADE_SECONDS
+	_recompute_targets()
+	set_process(true)
+	return _farewell_total
+
+
+## Is the farewell running? True from `play_farewell()` until the train has finished.
+func is_farewell_playing() -> bool:
+	return _farewell_active
+
+
+## Abandon the farewell (the player skipped the cutscene). Music control comes back and
+## the stack returns to whatever level and state ask for, with an ordinary fade.
+func farewell_stop() -> void:
+	_ensure_init()
+	if not _farewell_active:
+		return
+	_farewell_active = false
+	_farewell_t = 0.0
+	_farewell_shed = 0
+	_farewell_bass_gone = false
+	_farewell_train_played = false
 	_fade_seconds = MUSIC_FADE_SECONDS
 	_recompute_targets()
 	set_process(true)
@@ -715,9 +904,42 @@ func _build_piano() -> bool:
 
 
 ## The whole mix table, in one place: every target is a pure function of the requested
-## level and the requested state, so the two compose instead of fighting and any order
-## of calls lands on the same mix.
+## level, the requested state, the wiretap and the farewell — so they compose instead of
+## fighting, any order of calls lands on the same mix, and lifting the wiretap restores
+## the mix by re-evaluating rather than by remembering.
+##
+## Precedence is the order the game happens in: the farewell is the end of a city and
+## overrides everything, the wiretap overrides the level/state mix, and the level/state
+## mix is what the game normally asks for.
 func _stem_target_for(index: int) -> float:
+	if _farewell_active:
+		return _farewell_stem_db(index)
+	return _rico_stem_db(index, _mix_stem_db(index))
+
+
+## docs/05 §9. What the wiretap leaves of a stem that would otherwise sit at `db`.
+func _rico_stem_db(index: int, db: float) -> float:
+	if _rico_step <= 1:
+		return db
+	if _rico_step == 2:
+		return SILENT_DB if HOT_DUCKED.has(index) else db
+	return db if index == RICO_HEARTBEAT else SILENT_DB
+
+
+## docs/08 §1. The stack shedding: the calm level mix minus whoever has already left.
+##
+## Deliberately NOT the current state mix. A farewell during Heat or a raid would
+## otherwise shed an ostinato and a halftime kit, and the moment being paid off here is
+## the empire's growth run backwards — which is what `music_set_level` measures.
+func _farewell_stem_db(index: int) -> float:
+	if _farewell_bass_gone or index >= STEMS.size():
+		return SILENT_DB
+	if index >= STEMS.size() - _farewell_shed or index >= _music_level:
+		return SILENT_DB
+	return AUDIBLE_DB
+
+
+func _mix_stem_db(index: int) -> float:
 	if _music_stopping:
 		return SILENT_DB
 	match _music_state:
@@ -751,8 +973,11 @@ func _recompute_targets() -> void:
 			_stem_target_db[i] = _stem_target_for(i)
 	if _piano_player == null:
 		return
-	_piano_target_db = (PIANO_DB if _music_state == STATE_COUNT and not _music_stopping
-		else SILENT_DB)
+	# The Count's piano is a comfort instrument by any reading, so the second cut takes
+	# it; a farewell never has one on top of it at all.
+	var count_up: bool = (_music_state == STATE_COUNT and not _music_stopping
+		and not _farewell_active and _rico_step < 2)
+	_piano_target_db = PIANO_DB if count_up else SILENT_DB
 	if _piano_target_db > SILENT_DB and not _piano_player.playing \
 			and _piano_player.is_inside_tree():
 		_piano_player.volume_db = _piano_db
@@ -777,9 +1002,109 @@ func _apply_stem_db_now(db: float) -> void:
 			_music_sync.set_sync_stream_volume(_stem_slot[i], db)
 
 
+## Recompute the mix and land on it in one frame. This is what makes the wiretap read as
+## a cut wire rather than as a fader: no fade, in either direction.
+func _apply_mix_now() -> void:
+	_recompute_targets()
+	if _music_sync != null:
+		for i in _stem_db.size():
+			_stem_db[i] = _stem_target_db[i]
+			if _stem_slot[i] >= 0:
+				_music_sync.set_sync_stream_volume(_stem_slot[i], _stem_db[i])
+	if _piano_player != null:
+		_piano_db = _piano_target_db
+		_piano_player.volume_db = _piano_db
+
+
+## Buses the wiretap takes wholesale. Mute rather than volume: the options-screen
+## sliders keep working underneath, and lifting the cut cannot lose the player's levels.
+func _apply_rico_buses() -> void:
+	_set_bus_mute(BUS_FICTION, _rico_step >= 1)
+	_set_bus_mute(BUS_UI, _rico_step >= RICO_STEPS)
+
+
+func _set_bus_mute(bus: StringName, muted: bool) -> void:
+	var idx := AudioServer.get_bus_index(bus)
+	if idx >= 0:
+		AudioServer.set_bus_mute(idx, muted)
+
+
+func _sec_per_beat() -> float:
+	return 60.0 / MUSIC_BPM
+
+
+## How long until the stack's next beat line, so the first player packs up ON one.
+## Headless (and before the score is running) there is no position to read and the
+## answer is zero, which is the right answer: nothing is playing to be out of time with.
+func _seconds_to_next_beat() -> float:
+	if _music_player == null or not _music_player.playing:
+		return 0.0
+	var beat: float = _sec_per_beat()
+	var into: float = fposmod(_music_player.get_playback_position(), beat)
+	return 0.0 if into < 0.001 else beat - into
+
+
+func _train_seconds() -> float:
+	var stream: AudioStream = _sfx_stream(FAREWELL_TRAIN_EVENT)
+	return stream.get_length() if stream != null else FAREWELL_TRAIN_SECONDS
+
+
+## One frame of the Skip Town sequence (docs/08 §1).
+##
+## Everything here is derived from one clock rather than from a chain of timers: how many
+## players have left is a function of elapsed time, so a dropped frame costs timing
+## accuracy and never costs a stem.
+func _advance_farewell(delta: float) -> void:
+	_farewell_t += delta
+	var t: float = _farewell_t - _farewell_lead
+	var beat: float = _sec_per_beat()
+	var gone := 0
+	for at in FAREWELL_SHED_BEATS:
+		if t >= float(at) * beat:
+			gone += 1
+	if gone != _farewell_shed:
+		_farewell_shed = gone
+		_fade_seconds = FAREWELL_FADE_SECONDS
+		_recompute_targets()
+	if not _farewell_bass_gone and t >= float(FAREWELL_BASS_BEAT) * beat:
+		_farewell_bass_gone = true
+		_fade_seconds = FAREWELL_LAST_FADE_SECONDS
+		_recompute_targets()
+	if not _farewell_train_played and t >= float(FAREWELL_TRAIN_BEAT) * beat:
+		_farewell_train_played = true
+		play(FAREWELL_TRAIN_EVENT)
+	if _farewell_t >= _farewell_total:
+		_end_farewell()
+
+
+## The city is over. The stack is silent, stopped, at level 0 and calm: whatever the next
+## city wants, it asks for from there.
+func _end_farewell() -> void:
+	_farewell_active = false
+	_farewell_t = 0.0
+	_farewell_shed = 0
+	_farewell_bass_gone = false
+	_farewell_train_played = false
+	_fade_seconds = MUSIC_FADE_SECONDS
+	_music_level = 0
+	_music_state = STATE_CALM
+	_music_stopping = false
+	_apply_stem_db_now(SILENT_DB)
+	if _music_player != null:
+		_music_player.stop()
+	if _piano_player != null:
+		_piano_db = SILENT_DB
+		_piano_target_db = SILENT_DB
+		_piano_player.volume_db = SILENT_DB
+		_piano_player.stop()
+
+
 func _process(delta: float) -> void:
+	if _farewell_active:
+		_advance_farewell(delta)
 	if _music_sync == null and _piano_player == null:
-		set_process(false)
+		if not _farewell_active:
+			set_process(false)
 		return
 	# A linear ramp in dB is an exponential ramp in amplitude — the shape a fader has,
 	# and the one that makes a stem arrive rather than suddenly appear.
@@ -802,7 +1127,7 @@ func _process(delta: float) -> void:
 		_piano_player.volume_db = _piano_db
 		if not is_equal_approx(_piano_db, _piano_target_db):
 			moving = true
-	if moving:
+	if moving or _farewell_active:
 		return
 	# Faded all the way out: nothing left to hear, so stop paying for it.
 	if _piano_player != null and _piano_player.playing \

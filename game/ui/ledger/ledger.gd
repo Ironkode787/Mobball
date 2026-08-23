@@ -9,21 +9,44 @@ extends Control
 ##
 ## Everything on screen is built in code (CLAUDE.md: keep .tscn minimal) and drawn from the
 ## palette. No textures ship with this screen.
+##
+## The screen has TWO pages behind one header: the corkboard (this career, bought with clean
+## cash) and THE BLACK BOOK (every career, bought with Juice — docs/06 §3). The button in the
+## header turns the page; nothing else about the Ledger changes, because it is one screen in
+## the fiction: the stuff on the wall, and the little book in the coat.
 
 signal closed
 
 const HEADER_H := 168.0
 
+## Which page the header is titling and the body is showing.
+const PAGE_BOARD := &"board"
+const PAGE_BOOK := &"blackbook"
+
+## Mirrors `Commission.SPOIL_PREFIX`, kept as a literal so this screen does not compile
+## against the flow lane's boss table (see `LedgerStyle.spoil_descriptor`, same reason).
+const SPOIL_PREFIX := "spoil."
+## Spoils the standalone render pretends to have taken, so the trophy shelf is in the shot.
+## Live sessions read `Game.spoils()`; nothing else ever uses these.
+const PREVIEW_SPOILS: PackedStringArray = ["spoil.sammys_spare", "spoil.cold_storage"]
+
 var catalog: Upgrades = null
 var reveal: Reveal = null
+## The prestige half. `Prestige` is process-wide and outlives this node (and the career), the
+## same way `LedgerState` does — the flow lane saves and restores it, this screen spends it.
+var book: BlackBook = null
+var prestige: Prestige = null
 
 var _board: LedgerBoard = null
+var _book_page: LedgerBlackBook = null
 var _docket: LedgerDocket = null
 var _compass: Button = null
 var _zoom_btn: Button = null
 var _close_btn: Button = null
+var _book_btn: Button = null
 var _font: Font = null
 var _selected: String = ""
+var _page: StringName = PAGE_BOARD
 ## Standalone render (tools/shot.sh) has no session behind it; the board then reads a fixed
 ## demo career instead of an empty one, so the screenshot shows real card states.
 var _preview: bool = false
@@ -38,6 +61,10 @@ func _init() -> void:
 	catalog = Upgrades.shared()
 	reveal = Reveal.shared()
 	reveal.catalog = catalog
+	book = BlackBook.shared()
+	prestige = Prestige.shared()
+	if prestige.catalog == null:
+		prestige.catalog = book
 
 
 func _ready() -> void:
@@ -67,6 +94,10 @@ func open() -> void:
 	visible = true
 	_selected = ""
 	_docket.dismiss()
+	# A visit always starts on the corkboard: the Black Book is where you go, not where you are.
+	_page = PAGE_BOARD
+	_board.visible = true
+	_book_page.visible = false
 	_refresh()
 	var target := next_target()
 	if target != "":
@@ -131,16 +162,35 @@ func _build() -> void:
 	_board.offset_top = HEADER_H
 	_board.card_tapped.connect(_on_card_tapped)
 	add_child(_board)
-	_board.build(catalog)
+	_board.build(catalog, _trophies())
+
+	_book_page = LedgerBlackBook.new()
+	_book_page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_book_page.offset_top = HEADER_H
+	_book_page.visible = false
+	_book_page.buy_pressed.connect(_on_perk_buy)
+	add_child(_book_page)
+	_book_page.build(book, prestige)
 
 	_close_btn = _button("CLOSE", Vector2(190.0, 74.0), Color(LedgerStyle.DIRTY, 0.85), LedgerStyle.NEWSPRINT)
 	_close_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_close_btn.offset_left = -220.0
 	_close_btn.offset_right = -30.0
-	_close_btn.offset_top = 52.0
-	_close_btn.offset_bottom = 126.0
+	_close_btn.offset_top = 26.0
+	_close_btn.offset_bottom = 96.0
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
+
+	_book_btn = _button("BLACK BOOK", Vector2(300.0, 74.0),
+		Color(LedgerStyle.branch_color("blackbook"), 0.85), LedgerStyle.NEWSPRINT)
+	_book_btn.add_theme_font_size_override("font_size", 22)
+	_book_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_book_btn.offset_left = -540.0
+	_book_btn.offset_right = -240.0
+	_book_btn.offset_top = 26.0
+	_book_btn.offset_bottom = 96.0
+	_book_btn.pressed.connect(_on_turn_page)
+	add_child(_book_btn)
 
 	_zoom_btn = _button("ZOOM", Vector2(150.0, 84.0), Color(LedgerStyle.INK, 0.72), LedgerStyle.BRASS)
 	_zoom_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
@@ -185,15 +235,69 @@ func _connect_events() -> void:
 func _refresh() -> void:
 	if not _built:
 		return
+	if _page == PAGE_BOOK:
+		_book_page.refresh()
+		queue_redraw()
+		return
 	var owned := LedgerState.get_owned()
 	reveal.rank = _rank()
 	reveal.note_dirty_held(_dirty())
+	_board.set_trophies(_trophies())
 	# `observe`, not `states`: the board banks what flipped, it never drains the queue. Seeing
 	# a card here does not spend the Count's stinger (docs/04 — the flip is a scripted beat).
 	_board.refresh(reveal.observe(owned), owned, _rank(), _clean())
 	if _selected != "":
 		_show_docket(_selected)
 	queue_redraw()
+
+
+# --- the Black Book page ------------------------------------------------------
+
+
+## Turns the page. The corkboard keeps its pan, its zoom and its selection while it is away.
+func _on_turn_page() -> void:
+	_page = PAGE_BOARD if _page == PAGE_BOOK else PAGE_BOOK
+	var on_book := _page == PAGE_BOOK
+	_book_btn.text = "THE LEDGER" if on_book else "BLACK BOOK"
+	_book_page.visible = on_book
+	_board.visible = not on_book
+	if on_book:
+		_docket.dismiss()
+		_set_board_controls(false)
+	else:
+		_set_board_controls(_selected == "")
+	_refresh()
+
+
+## A Juice purchase. Same shape as `_on_buy` one page over: the Book decides whether it is
+## allowed, the wallet moves, and the save follows immediately — Juice is too expensive to
+## lose to a kill -9.
+func _on_perk_buy(id: String) -> void:
+	if id.is_empty() or prestige.buy(id) <= 0:
+		return
+	AudioDirector.play(&"stamp_thunk")
+	if not _preview:
+		Game.save_now()
+	_refresh()
+
+
+## The spoils this career took, as trophy descriptors for the board (`spoil.*`, docs/05 §6).
+## Names come from the flow lane's own fight table via `LedgerStyle.spoil_descriptor`.
+func _trophies() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for id in _spoil_ids():
+		out.append(LedgerStyle.spoil_descriptor(id))
+	return out
+
+
+func _spoil_ids() -> PackedStringArray:
+	if _preview:
+		return PREVIEW_SPOILS
+	# `spoils()` is the flow lane's, and the flow lane is allowed to move: a Ledger with no
+	# trophy shelf is a smaller loss than a Ledger that will not open.
+	if not Game.has_method("spoils"):
+		return PackedStringArray()
+	return Game.spoils()
 
 
 func _show_docket(id: String) -> void:
@@ -212,6 +316,10 @@ func _show_docket(id: String) -> void:
 func _on_card_tapped(id: String) -> void:
 	if not _built:
 		return
+	if id.begins_with(SPOIL_PREFIX):
+		# A trophy has no docket and no price. It is a photograph of a night that already
+		# happened, and tapping a photograph does nothing.
+		return
 	var state := reveal.state_of(id, LedgerState.get_owned())
 	if state != Reveal.State.REVEALED:
 		# A face-down card has nothing to say yet. That is the point of it.
@@ -222,8 +330,10 @@ func _on_card_tapped(id: String) -> void:
 
 
 func _set_board_controls(v: bool) -> void:
-	_compass.visible = v
-	_zoom_btn.visible = v
+	# The compass and the zoom rungs belong to the corkboard; the Black Book page has neither.
+	var on_board := v and _page == PAGE_BOARD
+	_compass.visible = on_board
+	_zoom_btn.visible = on_board
 
 
 func _on_docket_dismissed() -> void:
@@ -317,6 +427,12 @@ func _seed_preview() -> void:
 	})
 	reveal.mark_event(&"first_tilt")
 	reveal.note_dirty_held(_dirty())
+	# …and one Skip Town behind it, so the Black Book page shows every state it has: bought,
+	# affordable, too dear, and face-down.
+	prestige.from_dict({
+		"juice": 6, "earned": 14, "cities": 1,
+		"owned": {"blackbook.old_contacts": 2, "blackbook.traveling_light": 1},
+	})
 
 
 ## Framing hooks for tools/shot.sh, so evidence renders need no code edits. Preview only.
@@ -327,11 +443,25 @@ func _apply_shot_framing() -> void:
 	if alt != "" and FileAccess.file_exists(alt):
 		catalog = Upgrades.from_file(alt)
 		reveal.catalog = catalog
-		_board.build(catalog)
+		_board.build(catalog, _trophies())
 		_refresh()
+	# SHOT_PAGE=blackbook renders the prestige page instead of the corkboard; SHOT_PERK picks
+	# the page it opens with selected, which is how a new perk gets looked at before it lands.
+	if OS.get_environment("SHOT_PAGE") == String(PAGE_BOOK):
+		_on_turn_page()
+		var perk := OS.get_environment("SHOT_PERK")
+		if perk != "" and book.has_id(perk):
+			_book_page.select(perk)
+		return
 	var z := OS.get_environment("SHOT_ZOOM")
 	if z.is_valid_float():
 		_board.set_zoom(z.to_float())
+	# SHOT_CENTER frames any card without opening its docket — the only way to photograph a
+	# card that HAS no docket, which is exactly what a trophy is.
+	var center := OS.get_environment("SHOT_CENTER")
+	if center != "":
+		_board.center_on(center, false)
+		return
 	var docket_id := OS.get_environment("SHOT_DOCKET")
 	if docket_id == "":
 		return
@@ -347,6 +477,9 @@ func _draw() -> void:
 	var w := size.x
 	draw_rect(Rect2(0.0, 0.0, w, HEADER_H), LedgerStyle.INK)
 	draw_rect(Rect2(0.0, HEADER_H - 3.0, w, 3.0), LedgerStyle.BRASS)
+	if _page == PAGE_BOOK:
+		_draw_book_header(w)
+		return
 	draw_string(_font, Vector2(36.0, 74.0), "THE LEDGER", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48, LedgerStyle.NEWSPRINT)
 	draw_string(_font, Vector2(38.0, 106.0), "EVIDENCE PHOTO 44-C", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.BRASS, 0.7))
 
@@ -364,6 +497,33 @@ func _draw() -> void:
 	var dirty_text := _dirty().text()
 	var dw := _font.get_string_size(dirty_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22).x
 	draw_string(_font, Vector2(cx - dw - 34.0, 148.0), dirty_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22, Color(LedgerStyle.DIRTY, 0.85))
+
+
+## The Black Book's header. Same bar, different currency: Juice where clean cash goes, and
+## the city count where the rank badge goes — this page belongs to the player, not the career.
+func _draw_book_header(w: float) -> void:
+	draw_string(_font, Vector2(36.0, 74.0), "THE BLACK BOOK", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48,
+		LedgerStyle.NEWSPRINT)
+	draw_string(_font, Vector2(38.0, 106.0), "WITNESS RELOCATION FORM 12-B",
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.BRASS, 0.7))
+
+	var city_text := "CITY %d" % prestige.city_number()
+	var cw := _font.get_string_size(city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22).x
+	draw_rect(Rect2(36.0, 122.0, cw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
+	draw_string(_font, Vector2(49.0, 148.0), city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22,
+		LedgerStyle.INK)
+
+	var juice_text := str(prestige.juice)
+	var jw := _font.get_string_size(juice_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42).x
+	var jx := w - 250.0 - jw
+	draw_string(_font, Vector2(jx, 148.0), juice_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42,
+		LedgerStyle.BRASS)
+	draw_string(_font, Vector2(jx, 112.0), "JUICE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18,
+		Color(LedgerStyle.BRASS, 0.6))
+	var earned := "%d EARNED" % prestige.juice_earned
+	var ew := _font.get_string_size(earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20).x
+	draw_string(_font, Vector2(jx - ew - 34.0, 148.0), earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20,
+		Color(LedgerStyle.NEWSPRINT, 0.45))
 
 
 func _button(text: String, min_size: Vector2, bg: Color, fg: Color) -> Button:

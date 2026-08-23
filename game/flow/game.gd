@@ -25,6 +25,12 @@ signal collection_changed(active: bool, collected: int)
 signal smuggling_changed(state: Dictionary)
 ## A Sit-Down opened or ran out — the sixty seconds the Heat meter does not move.
 signal sitdown_changed(active: bool, time_left: float)
+## A Penthouse chair was claimed for the career, or the whole room went down in one pass.
+signal chairs_changed(state: Dictionary)
+## The campaign moved: a district canvassed, the ballot opened, the city counted (docs/05 §8).
+signal election_changed(state: Dictionary)
+## A heist's checklist moved, or the crew came out (docs/05 §5).
+signal heist_changed(state: Dictionary)
 ## A Commission fight's shape changed (phase, panels, the Butcher's freezer) — HUD fodder.
 signal boss_changed(state: Dictionary)
 ## Manny worked a till without a ball (`auto_collect_interval`). The HUD flashes it, because
@@ -75,6 +81,14 @@ var collection := CollectionRound.new()
 ## M3 modes (specs/m3-fall-rise.md FLOW-3), same discipline: pure logic on a fed clock.
 var smuggling := SmugglingRun.new()
 var sitdown := SitDown.new()
+## THE PENTHOUSE (docs/02 §2 R6): the five chairs, claimed across Nights, and the campaign
+## they unlock.
+var chairs := CommissionChairs.new()
+var elections := Elections.new()
+## THE WAR ROOM (docs/05 §5): the board, the casing clock and what the jobs have paid.
+var heists := Heists.new()
+## The heist on the table right now, or null (typed loosely — see `boss`).
+var heist: HeistRun = null
 ## THE COMMISSION (specs/m2-content.md §5): who is waiting, who has been put away, and which
 ## rank the ladder is not allowed past yet.
 var commission := Commission.new()
@@ -125,6 +139,13 @@ var night_boss: BigMoney = BigMoney.zero()
 var night_rerolls: int = 0
 ## The rain-insurance policy is one confiscation a Night, and it is spent here.
 var night_insured: bool = false
+## The heist this Night ran, as The Count wants to read it. Empty on an ordinary Night.
+var night_heist: Dictionary = {}
+
+## THE RAP SHEET. Counters no other system owns and every one of them is a term in the Juice
+## formula (docs/06 §2) — so a career that is about to Skip Town can be scored without asking
+## six subsystems to remember what they did five cities ago.
+var career: Dictionary = {}
 
 ## The meta lane's stores: the authoritative owned-upgrades map and the reveal history.
 ## Both are loaded by path rather than referenced as classes so the flow lane keeps booting
@@ -148,6 +169,7 @@ var _reveal_script: GDScript = null
 ## that never reaches a frame, so `_ready()` would land after the tests had already used
 ## the singleton. Every connect below is guarded, so both paths are safe.
 func _init() -> void:
+	career = _blank_career()
 	_wire(combo.changed, _on_combo_changed)
 	_wire(combo.respect_earned, _on_combo_respect)
 	_wire(jobs.completed, _on_job_completed)
@@ -203,6 +225,12 @@ func heat_frozen() -> bool:
 func heat_add_flat(amount: float) -> void:
 	if not heat_frozen():
 		heat.add_flat(amount)
+
+
+## The same guard the other way: a frozen meter does not fall either.
+func heat_reduce(amount: float) -> void:
+	if not heat_frozen():
+		heat.reduce(amount)
 
 
 # =============================================================== money path =====
@@ -305,7 +333,8 @@ func preview_switch(group: StringName, base_value: BigMoney) -> BigMoney:
 ## (Loud, Fast). Multiplicative across guys — during a Meeting both men's traits are live,
 ## which is the point of taking the crew out together.
 func mode_multiplier() -> float:
-	return meeting.dirty_multiplier() * GuyTraits.dirty_mult_for(fielded)
+	return meeting.dirty_multiplier() * elections.dirty_multiplier() \
+			* GuyTraits.dirty_mult_for(fielded)
 
 
 ## Dirty booked in one value group tonight, as it landed in the wallet.
@@ -334,8 +363,79 @@ func earn_clean(amount: BigMoney, _source: StringName = &"") -> BigMoney:
 		return BigMoney.zero()
 	wallet.earn_clean(amount)
 	night_clean = night_clean.add(amount)
+	_book_lifetime_clean(amount)
 	jobs.on_launder(amount)
 	return amount
+
+
+# ================================================================= the rap sheet =====
+##
+## Career counters. Every one of them is a term in the Juice formula (docs/06 §2), and none
+## of them belongs to any other system: the wallet holds what you HAVE, not what you have
+## ever had, and a heist book that resets with the city cannot score the city it lost.
+
+
+static func _blank_career() -> Dictionary:
+	return {
+		"lifetime_clean": BigMoney.zero(),
+		"raids_survived": 0,
+		"heists_cleared": 0,
+		"cities": 0,
+	}
+
+
+## Every dollar that has ever turned clean, however it got there — paid clean, washed, or
+## handed back as exhibit A.
+func _book_lifetime_clean(amount: BigMoney) -> void:
+	if amount == null or not amount.is_positive():
+		return
+	var held: Variant = career.get("lifetime_clean", null)
+	career["lifetime_clean"] = amount if not (held is BigMoney) \
+			else (held as BigMoney).add(amount)
+
+
+func lifetime_clean() -> BigMoney:
+	var v: Variant = career.get("lifetime_clean", null)
+	return (v as BigMoney).copy() if v is BigMoney else BigMoney.zero()
+
+
+## A raid ridden out. Called by the NightController, because the raid's outcome is the
+## Night's to decide and the rap sheet is this file's to keep.
+func career_raid_survived() -> void:
+	career["raids_survived"] = int(career.get("raids_survived", 0)) + 1
+
+
+## The career as the Juice formula wants to read it (docs/06 §2). Handed to the meta lane's
+## `Prestige` — which is why the keys are its vocabulary, not this file's.
+func career_record() -> Dictionary:
+	return {
+		"lifetime_clean": lifetime_clean(),
+		"bosses_beaten": commission.beaten.size(),
+		"heists_cleared": int(career.get("heists_cleared", 0)),
+		"raids_survived": int(career.get("raids_survived", 0)),
+		"excess_respect": maxi(respect - RANK_RESPECT[clampi(rank, 0,
+				RANK_RESPECT.size() - 1)], 0),
+	}
+
+
+func _career_to_dict() -> Dictionary:
+	return {
+		"lifetime_clean": lifetime_clean().to_dict(),
+		"raids_survived": int(career.get("raids_survived", 0)),
+		"heists_cleared": int(career.get("heists_cleared", 0)),
+		"cities": int(career.get("cities", 0)),
+	}
+
+
+func _career_from_dict(d: Variant) -> void:
+	career = _blank_career()
+	if not (d is Dictionary) or (d as Dictionary).is_empty():
+		return
+	var raw: Dictionary = d
+	career["lifetime_clean"] = BigMoney.from_dict(raw.get("lifetime_clean", {}))
+	career["raids_survived"] = maxi(int(raw.get("raids_survived", 0)), 0)
+	career["heists_cleared"] = maxi(int(raw.get("heists_cleared", 0)), 0)
+	career["cities"] = maxi(int(raw.get("cities", 0)), 0)
 
 
 ## Who is on the table. Their traits fold into the money path and into the Heat meter's gain
@@ -364,6 +464,7 @@ func launder(fraction: float, cap: BigMoney = null) -> BigMoney:
 	var moved := wallet.launder_fraction(fraction, cap)
 	if moved.is_positive():
 		night_laundered = night_laundered.add(moved)
+		_book_lifetime_clean(moved)
 		jobs.on_launder(moved)
 		Events.laundered.emit(moved)
 	return moved
@@ -510,6 +611,151 @@ func sitdown_begin() -> bool:
 	var opened := sitdown.begin(seconds)
 	sitdown_changed.emit(sitdown.active, sitdown.time_left)
 	return opened
+
+
+# =================================================== the chairs & the campaign =====
+
+
+## A Penthouse chair went down. The table already paid the switch; this is the career half —
+## a seat nobody had taken before is claimed for good, and it is worth ☆.
+func chair_taken(index: int) -> bool:
+	var claimed := chairs.on_chair_taken(index)
+	if claimed:
+		add_respect(CommissionChairs.RESPECT_PER_CHAIR, &"chairs")
+		if chairs.all_claimed():
+			add_respect(CommissionChairs.RESPECT_ALL_CHAIRS, &"chairs")
+			AudioDirector.play(&"rankup_fanfare")
+		save_now()
+	chairs_changed.emit(chairs.night_summary())
+	return claimed
+
+
+## The whole room went down in one pass. With every seat already claimed, that is the moment
+## the city becomes buyable: ELECTIONS light (docs/05 §8).
+func chairs_completed() -> bool:
+	if not chairs.on_chairs_completed():
+		chairs_changed.emit(chairs.night_summary())
+		return false
+	var first := elections.unlock()
+	chairs_changed.emit(chairs.night_summary())
+	if first:
+		AudioDirector.play(&"headline_sting")
+		election_changed.emit(_election_state(&"unlocked"))
+		save_now()
+	return first
+
+
+## Work done in one of the five districts (docs/05 §8). Returns true on the report that
+## canvasses it; the fifth light calls the election on the spot.
+func election_note(district: StringName, amount: int = 1) -> bool:
+	if not elections.note(district, amount):
+		return false
+	AudioDirector.play(&"paper_slip")
+	election_changed.emit(_election_state(&"canvassed", district))
+	if elections.all_lit() and elections.call_election():
+		AudioDirector.play(&"election_open")
+		AudioDirector.play(&"knocker")
+		election_changed.emit(_election_state(&"open"))
+	save_now()
+	return true
+
+
+## The polls closed. Winning is a term at City Hall; losing is a recount that keeps one light.
+func election_settle() -> Dictionary:
+	var result := elections.settle()
+	AudioDirector.play(&"election_win" if bool(result["won"]) else &"election_lost")
+	var state := _election_state(&"settled")
+	state["result"] = result
+	election_changed.emit(state)
+	save_now()
+	return result
+
+
+## Is City Hall ours right now? Read by the raid, the cops and the block.
+func administration_active() -> bool:
+	return elections.in_office()
+
+
+# ================================================================== the heists =====
+##
+## A heist is planned at The Count and runs from the first serve of the next Night (docs/05
+## §5). Unlike a Commission fight the economy stays ON — the table earns while the crew works,
+## which is exactly the tension the fail-forward checklist is built on.
+
+
+## Can the war room take an order at all? The Docks are the war room (docs/02 §2 R5).
+func heists_unlocked() -> bool:
+	return stats.hardware_unlocked(&"docks")
+
+
+## Put a job on the books for the next Night. Returns the plan, or an empty dict if the
+## target is not on the board, the stake is not in the pocket, or a Night is already running.
+func plan_heist(target: StringName, approach: StringName, guy: Dictionary = {}) -> Dictionary:
+	if state == &"night" or not heists_unlocked():
+		return {}
+	if not heists.is_available(target, night_no):
+		return {}
+	var stake := Heists.stake_for(target, stats.idle_rate_total())
+	if stake.is_positive() and not wallet.spend_dirty(stake):
+		return {}
+	var plan := heists.plan(target, approach, guy)
+	plan["stake"] = stake
+	save_now()
+	return plan
+
+
+## The Count's "THE CREW IS READY" button: plan it and open the Night it runs on.
+func start_heist_night(target: StringName, approach: StringName, guy: Dictionary = {}) -> bool:
+	if plan_heist(target, approach, guy).is_empty():
+		return false
+	start_night()
+	return true
+
+
+## The crew came out (or did not). Pays the take CLEAN — a heist is the one racket whose
+## money never has to be washed — degraded by whatever was blown along the way.
+func heist_finished(run: HeistRun) -> Dictionary:
+	var result := {
+		"target": String(run.target) if run != null else "",
+		"name": run.target_name if run != null else "",
+		"approach": String(run.approach) if run != null else "",
+		"cleared": run != null and run.cleared,
+		"blown": run.blown if run != null else 0,
+		"beats": run.beats().size() if run != null else 0,
+		"guy": String(run.guy.get("name", "")) if run != null else "",
+		"take": BigMoney.zero(),
+		"paid": BigMoney.zero(),
+		"relic": "",
+	}
+	if run != null:
+		var take := Heists.take_for(run.target, stats.idle_rate_total()).mul(run.take_share())
+		result["take"] = take
+		result["paid"] = earn_clean(take, &"heist")
+		if run.cleared:
+			var row := Heists.target(run.target)
+			result["relic"] = String(row.get("relic", ""))
+			add_respect(Heists.RESPECT_CLEARED, &"heist")
+			career["heists_cleared"] = int(career.get("heists_cleared", 0)) + 1
+	heists.book(result)
+	night_heist = result.duplicate()
+	heist = null
+	heist_changed.emit({"active": false, "result": result})
+	save_now()
+	return result
+
+
+func _election_state(what: StringName, district: StringName = &"") -> Dictionary:
+	return {
+		"what": String(what),
+		"district": String(district),
+		"lit": elections.lit_count(),
+		"districts": Elections.DISTRICTS.size(),
+		"active": elections.active,
+		"votes": elections.votes,
+		"needed": Elections.VOTES_TO_WIN,
+		"time_left": elections.time_left,
+		"term_left": elections.term_left,
+	}
 
 
 # ============================================================ the Commission =====
@@ -743,6 +989,11 @@ func new_game(seed_value: int = 0) -> void:
 	collection = CollectionRound.new()
 	smuggling = SmugglingRun.new()
 	sitdown = SitDown.new()
+	chairs = CommissionChairs.new()
+	elections = Elections.new()
+	heists = Heists.new()
+	heist = null
+	career = _blank_career()
 	commission = Commission.new()
 	boss = null
 	_armored.clear()
@@ -774,6 +1025,10 @@ func start_night() -> void:
 	collection.begin_night()
 	smuggling.begin_night()
 	sitdown.begin_night()
+	chairs.begin_night()
+	elections.begin_night()
+	elections.night_tick()
+	heist = null
 	wire.begin_night(session_seed, night_no)
 	set_fielded([])
 	_reset_night_tallies()
@@ -815,6 +1070,9 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["collection"] = collection.night_summary()
 	s["smuggling"] = smuggling.night_summary()
 	s["sitdown"] = sitdown.night_summary()
+	s["chairs"] = chairs.night_summary()
+	s["election"] = elections.night_summary()
+	s["heist"] = night_heist.duplicate()
 	# `boss` comes from the NightController — `commission.last_result` is the CAREER's last
 	# fight and would print a week-old front page on an ordinary Night.
 	s["boss_paid"] = night_boss
@@ -1001,6 +1259,10 @@ func to_dict() -> Dictionary:
 		"collection": collection.to_dict(),
 		"smuggling": smuggling.to_dict(),
 		"sitdown": sitdown.to_dict(),
+		"chairs": chairs.to_dict(),
+		"elections": elections.to_dict(),
+		"heists": heists.to_dict(),
+		"career": _career_to_dict(),
 		"commission": commission.to_dict(),
 		"safe": {
 			"last_seen": last_seen,
@@ -1055,6 +1317,14 @@ func from_dict(d: Dictionary) -> void:
 	smuggling.from_dict(d.get("smuggling", {}))
 	sitdown = SitDown.new()
 	sitdown.from_dict(d.get("sitdown", {}))
+	chairs = CommissionChairs.new()
+	chairs.from_dict(d.get("chairs", {}))
+	elections = Elections.new()
+	elections.from_dict(d.get("elections", {}))
+	heists = Heists.new()
+	heists.from_dict(d.get("heists", {}))
+	heist = null
+	_career_from_dict(d.get("career", {}))
 	commission = Commission.new()
 	commission.from_dict(d.get("commission", {}))
 	boss = null
@@ -1088,6 +1358,7 @@ func _reset_night_tallies() -> void:
 	night_bribes = 0
 	night_boss = BigMoney.zero()
 	night_insured = false
+	night_heist = {}
 
 
 ## Fires for our own purchases and for anything the meta lane buys directly — the level

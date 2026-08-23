@@ -32,6 +32,9 @@ const MAX_COST := 100
 ## Why a perk cannot be bought right now. NONE means "take the Juice".
 enum Block { NONE, UNKNOWN, DEFERRED, REQUIRES, MAXED, JUICE }
 
+## The file is two keys and nothing else — a stray root key is a merge accident, and the
+## Ledger's loader has taught us that the mistakes worth catching are the quiet ones.
+const ROOT_KEYS: PackedStringArray = ["schema", "perks"]
 const PERK_KEYS: PackedStringArray = [
 	"id", "name", "flavor", "note", "cost", "repeat", "requires", "deferred", "effects",
 ]
@@ -266,6 +269,9 @@ func _ingest(data: Variant, quiet: bool) -> void:
 		_bad("root of %s must be an object" % _src(), quiet)
 		return
 	var root := data as Dictionary
+	for key: Variant in root:
+		if not ROOT_KEYS.has(String(key)):
+			_bad("%s: unknown root key `%s`" % [_src(), key], quiet)
 	schema = int(root.get("schema", 0))
 	if schema != SCHEMA_VERSION:
 		_bad("%s schema %d, this loader speaks %d" % [_src(), schema, SCHEMA_VERSION], quiet)

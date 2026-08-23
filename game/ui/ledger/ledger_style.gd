@@ -264,6 +264,126 @@ static func style_button(b: Button, bg: Color, fg: Color) -> void:
 	b.add_theme_color_override("font_disabled_color", Color(INK, 0.55))
 
 
+# --- the Black Book (docs/06) -------------------------------------------------
+
+
+## Juice, the prestige currency: a plain count, never a money string. "1 JUICE", "15 JUICE".
+static func juice(amount: int) -> String:
+	return "%d JUICE" % amount
+
+
+## One human line per prestige-perk effect — the Black Book's half of `effect_line`. The
+## shipped board prints each perk's own `note` (docs/06 §3's rule text, verbatim), so this is
+## what a Skip Town screen or a debug dump says about the vocabulary itself.
+static func perk_line(effect: Dictionary) -> String:
+	var kind: StringName = effect["kind"]
+	var num := float(effect["num"])
+	var each := " per level" if bool(effect["per_level"]) else ""
+	match kind:
+		&"start_rank":
+			return "Start each city at +%d rank%s%s" % [int(roundf(num)), _s(num), each]
+		&"kept_specialist":
+			return "%d specialist%s comes with you%s" % [int(roundf(num)), _s(num), each]
+		&"pocket_city_scale":
+			return "Pocket Money scales with the city number"
+		&"boss_start_phase":
+			return "The city's first Commission fight opens at phase %d" % int(roundf(num))
+		&"stash_fraction":
+			return "Start with %s of the last city's clean, as dirty" % _pct(num)
+		&"bench_starters":
+			return "The Bench opens with %d levelled guy%s%s" % [int(roundf(num)), _s(num), each]
+		&"star_requirement_mult":
+			return "%s ☆ needed in a city you have beaten" % percent(num)
+		&"idle_carryover":
+			return "The last city keeps paying %s of its idle" % _pct(num)
+		&"saint_statue":
+			return "%d retired specialist%s watches every future table%s" % [
+				int(roundf(num)), _s(num), each]
+		&"museum":
+			return "Opens the Museum: heist relics socket into set bonuses"
+		&"golden_ball_tier":
+			return "The Golden Ball unlocks at T%d" % int(roundf(num))
+		&"safe_cap_mult":
+			return "%s offline Safe cap" % percent(num)
+		&"safe_clean_share":
+			return "%s of the Safe arrives clean" % _pct(num)
+		&"gauntlet":
+			return "Opens the Sixth Family: every Commission at one table"
+	return String(kind)
+
+
+## Why the BUY button on a Black Book page is dark, in the player's words.
+static func perk_block_reason(block: BlackBook.Block, book: BlackBook, id: String,
+		prestige: Prestige) -> String:
+	match block:
+		BlackBook.Block.DEFERRED:
+			return "NOT IN THIS LIFE. YET."
+		BlackBook.Block.MAXED:
+			return "IN THE BOOK"
+		BlackBook.Block.JUICE:
+			var short := book.next_cost(id, prestige.owned()) - prestige.juice
+			return "NEEDS %d MORE JUICE" % maxi(short, 1)
+		BlackBook.Block.REQUIRES:
+			var missing: PackedStringArray = []
+			for parent in book.parents_of(id):
+				if prestige.level_of(parent) < 1:
+					missing.append(String(book.def(parent).get("name", parent)))
+			return "NEEDS " + ", ".join(missing).to_upper()
+		BlackBook.Block.UNKNOWN:
+			return "NOT IN THE BOOK"
+	return ""
+
+
+# --- spoils (the trophies) ----------------------------------------------------
+##
+## A spoil is flow-lane truth (`Commission.FIGHTS`), so the names are READ from there rather
+## than copied here — by path, not by class, exactly the way `game/flow/game.gd` reaches the
+## meta lane's stores. If that file ever moves, a trophy loses its proper name and keeps its
+## card; nothing breaks.
+
+const COMMISSION_PATH := "res://game/flow/bosses/commission.gd"
+
+## Spoil id -> {"name", "from"}, read once per process. Cached because the board asks for
+## every trophy on every build and a script constant map is not free.
+static var _spoils: Dictionary = {}
+static var _spoils_read: bool = false
+
+
+## The trophy card's descriptor for a `spoil.*` id: its name and whose it was.
+static func spoil_descriptor(id: String) -> Dictionary:
+	_read_spoils()
+	var known: Dictionary = _spoils.get(id, {})
+	if known.is_empty():
+		# An unknown spoil still gets a card: the career owns it, so the board owes it a nail.
+		return {"id": id, "name": pretty(id.trim_prefix("spoil.")).to_upper(), "from": ""}
+	return {"id": id, "name": String(known["name"]), "from": String(known["from"])}
+
+
+static func _read_spoils() -> void:
+	if _spoils_read:
+		return
+	_spoils_read = true
+	if not ResourceLoader.exists(COMMISSION_PATH):
+		return
+	var script: GDScript = load(COMMISSION_PATH)
+	if script == null:
+		return
+	var fights: Variant = script.get_script_constant_map().get("FIGHTS", null)
+	if not (fights is Array):
+		return
+	for f: Variant in fights as Array:
+		if not (f is Dictionary):
+			continue
+		var d := f as Dictionary
+		var spoil := String(d.get("spoil", ""))
+		if spoil.is_empty():
+			continue
+		_spoils[spoil] = {
+			"name": String(d.get("spoil_name", spoil)),
+			"from": String(d.get("name", "")),
+		}
+
+
 ## Why the BUY button is dark, in the player's words.
 static func block_reason(block: Upgrades.Block, node: Dictionary, catalog: Upgrades, owned: Dictionary) -> String:
 	match block:

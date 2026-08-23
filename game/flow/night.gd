@@ -230,13 +230,17 @@ func start() -> void:
 	_connect_table(&"container_stack_cleared", _on_stack_cleared)
 	_connect_table(&"containers_state", _on_containers_state)
 	_connect_table(&"cargo_shipped", _on_cargo_shipped)
-	_connect_table(&"crane_telegraph", _on_crane_telegraph)
-	_connect_table(&"crane_pulled", _on_crane_pulled)
 	_connect_table(&"sitdown_entered", _on_sitdown_entered)
+	_connect_table(&"chair_taken", _on_chair_taken)
+	_connect_table(&"chairs_completed", _on_chairs_completed)
 
 	_start_boss()
+	_start_heist()
 
 	# Nights do not always open cold — coming off a survived raid the meter is still at 30.
+	if Game.administration_active():
+		_open_the_block()
+
 	AudioDirector.music_set_state(_music_state())
 	guy_index = -1
 	_next_guy()
@@ -314,6 +318,9 @@ func _physics_process(delta: float) -> void:
 	_tick_deck()
 	_tick_docks(delta)
 	_tick_sitdown(delta)
+	_tick_election(delta)
+	_tick_heist(delta)
+	_tick_raid_hold()
 	_tick_wire(delta)
 	_tick_collection(delta)
 	_tick_arpeggio(delta)
@@ -567,6 +574,9 @@ func _on_tilted() -> void:
 ## He's inside. A pinch is a beat, not a punishment (docs/01 §8): mugshot, one-liner,
 ## next man up — or The Count if he was the last one out there.
 func _lose_guy(guy: Dictionary, age: float = 0.0) -> void:
+	# A ball that is actually gone is the one thing that ends a heist (docs/05 §5) — a ball
+	# save or a Slippery escape never reaches here, which is exactly right.
+	_heist_ball_lost()
 	if guy.is_empty():
 		return
 	if age >= SURVIVE_SECONDS:
@@ -617,6 +627,10 @@ func _finish() -> void:
 	# and only the payout lap was left) still counts as won.
 	if boss != null and is_instance_valid(boss) and boss.active:
 		boss.lose()
+	# A job still open when the Night runs out comes home with what it has.
+	if Game.heist != null and Game.heist.active:
+		Game.heist.abort()
+		Game.heist_finished(Game.heist)
 	running = false
 	set_physics_process(false)
 	_close_skill_window()
@@ -788,11 +802,15 @@ func _on_scored(id: StringName, value: int) -> void:
 	Game.earn_switch(Switches.group_for(id), BigMoney.from_float(float(value)), {"switch": id})
 
 
-func _on_switch_hit(id: StringName, _ball_node: Node2D, _strength: float) -> void:
+func _on_switch_hit(id: StringName, _ball_node: Node2D, strength: float) -> void:
 	if not running:
 		return
 	var group := Switches.group_for(id)
 	Game.jobs.on_switch(id, group)
+	# Election Night: every switch on the machine is a ballot (docs/05 §8).
+	Game.elections.on_vote()
+	_canvass(group)
+	_heist_switch(group, strength)
 	if not _wash_from_signal and (group == &"laundry" or String(id).begins_with("laundromat")):
 		_wash_pass()
 	if group == &"rollovers":
@@ -935,6 +953,7 @@ func _on_reels_state(cleared_columns: Array) -> void:
 	var paid := Game.casino_reels(cleared_columns)
 	if not paid.is_positive():
 		return
+	Game.election_note(&"club")
 	_arpeggio([&"drop_bank_down", &"chime_a", &"chime_b", &"chime_c", &"knocker"], 0.10)
 
 
@@ -1096,11 +1115,12 @@ func _on_containers_state(cleared_stacks: Array) -> void:
 ## The load is out. `Game` pays it; this is the noise and the light.
 func _settle_shipment(shipped: bool) -> void:
 	if not shipped:
+		# The crate's own noise is the table's (`container_break`); this is only the mode.
 		Game.smuggling_changed.emit(_smuggling_state(false, Game.smuggling.hot))
-		AudioDirector.play(&"container_break")
 		return
 	var hot := Game.smuggling.hot
 	Game.smuggling_shipment(hot)
+	Game.election_note(&"docks")
 	AudioDirector.play(&"shipment_out")
 	_arpeggio([&"drop_bank_down", &"chime_a", &"chime_c", &"knocker"], 0.1)
 
@@ -1114,26 +1134,16 @@ func _on_cargo_shipped(_speed: float) -> void:
 	Game.smuggling_changed.emit(_smuggling_state(false, true))
 
 
-func _on_crane_telegraph() -> void:
-	if running:
-		AudioDirector.play(&"crane_telegraph")
-
-
-func _on_crane_pulled() -> void:
-	if running:
-		AudioDirector.play(&"crane_pull")
-
-
 ## THE SIT-DOWN (docs/02 §2 R6): the meter stops for a minute and the block re-arms.
 func _on_sitdown_entered() -> void:
 	if not running:
 		return
 	if not Game.sitdown_begin():
 		return
-	AudioDirector.play(&"sitdown")
+	# The saucer's capture is the table's `sitdown`; this is the room going quiet.
 	AudioDirector.play(&"chime_b")
 	# "Storefronts auto-arm" — the table owns the banks, so this is an ask, not a reach.
-	TableAPI.call_if(table, "arm_storefronts")
+	_open_the_block()
 
 
 func _tick_sitdown(delta: float) -> void:
@@ -1143,6 +1153,135 @@ func _tick_sitdown(delta: float) -> void:
 		return
 	Game.sitdown_changed.emit(false, 0.0)
 	AudioDirector.play(&"drop_bank_reset")
+
+
+## A chair went down. The table pays the switch; `Game` owns the claim and the ☆.
+func _on_chair_taken(index: int) -> void:
+	if running:
+		Game.chair_taken(index)
+
+
+## The whole room in one pass. With every seat already claimed this is what lights the
+## campaign — and it is the only thing that does.
+func _on_chairs_completed() -> void:
+	if not running:
+		return
+	if Game.chairs_completed():
+		_arpeggio([&"chime_a", &"chime_b", &"chime_c", &"headline_sting"], 0.12)
+
+
+# ================================================================= elections =====
+
+
+## Canvassing (docs/05 §8): a district is worked by playing that zone, so the campaign rides
+## the switch traffic that is already flowing rather than needing a counter of its own.
+func _canvass(group: StringName) -> void:
+	if not Game.elections.unlocked:
+		return
+	match group:
+		&"bumpers", &"slings":
+			Game.election_note(&"alley")
+		&"wire":
+			Game.election_note(&"corner")
+		&"cop":
+			# City Hall's cops are escorts, not a patrol (docs/05 §8).
+			if Game.administration_active():
+				Game.heat_reduce(Elections.ADMIN_COP_HEAT)
+
+
+func _tick_election(delta: float) -> void:
+	if not Game.elections.active:
+		return
+	if not Game.elections.tick(delta):
+		return
+	var result := Game.election_settle()
+	if bool(result["won"]):
+		_arpeggio([&"knocker", &"chime_a", &"chime_c", &"headline_sting"], 0.12)
+	else:
+		AudioDirector.play(&"drop_bank_reset")
+
+
+## The block opens up for City Hall and for the Sit-Down. The banks are the table's, so this
+## is an ask that a table without the API simply ignores.
+func _open_the_block() -> void:
+	TableAPI.call_if(table, "arm_storefronts")
+
+
+# =================================================================== the heist =====
+##
+## A heist runs on an ordinary Night with the economy on (docs/05 §5). This owns the clock and
+## the switch feed; `HeistRun` owns the checklist and `Game` owns the take.
+
+
+## The Count booked a job for tonight. Nothing about the Night changes except that a crew is
+## working: same three guys, same rackets, same raid.
+func _start_heist() -> void:
+	var plan := Game.heists.pending
+	if plan.is_empty():
+		return
+	var target := StringName(plan.get("target", ""))
+	var run := HeistRun.make(target, StringName(plan.get("approach", Heists.QUIET)),
+			plan.get("guy", {}))
+	if run == null:
+		# A target with no script yet is not a Night-breaker: the job is simply dropped.
+		Game.heists.clear_pending()
+		return
+	Game.heists.begin(target, Game.night_no)
+	Game.heist = run
+	run.begin()
+	Game.heat_add_flat(run.heat_cost())
+	AudioDirector.play(&"heist_start")
+	AudioDirector.play(&"knocker")
+	Game.heist_changed.emit(run.state())
+
+
+func _tick_heist(delta: float) -> void:
+	var run := Game.heist
+	if run == null or not run.active:
+		return
+	if not run.tick(delta):
+		return
+	# A blown beat is a worse payday, never an ended job (docs/05 §5, P5).
+	AudioDirector.play(&"heist_blown")
+	if run.active:
+		Game.heist_changed.emit(run.state())
+	else:
+		Game.heist_finished(run)
+
+
+## Every switch is offered to the checklist. The beat decides whether it was the shot it
+## wanted — and, for the Vault's walk-out, whether it was gentle enough.
+func _heist_switch(group: StringName, strength: float) -> void:
+	var run := Game.heist
+	if run == null or not run.active:
+		return
+	var before := run.beat_index
+	match run.on_switch(group, strength):
+		HeistRun.HIT_OK:
+			AudioDirector.play(&"heist_beat" if run.beat_index > before else &"chime_a")
+			if run.active:
+				Game.heist_changed.emit(run.state())
+			else:
+				_arpeggio([&"chime_a", &"chime_b", &"chime_c", &"headline_sting"], 0.11)
+				Game.heist_finished(run)
+		HeistRun.HIT_GENTLE:
+			# Right shot, too much on it. The beat stands and the player gets told why.
+			AudioDirector.play(&"drop_clack")
+			Game.heist_changed.emit(run.state())
+
+
+## A ball went down. That is the one thing that ends a heist — unless the inside man had a
+## way out for exactly this.
+func _heist_ball_lost() -> void:
+	var run := Game.heist
+	if run == null or not run.active:
+		return
+	if not run.on_ball_lost():
+		AudioDirector.play(&"chime_b")
+		Game.heist_changed.emit(run.state())
+		return
+	AudioDirector.play(&"heist_blown")
+	Game.heist_finished(run)
 
 
 # ================================================================= the wire =====
@@ -1175,6 +1314,9 @@ func _tick_collection(delta: float) -> void:
 	if Game.collection.on_all_armed():
 		AudioDirector.play(&"paper_slip")
 		Game.collection_changed.emit(true, 0)
+	elif Game.administration_active():
+		# In office the block is never shut: the banks come back up for you (docs/05 §8).
+		_open_the_block()
 
 
 ## All three banks standing at once (docs/05 §3). Read off the table's own storefront list;
@@ -1205,6 +1347,7 @@ func _on_table_storefront(id: StringName, amount: BigMoney) -> void:
 		return
 	# Perfect round: the last shop pays its value again, ☆10, and the back room lights up.
 	Game.collection_completed(id, amount)
+	Game.election_note(&"block")
 	AudioDirector.play(&"job_done")
 	_arpeggio([&"chime_a", &"chime_c"], 0.1)
 	Game.collection_changed.emit(false, int(Switches.COVER_SIZE.get(&"storefronts", 3)))
@@ -1223,6 +1366,9 @@ func on_raid_called() -> void:
 	# (docs/05 §6), and the meter is not even earning while one runs.
 	if boss != null and is_instance_valid(boss) and boss.active:
 		return
+	# City Hall holds him at the door until the meter clears the Administration's own bar.
+	if Game.heat.value < Game.elections.raid_threshold():
+		return
 	raid = RaidMode.new()
 	raid.name = "Raid"
 	if raid_duration > 0.0:
@@ -1239,6 +1385,8 @@ func _on_raid_finished(survived: bool) -> void:
 		_raid_result = "survived"
 		_raid_payout = Game.wallet.dirty.mul(Game.RAID_CLEAN_PAYOUT)
 		Game.wallet.earn_clean(_raid_payout)
+		Game._book_lifetime_clean(_raid_payout)
+		Game.career_raid_survived()
 		Game.add_respect(Game.RESPECT_RAID_SURVIVED, &"raid")
 		Game.mark_reveal_event(&"first_raid_survived")
 		AudioDirector.play(&"raid_win")
@@ -1263,6 +1411,22 @@ func _on_raid_finished(survived: bool) -> void:
 ## Is a confiscation covered? One policy, one Night (docs/04 T5 ★rain_insurance).
 func _rain_insured() -> bool:
 	return Game.stats.flag(&"rain_insurance") and not Game.night_insured
+
+
+## THE ADMINISTRATION'S DOOR (docs/05 §8). The meter latches its raid at 100 — that is the
+## economy core's and it is frozen — so a term in office does not lower the latch, it refuses
+## to open the door until the number is genuinely embarrassing. The latch stays pending in the
+## meantime, which is exactly the state `HeatMeter` already models, so nothing is invented: the
+## poll simply asks again each tick and `NightController.start()` still catches a crossing that
+## happened while nobody was playing.
+func _tick_raid_hold() -> void:
+	if not running or not Game.administration_active():
+		return
+	if raid != null and is_instance_valid(raid) and raid.active:
+		return
+	if not Game.heat.is_raid_pending() or Game.heat.value < Game.elections.raid_threshold():
+		return
+	on_raid_called()
 
 
 func _on_band_changed(_band: int) -> void:

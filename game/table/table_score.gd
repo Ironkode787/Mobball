@@ -24,6 +24,11 @@ const CASINO_REEL := 100.0
 ## on the machine, because there are only five of them and the room costs a rank to reach.
 const SMUGGLING_CONTAINER := 400.0
 const PENTHOUSE_CHAIR := 2000.0
+## M3 — CITY HALL (docs/02 §2 R7). One lap of the dome is the longest, hardest single shot
+## on the machine — a 1000 px/s gate off the Club's ceiling channel — and it pays like it:
+## five chairs for one loop, in the `penthouse` group, because the crown belongs to the room
+## it stands on.
+const DOME_LOOP := 10000.0
 
 const GROUP_BUMPERS := &"bumpers"
 const GROUP_SLINGS := &"slings"

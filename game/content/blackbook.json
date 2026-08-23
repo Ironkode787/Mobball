@@ -4,7 +4,7 @@
     {
       "id": "blackbook.old_contacts",
       "name": "Old Contacts",
-      "flavor": "Somebody's cousin always knows somebody. Be somebody's cousin.",
+      "flavor": "Somebody's cousin always knows somebody.",
       "note": "start each city at +1 rank (max R3 start)",
       "cost": 1, "repeat": {"max": 3, "step": 1}, "requires": [], "deferred": false,
       "effects": [{"kind": "start_rank", "value": 1, "per_level": true}]
@@ -12,7 +12,7 @@
     {
       "id": "blackbook.kept_man",
       "name": "Kept Man",
-      "flavor": "He gets a window seat and a new name. He keeps the old habits.",
+      "flavor": "New name, window seat, same old habits.",
       "note": "one chosen specialist survives Skip Town (slot per level)",
       "cost": 1, "repeat": {"max": 3, "step": 1}, "requires": [], "deferred": false,
       "effects": [{"kind": "kept_specialist", "value": 1, "per_level": true}]
@@ -28,7 +28,7 @@
     {
       "id": "blackbook.reputation_precedes_you",
       "name": "Reputation Precedes You",
-      "flavor": "They heard what happened to the last guy. They start the meeting nervous.",
+      "flavor": "They heard about the last guy.",
       "note": "first Commission boss of each city starts at phase 2",
       "cost": 2, "repeat": null, "requires": [], "deferred": false,
       "effects": [{"kind": "boss_start_phase", "value": 2}]
@@ -36,7 +36,7 @@
     {
       "id": "blackbook.the_stash",
       "name": "The Stash",
-      "flavor": "A locker at the bus station, under a name the Feds already retired.",
+      "flavor": "A bus-station locker, in a retired name.",
       "note": "begin each city with 5% of previous city's clean cash (dirty, ha)",
       "cost": 3, "repeat": null, "requires": [], "deferred": false,
       "effects": [{"kind": "stash_fraction", "value": 0.05}]
@@ -60,15 +60,15 @@
     {
       "id": "blackbook.the_big_sleep",
       "name": "The Big Sleep",
-      "flavor": "He goes out on top, in bronze, still watching the ball.",
-      "note": "retire a maxed specialist forever → he becomes a patron-saint statue on all future tables: a small aura zone with his power at half strength, always on",
+      "flavor": "He goes out on top. In bronze.",
+      "note": "retire a maxed specialist forever → he becomes a patron-saint statue on all future tables: a small aura zone with his power at half strength, always on. The roster of saints grows across prestiges — your history literally watches over the table",
       "cost": 5, "repeat": {"max": 3, "step": 5}, "requires": [], "deferred": true,
       "effects": [{"kind": "saint_statue", "value": 1, "per_level": true}]
     },
     {
       "id": "blackbook.museum_of_crime",
       "name": "Museum of Crime",
-      "flavor": "Every job leaves one thing you cannot sell. Put it under glass.",
+      "flavor": "Every job leaves one thing you cannot sell.",
       "note": "unlocks the relic gallery: heist relics socket into set bonuses (3 Museum pieces = permanent +1 casino edge, etc.)",
       "cost": 8, "repeat": null, "requires": [], "deferred": true,
       "effects": [{"kind": "museum"}]
@@ -76,7 +76,7 @@
     {
       "id": "blackbook.fast_learner",
       "name": "Fast Learner",
-      "flavor": "The second time through, you know which doors open inward.",
+      "flavor": "Second time through, you know the doors.",
       "note": "☆ requirements −20% in cities you've beaten before",
       "cost": 8, "repeat": null, "requires": [], "deferred": false,
       "effects": [{"kind": "star_requirement_mult", "value": 0.8}]

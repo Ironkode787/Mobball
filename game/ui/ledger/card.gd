@@ -5,14 +5,21 @@ extends Control
 ## affordable (the pushpin glints), owned (yellowed, stamped DONE, pinned FLAT — the tilt
 ## every other card has goes to zero, which is the whole "pinned flat" gag from docs/04).
 ##
+## A TROPHY is the other kind of card: a boss's signature spoil (`spoil.*`), which was never
+## for sale (docs/05 §6). It hangs on the same board in gold trim, always face-up, with no
+## price and no BUY — "TAKEN, NOT BOUGHT" where the cost would be.
+##
 ## No textures: everything here is draw_rect / draw_line / draw_string against the palette.
 
 const W := 236.0
 const H := 158.0
 
 enum Face { HIDDEN, FACEDOWN, REVEALED }
+## What this card IS: a Ledger node you buy, or a spoil you took off somebody.
+enum Kind { NODE, TROPHY }
 
 var id: String = ""
+var kind: int = Kind.NODE
 var face: int = Face.HIDDEN
 var level: int = 0
 var max_level: int = 1
@@ -41,6 +48,24 @@ func setup(node_def: Dictionary) -> void:
 	id = String(node_def["id"])
 	max_level = int(node_def["max_level"])
 	_tilt = deg_to_rad((float(hash(id) % 1000) / 1000.0 - 0.5) * 5.4)
+	queue_redraw()
+
+
+## Binds the card to a spoil the career took: `{"id", "name", "from"}` — the trophy's own
+## name and the boss it came off. A trophy is owned the moment it exists, so it is set up
+## face-up, pinned flat, and never asks the board for a state again.
+func setup_trophy(descriptor: Dictionary) -> void:
+	kind = Kind.TROPHY
+	_def = descriptor
+	id = String(descriptor.get("id", ""))
+	max_level = 1
+	level = 1
+	face = Face.REVEALED
+	block = Upgrades.Block.MAXED
+	cost = BigMoney.zero()
+	visible = true
+	rotation = 0.0
+	set_process(false)
 	queue_redraw()
 
 
@@ -80,7 +105,9 @@ func _draw() -> void:
 	if face == Face.HIDDEN:
 		return
 	draw_rect(Rect2(Vector2(5.0, 7.0), size), LedgerStyle.SHADOW)
-	if face == Face.FACEDOWN:
+	if kind == Kind.TROPHY:
+		_draw_trophy()
+	elif face == Face.FACEDOWN:
 		_draw_back()
 	else:
 		_draw_front()
@@ -164,6 +191,29 @@ func _draw_front() -> void:
 		_draw_stamp()
 
 
+## The trophy face: the same index card in gold trim, with the price line replaced by the
+## only thing a spoil has instead of a price. The corner ticks are the frame of a photograph
+## in an evidence file — this is the one card on the board that is a picture of a win.
+func _draw_trophy() -> void:
+	var r := Rect2(Vector2.ZERO, size)
+	draw_rect(r, LedgerStyle.PAPER_OWNED)
+	draw_rect(r, LedgerStyle.BRASS, false, 3.0)
+	draw_rect(Rect2(Vector2(7.0, 7.0), size - Vector2(14.0, 14.0)), Color(LedgerStyle.BRASS, 0.55), false, 1.0)
+	draw_rect(Rect2(Vector2.ZERO, Vector2(7.0, size.y)), LedgerStyle.BRASS)
+	for corner: Vector2 in [Vector2(14.0, 14.0), Vector2(size.x - 14.0, 14.0),
+			Vector2(14.0, size.y - 14.0), Vector2(size.x - 14.0, size.y - 14.0)]:
+		draw_line(corner + Vector2(-8.0, 0.0), corner + Vector2(8.0, 0.0), LedgerStyle.BRASS, 2.0)
+		draw_line(corner + Vector2(0.0, -8.0), corner + Vector2(0.0, 8.0), LedgerStyle.BRASS, 2.0)
+
+	_text("SPOIL", Vector2(20.0, 30.0), 15, LedgerStyle.BRASS.darkened(0.25))
+	draw_multiline_string(_font, Vector2(20.0, 68.0), String(_def.get("name", id)),
+		HORIZONTAL_ALIGNMENT_LEFT, size.x - 46.0, 24, 2, LedgerStyle.INK)
+	var from := String(_def.get("from", ""))
+	if not from.is_empty():
+		_text("OFF %s" % from.to_upper(), Vector2(20.0, size.y - 44.0), 15, LedgerStyle.INK_SOFT)
+	_text("TAKEN, NOT BOUGHT", Vector2(20.0, size.y - 20.0), 19, LedgerStyle.BRASS.darkened(0.3))
+
+
 ## A hire gets a face. Until the mugshot art exists (docs/07 §3 "specialist portraits"), that
 ## face is an initials medallion in his branch colour with his instrument-voice under it
 ## (docs/08 §5) — the portrait slot at final size, so the art drops straight in.
@@ -216,7 +266,9 @@ func _draw_pin() -> void:
 		var t := (sin(_pulse) + 1.0) * 0.5
 		draw_circle(p, 12.0 + t * 9.0, Color(LedgerStyle.CLEAN.r, LedgerStyle.CLEAN.g, LedgerStyle.CLEAN.b, 0.42 * (1.0 - t)))
 	var head := LedgerStyle.BRASS
-	if is_owned():
+	if kind == Kind.TROPHY:
+		head = LedgerStyle.BRASS
+	elif is_owned():
 		head = LedgerStyle.DIRTY
 	elif face == Face.FACEDOWN:
 		head = LedgerStyle.CARD_BACK_INK

@@ -68,6 +68,15 @@ signal chairs_completed()
 signal sitdown_entered()
 signal penthouse_entered(speed: float)
 signal penthouse_returned()
+## M3 — CITY HALL (docs/02 §2 R7). One closed lap of the dome, at the rail speed it closed
+## at. The City Hall Circuit is a *chain* of four shots (orbit → staircase → penthouse gate →
+## dome loop) and the chain is the flow lane's to count: the table reports each shot once and
+## never decides what a sequence of them means.
+signal dome_loop_completed(speed: float)
+## M3 — the Mystery Briefcase. The table drops the token, watches it, and says which way it
+## went; what is inside it (and the odds on it) is FLOW-3's.
+signal briefcase_collected()
+signal briefcase_expired()
 
 const BALL_SCENE := preload("res://game/core/ball.tscn")
 const FLIPPER_SCENE := preload("res://game/table/hardware/flipper.tscn")
@@ -186,6 +195,35 @@ const KICKBACK_AT := Vector2(95.0, 1520.0)
 const KICKBACK_SIZE := Vector2(86.0, 56.0)
 const MAGNET_AT := Vector2(490.0, 1810.0)
 
+# ---------------------------------------------------------------- the federal raid (M3)
+## The Director's coil (docs/05 §9 phase 3). It sits a third of the way up the field rather
+## than at the grate: the Captain drags you *into* the drain, the Bureau drags you *off* the
+## block, and a player has to read which of the two is winding up. Two tells at once is not
+## difficulty, so the table keeps their telegraphs apart in code — see `_keep_magnets_apart`.
+const DIRECTOR_AT := Vector2(490.0, 1500.0)
+## Room the two coils must leave each other: a full telegraph plus a beat to read it in.
+const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
+## How dirty the felt goes. The M1 raid's 0.12 is a shipped, tuned number and stays exactly
+## what it was; the federal stages are denser passes of the same ink.
+const RAID_TINT := 0.12
+const FEDERAL_TINT: PackedFloat32Array = [0.0, 0.18, 0.23, 0.29]
+
+# ---------------------------------------------------------------- the briefcase (M3)
+## Where a case may be put down. Three spots on the main field, each of them more than a ball
+## diameter clear of every collider that is bolted down (asserted in tests/sim/dome_sim.gd) —
+## because a token that lands half inside a payphone reads as a bug even though it has no
+## collision of its own. The first two are also clear of the raid's cops; the third is the
+## roomiest spot on the table and the cops stand right next to it.
+const BRIEFCASE_SPOTS: Array = [
+	Vector2(590.0, 1160.0),      # the waist, under Nonna's
+	Vector2(810.0, 1320.0),      # the corner under Fat Tony's
+	Vector2(610.0, 1260.0),      # open felt over the truck's back door
+]
+## Centre-to-centre room a piece of *transient* hardware has to leave a spot before the case
+## will be dropped on it. The fixed furniture is already accounted for in the spots.
+const BRIEFCASE_CLEAR := 100.0
+const BRIEFCASE_CLEAR_VEHICLE := 170.0
+
 # ---------------------------------------------------------------- the Commission
 ## Sammy's sedan crosses the waist on a rail between the bumper nest and the block: high
 ## enough that a bumper cannot shield it, low enough to be reachable off either bat.
@@ -262,6 +300,16 @@ var storefronts: Array[Storefront] = []
 var rollovers: Array[Rollover] = []
 var cop_targets: Array[StandupTarget] = []
 var raid_active: bool = false
+## THE FEDERAL RAID (docs/05 §9). 0 off · 1 street sweep · 2 wiretap · 3 the Director.
+## Independent of `raid_active`: either switch can put the cops out, and the hardware is a
+## function of both, so a local raid during a federal one is not a double toggle.
+var federal_phase: int = 0
+## The Bureau's second coil, and the vans. Built with everything else, dormant until a phase
+## asks for them — the same rule the raid's cops live under.
+var director: DrainMagnet = null
+var vans: FederalVans = null
+## The bagman's token. Never bought, never scored: `spawn_briefcase` puts it down.
+var briefcase: Briefcase = null
 ## THE COMMISSION. Built with everything else, dormant until a fight stands it up.
 var boss_sedan: BossTarget = null
 var boss_truck: BossTarget = null
@@ -274,6 +322,8 @@ var club: ClubDeck = null
 ## M3's two new rooms, same rule again: built with the table, dormant until they are bought.
 var docks: Docks = null
 var penthouse: Penthouse = null
+## The crown (R7). One golden rail in the sky above the lot — see segments/city_hall.gd.
+var city_hall: CityHall = null
 ## The crew with the hammers (docs/02 §0). Cosmetic; see hardware/build_in.gd.
 var construction: BuildIn = null
 
@@ -290,6 +340,7 @@ var _forced: Dictionary = {}                 ## dev env hook: ids forced unlocke
 var _lit_lane: int = -1
 var _still_for: float = 0.0
 var _search_rng := RandomNumberGenerator.new()
+var _case_rng := RandomNumberGenerator.new()
 var _boss_meter_text: String = ""
 var _boss_meter_fill: float = 0.0
 var _built_once: Dictionary = {}             ## node -> true: already stood up at least once
@@ -313,6 +364,8 @@ func bounds() -> Rect2:
 		r = r.merge(penthouse.bounds())
 	if docks != null and docks.is_hardware_active():
 		r = r.merge(docks.bounds())
+	if city_hall != null and city_hall.is_hardware_active():
+		r = r.merge(city_hall.bounds())
 	return r
 
 
@@ -350,6 +403,11 @@ func socket(id: StringName) -> Vector2:
 			return Penthouse.FLOOR_APEX
 		&"penthouse_mouth":
 			return Penthouse.STAIR_MOUTH
+		# The last of the sky (R7). Everything above the Club's ceiling is the dome's.
+		&"city_hall":
+			return CityHall.DOME_CENTER
+		&"dome_mouth":
+			return CityHall.MOUTH_AT
 	return Vector2.ZERO
 
 
@@ -359,6 +417,7 @@ func socket(id: StringName) -> Vector2:
 func _ready() -> void:
 	_arch_radius = ARCH_CENTER.distance_to(ARCH_A)
 	_search_rng.seed = 0x5EA12C4          # seeded: a sim rerun searches the same way
+	_case_rng.seed = 0xB1EFCA5E           # ditto: the bagman uses the same doors twice
 	_read_env_hook()
 	_build_walls()
 	_build_gate()
@@ -374,6 +433,7 @@ func _ready() -> void:
 	_build_club()
 	_build_docks()
 	_build_penthouse()
+	_build_city_hall()
 	_build_drain()
 	_build_plunger()
 	_build_construction()
@@ -582,6 +642,25 @@ func _build_extras() -> void:
 	magnet.drain_point = Vector2(MIRROR_X, DRAIN_Y + 40.0)
 	add_child(magnet)
 
+	# THE FEDERAL RAID (M3). A second coil, two vans and a bagman's token — all of it built
+	# with the table and dormant, none of it for sale.
+	director = DrainMagnet.new()
+	director.name = "DirectorsMagnet"
+	director.position = DIRECTOR_AT
+	director.drain_point = Vector2(MIRROR_X, DRAIN_Y + 40.0)
+	director.self_driven = true         # nobody upstairs schedules this one; it hunts alone
+	add_child(director)
+
+	vans = FederalVans.new()
+	vans.name = "FederalVans"
+	add_child(vans)
+
+	briefcase = Briefcase.new()
+	briefcase.name = "Briefcase"
+	add_child(briefcase)
+	briefcase.collected.connect(_on_briefcase_collected)
+	briefcase.expired.connect(func() -> void: briefcase_expired.emit())
+
 	# THE TRUCK ROUTE (M3). Two gates on the corridor outside the payphones and the top of
 	# the arch — no new walls, see ORBIT_R_ENTRY_AT.
 	orbit_right = OrbitLane.new()
@@ -738,6 +817,17 @@ func _build_penthouse() -> void:
 	_register([Penthouse.ID_PENTHOUSE], penthouse, ClubDeck.ID_DECK)
 	for piece: Dictionary in penthouse.pieces():
 		_register(piece["ids"], piece["node"], Penthouse.ID_PENTHOUSE)
+
+
+## CITY HALL (docs/02 §2 R7). One piece of furniture, no sub-hardware: the dome is a rail and
+## a painting. It is registered under the Penthouse — which is registered under the Club — so
+## the crown cannot arrive before the two floors it stands on, however it is forced on.
+func _build_city_hall() -> void:
+	city_hall = CityHall.new()
+	city_hall.name = "CityHall"
+	add_child(city_hall)
+	city_hall.loop_completed.connect(func(s: float) -> void: dome_loop_completed.emit(s))
+	_register([CityHall.ID_CITY_HALL], city_hall, Penthouse.ID_PENTHOUSE)
 
 
 ## The crew with the hammers. Added last so it draws over everything it is building, and
@@ -947,16 +1037,129 @@ func set_raid_active(active: bool) -> void:
 	if raid_active == active:
 		return
 	raid_active = active
-	for c in cop_targets:
-		c.set_hardware_active(active)
-		c.set_marked(false)
-	magnet.set_active(active)
+	_apply_raid_hardware()
+
+
+## THE FEDERAL RAID (docs/05 §9, R7). Three stages of the same siege, each one adding to the
+## last and each one built out of hardware this table already owns:
+##
+##   0  off
+##   1  street sweep — the cops and the Captain's coil, exactly as a local raid, on a
+##      dirtier felt
+##   2  wiretap — two unmarked vans in the bottom corners with their lights walking up the
+##      block. Visual only: no collider arrives with a federal warrant
+##   3  the Director — a SECOND coil, a third of the way up the field, alternating with the
+##      Captain's so there is never more than one telegraph on the table
+##
+## Independent of `set_raid_active`: a local raid during a federal one is not a double
+## toggle, because the shared hardware is a function of both switches.
+func set_federal_raid(phase: int) -> void:
+	var want := clampi(phase, 0, 3)
+	if federal_phase == want:
+		return
+	var was := federal_phase
+	federal_phase = want
+	_apply_raid_hardware()
+	vans.set_active(want >= 2)
+	if want >= 3:
+		if not director.active:
+			director.set_active(true)
+			# Opposite half of the Captain's cycle to begin with; `_keep_magnets_apart` holds
+			# them there for as long as both are running.
+			director.reschedule(DrainMagnet.PERIOD * 0.5)
+	else:
+		director.set_active(false)
+	if was == 0 and want > 0:
+		AudioDirector.play(&"raid_start")
 	queue_redraw()
+
+
+## Cops and the Captain's coil, from whichever siege wants them.
+func _apply_raid_hardware() -> void:
+	var on := raid_active or federal_phase >= 1
+	for c in cop_targets:
+		c.set_hardware_active(on)
+		c.set_marked(false)
+	magnet.set_active(on)
+	queue_redraw()
+
+
+## Two coils under one table may never wind up at the same time — a player can read one tell,
+## not two, and a double pull is a coin flip rather than a difficulty. Whichever is already
+## telegraphing owns the field; the other one's pull is pushed past the end of it.
+func _keep_magnets_apart() -> void:
+	if director == null or not director.active or not magnet.active:
+		return
+	var winding := magnet if magnet.is_telegraphing() else director
+	var waiting := director if winding == magnet else magnet
+	if not winding.is_telegraphing():
+		return
+	if waiting.time_to_pull() < winding.time_to_pull() + MAGNET_MIN_GAP:
+		waiting.reschedule(winding.time_to_pull() + MAGNET_MIN_GAP)
 
 
 ## Fire the Captain's magnet now (flow drives the schedule; see DrainMagnet.self_driven).
 func magnet_pull() -> void:
 	magnet.pull(ball)
+
+
+# ================================================================ the briefcase =====
+##
+## docs/05 — the Mystery Briefcase. The table owns the token: where it may be put down, how
+## long it stands there, and which of the two ways it can end. The flow lane owns everything
+## about what is in it.
+
+
+## Drop a case. `at` = Vector2.ZERO picks one of `BRIEFCASE_SPOTS` at random, skipping any
+## the raid's cops or a Commission fight are standing on; an explicit point is taken as
+## given. One case at a time — a second call while one is live does nothing, so a caller that
+## needs to know should read `briefcase_live()` afterwards.
+func spawn_briefcase(at: Vector2 = Vector2.ZERO) -> void:
+	if briefcase == null or briefcase.is_live():
+		return
+	var spot := at
+	if spot == Vector2.ZERO:
+		var open: Array[Vector2] = []
+		for candidate: Vector2 in BRIEFCASE_SPOTS:
+			if _spot_open(candidate):
+				open.append(candidate)
+		if open.is_empty():
+			return                  # the waist is full: the bagman waits for a quieter Night
+		spot = open[_case_rng.randi_range(0, open.size() - 1)]
+	briefcase.drop_at(spot)
+
+
+func briefcase_live() -> bool:
+	return briefcase != null and briefcase.is_live()
+
+
+func briefcase_at() -> Vector2:
+	return briefcase.global_position if briefcase_live() else Vector2.ZERO
+
+
+## Is this spot clear of everything that comes and goes? The fixed furniture is already
+## accounted for in `BRIEFCASE_SPOTS`; what moves is the raid's cops, Sammy's crew and the
+## Commission's vehicles — and the ball, which must never have a case land on top of it.
+func _spot_open(at: Vector2) -> bool:
+	for b in Balls.live():
+		if is_instance_valid(b) and b.global_position.distance_to(at) < BRIEFCASE_CLEAR:
+			return false
+	for t: StandupTarget in cop_targets + boss_goons:
+		if t.visible and t.global_position.distance_to(at) < BRIEFCASE_CLEAR:
+			return false
+	if boss_door != null and boss_door.visible:
+		for t: StandupTarget in boss_door.targets():
+			if t.visible and t.global_position.distance_to(at) < BRIEFCASE_CLEAR:
+				return false
+	for v: BossTarget in [boss_sedan, boss_truck]:
+		if v != null and v.visible \
+				and v.global_position.distance_to(at) < BRIEFCASE_CLEAR_VEHICLE:
+			return false
+	return true
+
+
+func _on_briefcase_collected(_ball_hit: Ball) -> void:
+	briefcase_collected.emit()
 
 
 # ========================================================== the Commission =====
@@ -1178,6 +1381,8 @@ func _bind_ball() -> void:
 		docks.set_ball(ball)
 	if penthouse != null:
 		penthouse.set_ball(ball)
+	if city_hall != null:
+		city_hall.set_ball(ball)
 
 
 func _on_drain_entered(body: Node2D, sound: StringName = &"drain") -> void:
@@ -1223,6 +1428,7 @@ func _physics_process(delta: float) -> void:
 				spawn_ball()
 	_update_gate()
 	_ball_search(delta)
+	_keep_magnets_apart()
 
 
 ## Pulse the coils under a ball that has stopped somewhere it has no business stopping.
@@ -1244,6 +1450,9 @@ func _ball_search(delta: float) -> void:
 		_still_for = 0.0
 		return
 	if docks != null and docks.search_exempt(ball):
+		_still_for = 0.0
+		return
+	if city_hall != null and city_hall.search_exempt(ball):
 		_still_for = 0.0
 		return
 	_still_for += delta
@@ -1303,6 +1512,14 @@ func _update_gate() -> void:
 # =================================================================== geometry =====
 
 
+## How dirty the felt is right now. A local raid is the M1 number it has always been; a
+## federal one is a heavier pass of the same ink, and the two do not stack — the worse siege
+## wins, because the felt is a state, not a sum.
+func _raid_tint() -> float:
+	var federal := FEDERAL_TINT[clampi(federal_phase, 0, FEDERAL_TINT.size() - 1)]
+	return maxf(RAID_TINT if raid_active else 0.0, federal)
+
+
 func _mx(x: float, s: float, y: float) -> Vector2:
 	return Vector2(x if s > 0.0 else MIRROR_X * 2.0 - x, y)
 
@@ -1344,9 +1561,10 @@ func _draw() -> void:
 	felt.append(Vector2(LANE_RIGHT, PLAY_BOTTOM))
 	draw_colored_polygon(felt, Feel.COL_FELT)
 
-	if raid_active:
+	var tint := _raid_tint()
+	if tint > 0.0:
 		draw_colored_polygon(felt, Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g,
-				Feel.COL_DIRTY.b, 0.12))
+				Feel.COL_DIRTY.b, tint))
 
 	draw_rect(Rect2(Vector2(LANE_LEFT, DIVIDER_TOP), Vector2(LANE_RIGHT - LANE_LEFT,
 			LANE_FLOOR_Y - DIVIDER_TOP)), Feel.COL_FELT.darkened(0.25))

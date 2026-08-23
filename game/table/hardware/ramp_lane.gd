@@ -93,6 +93,17 @@ func length() -> float:
 	return _total
 
 
+## How far along the rail the current ride has got, in px. Zero when nothing is riding.
+## The City Hall loop reads this to know the lap has closed before the ball is home.
+func progress() -> float:
+	return _s if riding() else 0.0
+
+
+## Rail speed of the current ride, px/s (signed: negative is sliding back out the mouth).
+func ride_speed() -> float:
+	return _v if riding() else 0.0
+
+
 ## Rail speed needed at the mouth to reach the top, ignoring the speed ceiling. The sim
 ## holds `entry_speed` above this so a shot that passes the gate always makes the climb.
 func required_entry_speed() -> float:

@@ -59,6 +59,15 @@ func time_to_pull() -> float:
 	return PERIOD - _phase if active else -1.0
 
 
+## Push the next pull out to `seconds` from now, cancelling a telegraph that has not earned
+## its place yet. Two coils under one table must never wind up at once — a player can read
+## one tell, not two — so the table keeps them apart with this (`set_federal_raid` phase 3).
+func reschedule(seconds: float) -> void:
+	_phase = PERIOD - clampf(seconds, 0.0, PERIOD)
+	_telegraphing = _phase >= PERIOD - TELEGRAPH
+	queue_redraw()
+
+
 func pull(b: Ball = null) -> void:
 	var target := b if b != null else _ball
 	if target == null or not is_instance_valid(target):

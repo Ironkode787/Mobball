@@ -1723,6 +1723,781 @@ def staircase_crest() -> np.ndarray:
 	return _finish(out, -3.0, wet=0.15, rt60=0.58, predelay=0.011, tilt_db=1.5, taper=0.18)
 
 
+# ============================ wave 4 — the endgame (specs/m3-fall-rise.md AUDIO-4) =====
+
+# The last of the vocabulary: the Commission fights, the Docks, the Penthouse, the dome,
+# the heists, the election, Empire Mode, the Reunion, the briefcases and Skip Town. Every
+# one of these was already being *called* by shipped code and failing silent.
+#
+# Two ladder claims are new and both are asserted in generate.py rather than asserted
+# here in prose: `dome_loop` is the biggest PITCHED sound in the game and still sits under
+# the knocker, and `empire_start` — everything lit, x10 on everything — sits under the
+# rank-up pair. Telegraphs (wrench, crane) sit far down the ladder for the reason
+# `radio_squelch` does: a warning warns, it does not announce.
+
+
+def _gong(n: int, gen: np.random.Generator, f0: float = 174.61, tau: float = 1.0,
+          bright: float = 1.0) -> np.ndarray:
+	"""A struck plate: many inharmonic modes and no pitch you could name.
+
+	A bell has a note; a tam-tam has a *cloud*, and that is the difference between a boss
+	arriving and a boss arriving musically. The ratios are deliberately not small
+	integers, and the top of the bank rings shorter than the bottom, so the strike is
+	bright and what hangs afterwards is dark.
+	"""
+	exc = _hit(n, gen, ms=3.2, lo=110.0, hi=9000.0, sharp=3.4, click=0.55, click_ms=0.22)
+	ratios = (1.000, 1.412, 1.732, 2.093, 2.614, 3.147,
+	          3.712, 4.391, 5.128, 6.017, 7.114, 8.423)
+	spec = []
+	for i, r in enumerate(ratios):
+		detune = 1.0 + 0.004 * float(gen.uniform(-1.0, 1.0))
+		spec.append((f0 * r * detune,
+		             tau / (1.0 + 0.55 * i),
+		             (0.88 ** i) * (bright if i >= 5 else 1.0)))
+	return unit(modal(exc, spec))
+
+
+def _tower_bell(n: int, gen: np.random.Generator, f0: float = 220.0,
+                tail: float = 1.0) -> np.ndarray:
+	"""A cast bronze bell in a tower — the civic one, not the one on a desk.
+
+	A tuned cast bell has a partial set nothing else has: a hum an octave BELOW the note
+	you think you hear, the prime, a minor-third tierce, the quint, and the nominal an
+	octave up. That tierce is why every big bell in the world sounds sad, and it is the
+	reason an election win in this game can be a bell and still not be a celebration.
+	"""
+	exc = _hit(n, gen, ms=2.6, lo=90.0, hi=7000.0, sharp=4.0, click=0.75, click_ms=0.18)
+	partials = [
+		(0.500, 1.00, 0.55),      # hum
+		(1.000, 0.86, 1.00),      # prime
+		(1.0024, 0.83, 0.52),     # ...beating against itself
+		(1.189, 0.62, 0.72),      # tierce: the minor third
+		(1.498, 0.44, 0.50),      # quint
+		(2.000, 0.34, 0.62),      # nominal
+		(2.505, 0.22, 0.34),
+		(3.011, 0.15, 0.24),
+		(4.166, 0.09, 0.14),
+	]
+	return unit(modal(exc, [(f0 * r, 1.55 * tail * tt, g) for r, tt, g in partials]))
+
+
+def _glass(n: int, gen: np.random.Generator, f0: float = 2680.0,
+           tau: float = 0.05) -> np.ndarray:
+	"""A tumbler set down on wood: a thin high ring on a dull knock."""
+	exc = _hit(n, gen, ms=0.9, lo=900.0, hi=12000.0, sharp=8.0, click=0.7, click_ms=0.10)
+	return unit(modal(exc, [
+		(f0, tau, 0.75),
+		(f0 * 1.0035, tau * 0.94, 0.40),
+		(f0 * 2.72, tau * 0.42, 0.28),
+		(f0 * 5.10, tau * 0.20, 0.10),
+		(f0 * 0.11, tau * 1.6, 0.30),        # the wood it lands on
+	]))
+
+
+def _kicker(n: int, gen: np.random.Generator, velocity: float = 1.0) -> np.ndarray:
+	"""A trough coil throwing a steel ball: the solenoid, then the ball leaving."""
+	coil = unit(modal(_hit(n, gen, ms=1.6, lo=150.0, hi=6000.0, sharp=5.5,
+	                       click=0.85, click_ms=0.13),
+	                  [(148.0, 0.045, 0.60), (296.0, 0.028, 0.62), (592.0, 0.016, 0.50),
+	                   (1180.0, 0.008, 0.34), (2360.0, 0.004, 0.20)]))
+	ball = _metal_ping(n, gen, 3480.0, tau=0.030, bright=1.15)
+	return unit(coil + 0.30 * ball, velocity)
+
+
+def _scrape(n: int, gen: np.random.Generator, f_lo: float, f_hi: float,
+            q: float = 9.0, walk_hz: float = 70.0, depth: float = 0.25) -> np.ndarray:
+	"""Stick-slip: something hard dragged over something hard.
+
+	Built as a narrow resonance swept by a jittering envelope rather than as noise with
+	a filter on it — the same argument `safe_open`'s creak makes. Filtered noise gives
+	you a hiss that fades; a grabbing resonance gives you friction.
+	"""
+	grab = lowpass(noise(n, gen), walk_hz, order=2)
+	grab /= float(np.max(np.abs(grab))) + 1e-12
+	swept = sweep_filter(noise(n, gen), expline(n, f_lo, f_hi) * (1.0 + depth * grab),
+	                     q=q, kind="bp")
+	swept *= 0.45 + 0.55 * (0.5 + 0.5 * grab)
+	return unit(highpass(swept, 260.0, order=2))
+
+
+def _far_horn(n: int, gen: np.random.Generator, freqs, sag_cents: float = 45.0,
+              attack: float = 0.10, release: float = 0.35) -> np.ndarray:
+	"""A multi-note horn heard from a long way off.
+
+	Distance is two things and neither of them is "quieter": everything above ~2 kHz
+	never arrives (air absorbs it first), and the reverberant field is louder than the
+	direct sound. The chord is what makes it a *train* horn rather than a foghorn — a
+	single pipe is a boat, three or four pipes beating against each other is a
+	locomotive — and the whole chord sags together at the end because the thing making
+	it is moving away from you.
+	"""
+	sag = np.ones(n)
+	hold = min(n - 1, n_of(0.55 * n / SR))
+	sag[hold:] = expline(n - hold, 1.0, 2.0 ** (-sag_cents / 1200.0))
+	out = np.zeros(n)
+	for i, f in enumerate(freqs):
+		voice = np.zeros(n)
+		for k, g in ((1, 1.00), (2, 0.42), (3, 0.24), (4, 0.13), (5, 0.07), (6, 0.04)):
+			voice += g * np.sin(phase_of(f * k * sag) + 0.5 * k + 0.31 * i)
+		out += voice * (0.92 ** i)
+	out *= asr_env(n, attack, release, 1.4)
+	# the reed noise in the throat of the horn, and then the air between here and there
+	out += 0.05 * bandpass(noise(n, gen), 300.0, 1800.0, order=2) * asr_env(n, attack, release, 1.4)
+	return unit(lowpass(out, 2050.0, order=4))
+
+
+def boss_start() -> np.ndarray:
+	"""A rival family walks in and the room gets colder (docs/05 §6).
+
+	Three things and no more: a plate struck once and left to hang, the two D's of the
+	score's own key from the low brass with a slow rip on them, and the drum.
+	`boss_fight.gd` fires this and the knocker on the same frame, so it deliberately owns
+	the bottom of the spectrum and leaves the transient to the knocker.
+	"""
+	gen = rng("boss_start")
+	n = n_of(1.60)
+	out = np.zeros(n)
+	add_at(out, _gong(n_of(1.50), gen, 174.61, tau=1.10), 0, 0.85)
+	for at, f, vel in ((0.055, 73.42, 0.95), (0.075, 146.83, 0.82)):
+		add_at(out, _brass(f, n_of(1.25), gen, vel, rip_cents=110.0, attack=0.055,
+		                   release=0.42, bright=0.70), n_of(at), 0.62)
+	add_at(out, _drum(55.00, n_of(1.05), gen, 1.0, tau=0.44, head_hz=620.0), n_of(0.020), 0.70)
+	return _finish(out, -2.4, wet=0.20, rt60=1.05, predelay=0.015, tilt_db=-1.5, taper=0.18)
+
+
+def boss_phase() -> np.ndarray:
+	"""He changes his mind about you: the fight turns over into its next phase.
+
+	A minor second held against itself — D and Eb in the same octave, the most
+	uncomfortable interval two horns can play — with the plate choked underneath it.
+	Short, because it fires between phases while the ball is still live.
+	"""
+	gen = rng("boss_phase")
+	n = n_of(0.90)
+	out = np.zeros(n)
+	for at, f, vel in ((0.000, 146.83, 0.92), (0.030, 155.56, 0.86)):       # D3, Eb3
+		add_at(out, _brass(f, n_of(0.60), gen, vel, rip_cents=45.0, attack=0.018,
+		                   release=0.16, bright=0.82), n_of(at), 0.70)
+	add_at(out, _gong(n_of(0.34), gen, 233.08, tau=0.14, bright=1.25), n_of(0.150), 0.55)
+	add_at(out, _drum(73.42, n_of(0.55), gen, 0.85, tau=0.26, head_hz=700.0), 0, 0.60)
+	return _finish(out, -3.2, wet=0.14, rt60=0.62, predelay=0.012, taper=0.20)
+
+
+def boss_beaten() -> np.ndarray:
+	"""He is down: the oldest cadence there is, in the score's own key.
+
+	A7 into Dm — bars 6 and 7 of the loop are already those two chords — so the win lands
+	*inside* the music instead of on top of it. No major lift: the dome is the only place
+	in the game that gets one, and it has to stay the only one for that to mean anything.
+	"""
+	gen = rng("boss_beaten")
+	n = n_of(1.90)
+	out = np.zeros(n)
+	for i, f in enumerate((220.00, 277.18, 329.63)):                 # A3 C#4 E4 — the A7
+		add_at(out, _brass(f, n_of(0.32), gen, 0.86 - 0.05 * i, rip_cents=55.0,
+		                   attack=0.018, release=0.12), n_of(0.010 + 0.010 * i), 0.55)
+	for i, f in enumerate((146.83, 293.66, 349.23, 440.00)):          # D3 D4 F4 A4 — home
+		add_at(out, _brass(f, n_of(1.28), gen, 0.95 - 0.04 * i, rip_cents=35.0,
+		                   attack=0.026, release=0.40), n_of(0.300 + 0.012 * i), 0.50)
+	add_at(out, _drum(73.42, n_of(1.10), gen, 1.0, tau=0.38, head_hz=700.0), n_of(0.295), 0.72)
+	add_at(out, _gong(n_of(1.35), gen, 146.83, tau=0.90, bright=0.80), n_of(0.290), 0.34)
+	return _finish(out, -2.1, wet=0.19, rt60=0.98, predelay=0.014, tilt_db=0.5, taper=0.16)
+
+
+def wrench_telegraph() -> np.ndarray:
+	"""Sammy's crew getting a spanner onto your flipper linkage (docs/05 §6, R3).
+
+	Mechanical, and pointedly not police: no tone, no two-tone chirp, nothing that could
+	be mistaken for the raid family. It is a wrench chattering round a bolt head — the
+	rate rises as the thread bites — with the linkage rattling in sympathy underneath,
+	and it ends on the clamp that is about to cost you a flipper. Two seconds, because
+	that is exactly how long `sammy.gd` telegraphs for: the sound and the tell are the
+	same object.
+	"""
+	gen = rng("wrench_telegraph")
+	n = n_of(2.00)
+	out = np.zeros(n)
+	at = 0.030
+	gap = 0.130
+	for i in range(22):
+		tick_n = n_of(0.09)
+		f0 = 2050.0 * float(gen.uniform(0.86, 1.18))
+		spanner = unit(modal(_hit(tick_n, gen, ms=0.55, lo=700.0, hi=9000.0,
+		                          sharp=9.0, click=0.55, click_ms=0.10),
+		                     [(f0, 0.0085, 0.55), (f0 * 1.87, 0.0048, 0.60),
+		                      (f0 * 3.42, 0.0026, 0.28), (452.0, 0.0160, 0.34)]))
+		add_at(out, spanner, n_of(at),
+		       (0.30 + 0.55 * (i / 21.0)) * float(gen.uniform(0.72, 1.0)))
+		at += gap
+		gap *= 0.958
+	rattle = np.zeros(n)
+	for i in range(34):
+		rat_n = n_of(0.05)
+		f0 = float(gen.uniform(620.0, 1550.0))
+		add_at(rattle, unit(modal(_hit(rat_n, gen, ms=0.40, lo=400.0, hi=6000.0,
+		                               sharp=10.0, click=0.30),
+		                          [(f0, 0.0060, 0.60), (f0 * 2.4, 0.0030, 0.30)])),
+		       n_of(float(gen.uniform(0.05, 1.42))), float(gen.uniform(0.10, 0.34)))
+	out += 0.55 * rattle
+	clamp = unit(modal(_hit(n_of(0.42), gen, ms=2.6, lo=90.0, hi=4200.0, sharp=4.0,
+	                        click=0.80, click_ms=0.16),
+	                   [(118.0, 0.075, 0.60), (243.0, 0.048, 0.62), (486.0, 0.028, 0.52),
+	                    (960.0, 0.015, 0.38), (1880.0, 0.008, 0.22)]))
+	add_at(out, clamp, n_of(1.46), 1.00)
+	return _finish(out, -6.0, wet=0.09, rt60=0.36, tilt_db=-1.0, taper=0.14)
+
+
+def crane_telegraph() -> np.ndarray:
+	"""The gantry warning you before the magnet takes the ball (specs/m3 TABLE-3).
+
+	Industrial: a contactor coil energising (mains buzz swelling as the field builds),
+	the gantry motor spinning up a fifth, and two strikes on a small steel bell bolted
+	to the frame. It is a warning, so it sits low on the ladder — the pull is the loud
+	one — and it is nothing like `radio_squelch`: this is a machine announcing that it
+	is about to move, not a man telling another man to move.
+	"""
+	gen = rng("crane_telegraph")
+	n = n_of(1.40)
+	t = t_axis(n)
+	out = np.zeros(n)
+	swell = np.clip(t / 0.55, 0.0, 1.0) ** 1.4
+	coil = np.zeros(n)
+	for k, g in ((1, 1.00), (2, 0.55), (3, 0.42), (4, 0.22), (5, 0.16), (7, 0.09)):
+		coil += g * np.sin(2.0 * np.pi * 120.0 * k * t + 0.6 * k)
+	out += 0.55 * unit(coil * swell * asr_env(n, 0.020, 0.22, 1.2))
+	whirr = bl_saw(expline(n, 62.0, 96.0), n, cap=26)
+	teeth = 0.34 * sine(expline(n, 780.0, 1180.0)) + 0.14 * sine(expline(n, 1560.0, 2360.0))
+	motor = lowpass(whirr + teeth, 2600.0, order=2) * swell * asr_env(n, 0.050, 0.30, 1.2)
+	out += 0.42 * unit(motor)
+	for at in (0.10, 0.62):
+		add_at(out, _register_bell(n_of(0.55), gen, 940.0, 0.42), n_of(at), 0.62)
+	return _finish(out, -7.0, wet=0.10, rt60=0.44, tilt_db=-1.5, taper=0.18)
+
+
+def crane_pull() -> np.ndarray:
+	"""The magnet takes it: the contactor slams shut and the ball arrives on the face."""
+	gen = rng("crane_pull")
+	n = n_of(0.70)
+	out = np.zeros(n)
+	add_at(out, unit(modal(_hit(n_of(0.30), gen, ms=2.0, lo=70.0, hi=5000.0, sharp=4.5,
+	                            click=0.85, click_ms=0.15),
+	                       [(96.0, 0.055, 0.62), (188.0, 0.038, 0.68), (372.0, 0.022, 0.55),
+	                        (742.0, 0.012, 0.40), (1490.0, 0.006, 0.24)])), 0, 1.00)
+	add_at(out, _metal_ping(n_of(0.34), gen, 3120.0, tau=0.055, bright=1.10), n_of(0.052), 0.42)
+	hum_n = n_of(0.46)
+	ht = t_axis(hum_n)
+	hum = (np.sin(2.0 * np.pi * 120.0 * ht) + 0.45 * np.sin(2.0 * np.pi * 240.0 * ht)
+	       + 0.22 * np.sin(2.0 * np.pi * 360.0 * ht))
+	add_at(out, unit(hum * asr_env(hum_n, 0.010, 0.20, 1.3)), n_of(0.040), 0.26)
+	return _finish(out, -4.5, wet=0.08, rt60=0.34, tilt_db=-1.0, taper=0.20)
+
+
+def container_break() -> np.ndarray:
+	"""A stack of containers coming apart — a steel box is a drum you can walk inside.
+
+	The body modes are low and long because the box is huge and empty, the seam lets go
+	as a metal tear rather than a crack, and the load lands afterwards. It has to be
+	tellable from `drop_bank_down` by size alone: that is a plastic target face going
+	over, this is four tonnes of corrugated steel changing its mind.
+	"""
+	gen = rng("container_break")
+	n = n_of(0.95)
+	out = np.zeros(n)
+	add_at(out, unit(modal(_hit(n_of(0.72), gen, ms=4.5, lo=48.0, hi=5200.0, sharp=3.2,
+	                            click=0.85, click_ms=0.20),
+	                       [(63.0, 0.190, 0.50), (97.0, 0.150, 0.62), (154.0, 0.110, 0.66),
+	                        (268.0, 0.075, 0.60), (443.0, 0.048, 0.52), (826.0, 0.026, 0.42),
+	                        (1610.0, 0.013, 0.28), (3120.0, 0.007, 0.16)])), 0, 1.00)
+	tear_n = n_of(0.30)
+	tear = sweep_filter(noise(tear_n, gen), expline(tear_n, 3400.0, 1250.0), q=1.2, kind="bp")
+	add_at(out, unit(tear * perc_env(tear_n, 0.004, 0.070, 1.2)), n_of(0.055), 0.30)
+	for i, at in enumerate((0.180, 0.245, 0.330, 0.415)):
+		crate_n = n_of(0.26)
+		f0 = 150.0 * float(gen.uniform(0.86, 1.22))
+		add_at(out, unit(modal(_hit(crate_n, gen, ms=2.4, lo=100.0, hi=4000.0,
+		                            sharp=4.5, click=0.50),
+		                       [(f0, 0.050, 0.60), (f0 * 2.35, 0.026, 0.50),
+		                        (f0 * 4.10, 0.012, 0.30)])), n_of(at), 0.34 - 0.05 * i)
+	return _finish(out, -4.0, wet=0.12, rt60=0.55, tilt_db=-1.0, taper=0.18)
+
+
+def pier_splash() -> np.ndarray:
+	"""Off the pier edge and into the harbour — the Docks' own drain.
+
+	A splash is three events and everybody only remembers one: the impact (broadband,
+	over in 40 ms), the cavity collapsing behind it — a bubble whose pitch RISES as it
+	shrinks, which is the "ploop", and getting that direction wrong is the most obvious
+	mistake a water sound can make — and the wash spreading out afterwards. Sits below
+	`drain` on the ladder on purpose: losing the ball down the middle is still worse.
+	"""
+	gen = rng("pier_splash")
+	n = n_of(1.10)
+	out = np.zeros(n)
+	imp_n = n_of(0.22)
+	add_at(out, unit(bandpass(noise(imp_n, gen), 420.0, 7200.0, order=2)
+	                 * perc_env(imp_n, 0.0015, 0.032, 1.5)), 0, 0.95)
+	for at, f0, f1, tau, g in ((0.028, 380.0, 880.0, 0.070, 1.00),
+	                           (0.150, 620.0, 1180.0, 0.030, 0.36),
+	                           (0.235, 900.0, 1620.0, 0.020, 0.22)):
+		b_n = n_of(0.22)
+		add_at(out, unit(sine(expline(b_n, f0, f1)) * perc_env(b_n, 0.0022, tau, 1.1)),
+		       n_of(at), g)
+	wash_n = n_of(0.70)
+	wash = sweep_filter(noise(wash_n, gen), expline(wash_n, 2600.0, 700.0), q=0.8, kind="bp")
+	add_at(out, unit(lowpass(wash * asr_env(wash_n, 0.030, 0.42, 1.4), 5200.0, order=2)),
+	       n_of(0.030), 0.40)
+	swell_n = n_of(0.82)
+	add_at(out, unit(lowpass(noise(swell_n, gen), 420.0, order=4)
+	                 * asr_env(swell_n, 0.12, 0.42, 1.2)), n_of(0.20), 0.22)
+	return _finish(out, -3.8, wet=0.14, rt60=0.60, tilt_db=-1.5, taper=0.20)
+
+
+def smuggling_start() -> np.ndarray:
+	"""The run is on: the shutter goes up and the crew starts moving crates.
+
+	No horn — `train_away` owns the only horn in the game and a second one two streets
+	from it would blur both. A rolling steel shutter accelerating into its top stop is a
+	sound nothing else in the set makes, which is the whole requirement.
+	"""
+	gen = rng("smuggling_start")
+	n = n_of(1.20)
+	out = np.zeros(n)
+	at = 0.010
+	gap = 0.040
+	for i in range(19):
+		slat_n = n_of(0.06)
+		f0 = 1420.0 * float(gen.uniform(0.90, 1.14))
+		add_at(out, unit(modal(_hit(slat_n, gen, ms=0.45, lo=600.0, hi=8000.0,
+		                            sharp=10.0, click=0.40),
+		                       [(f0, 0.0060, 0.55), (f0 * 2.1, 0.0032, 0.45),
+		                        (330.0, 0.0120, 0.30)])), n_of(at), 0.34 + 0.30 * (i / 18.0))
+		at += gap
+		gap *= 0.945
+	add_at(out, unit(modal(_hit(n_of(0.26), gen, ms=2.2, lo=120.0, hi=4600.0,
+	                            sharp=4.5, click=0.60),
+	                       [(148.0, 0.055, 0.55), (306.0, 0.032, 0.60),
+	                        (612.0, 0.018, 0.42)])), n_of(at), 0.72)
+	add_at(out, unit(modal(_hit(n_of(0.30), gen, ms=3.0, lo=90.0, hi=3200.0,
+	                            sharp=4.0, click=0.45),
+	                       [(112.0, 0.070, 0.60), (231.0, 0.040, 0.50),
+	                        (498.0, 0.020, 0.34)])), n_of(0.760), 0.55)
+	add_at(out, _brass(98.00, n_of(0.58), gen, 0.60, rip_cents=30.0, attack=0.050,
+	                   release=0.26, bright=0.62), n_of(0.640), 0.34)
+	return _finish(out, -5.0, wet=0.10, rt60=0.48, tilt_db=-1.0, taper=0.18)
+
+
+def shipment_out() -> np.ndarray:
+	"""The load is away and the money is real (`night.gd` settles the shipment on it).
+
+	The hatch closes on it, the dock bell rings it off, and the low brass takes it out to
+	sea in open fifths. Deliberately not a cha-ching: `storefront_collect` owns the
+	register and nothing else in the game may borrow it (docs/08 §2).
+	"""
+	gen = rng("shipment_out")
+	n = n_of(1.50)
+	out = np.zeros(n)
+	add_at(out, unit(modal(_hit(n_of(0.60), gen, ms=4.0, lo=55.0, hi=4000.0, sharp=3.4,
+	                            click=0.80, click_ms=0.18),
+	                       [(74.0, 0.150, 0.52), (139.0, 0.105, 0.66), (262.0, 0.068, 0.60),
+	                        (505.0, 0.038, 0.48), (980.0, 0.020, 0.32)])), 0, 0.95)
+	for i, at in enumerate((0.240, 0.400)):
+		add_at(out, _register_bell(n_of(0.70), gen, 1180.0 + 14.0 * i, 0.72),
+		       n_of(at), 0.50 - 0.10 * i)
+	for i, f in enumerate((110.00, 164.81, 220.00)):            # A2 E3 A3 — open, leaving
+		add_at(out, _brass(f, n_of(0.92), gen, 0.78 - 0.06 * i, rip_cents=40.0,
+		                   attack=0.040, release=0.34, bright=0.78),
+		       n_of(0.360 + 0.014 * i), 0.46)
+	add_at(out, _coin_pour(n_of(0.58), gen, 8, 0.26, f_lo=1500.0, f_hi=3400.0), n_of(0.620), 0.20)
+	return _finish(out, -3.4, wet=0.16, rt60=0.75, predelay=0.013, tilt_db=0.5, taper=0.16)
+
+
+def chair_take() -> np.ndarray:
+	"""A chair comes back from the long table and somebody takes it (docs/02 R6).
+
+	The Penthouse is the quiet room — the most dangerous room in the game is the calmest
+	— so this is a small sound in a big space: hardwood legs on marble for a tenth of a
+	second, the frame taking a man's weight, and a glass touching the table because he
+	was holding one.
+	"""
+	gen = rng("chair_take")
+	n = n_of(0.75)
+	out = np.zeros(n)
+	sc_n = n_of(0.16)
+	add_at(out, _scrape(sc_n, gen, 900.0, 2100.0, q=9.0, walk_hz=70.0, depth=0.25)
+	       * asr_env(sc_n, 0.010, 0.060, 1.3), 0, 0.62)
+	add_at(out, unit(modal(_hit(n_of(0.34), gen, ms=2.6, lo=110.0, hi=3600.0,
+	                            sharp=4.2, click=0.50),
+	                       [(128.0, 0.060, 0.58), (272.0, 0.036, 0.60),
+	                        (556.0, 0.020, 0.44), (1090.0, 0.010, 0.28)])), n_of(0.150), 1.00)
+	add_at(out, _glass(n_of(0.30), gen, 2680.0, tau=0.045), n_of(0.300), 0.22)
+	return _finish(out, -4.1, wet=0.18, rt60=0.85, predelay=0.016, tilt_db=0.5, taper=0.22)
+
+
+def sitdown() -> np.ndarray:
+	"""The Sit-Down: the door closes, the glass goes down, nobody talks for a while.
+
+	Heat freezes for sixty seconds, so the sound has to *lower* the room — the opposite
+	of every other reward in the game. A padded door, a tumbler on wood, and two horns
+	holding an open fifth with no rip on them at all: the only sound in the set that
+	arrives by getting quieter.
+	"""
+	gen = rng("sitdown")
+	n = n_of(1.60)
+	out = np.zeros(n)
+	add_at(out, unit(modal(_hit(n_of(0.40), gen, ms=6.0, lo=40.0, hi=2200.0,
+	                            sharp=3.0, click=0.35),
+	                       [(68.0, 0.110, 0.60), (126.0, 0.070, 0.55), (247.0, 0.040, 0.42),
+	                        (496.0, 0.020, 0.26)])), 0, 0.85)
+	add_at(out, unit(modal(_hit(n_of(0.12), gen, ms=0.5, lo=1400.0, hi=9000.0,
+	                            sharp=9.0, click=0.55),
+	                       [(1880.0, 0.008, 0.55), (3420.0, 0.004, 0.35)])), n_of(0.070), 0.30)
+	add_at(out, _glass(n_of(0.42), gen, 2260.0, tau=0.060), n_of(0.330), 0.44)
+	for i, f in enumerate((73.42, 110.00, 146.83)):            # D2 A2 D3 — an open fifth
+		add_at(out, _brass(f, n_of(1.15), gen, 0.62 - 0.06 * i, rip_cents=0.0,
+		                   attack=0.22, release=0.52, bright=0.55),
+		       n_of(0.240 + 0.030 * i), 0.44)
+	return _finish(out, -3.6, wet=0.22, rt60=1.15, predelay=0.018, tilt_db=-2.5, taper=0.22)
+
+
+def dome_loop() -> np.ndarray:
+	"""CITY HALL: the longest shot in the game, made (docs/02 R7).
+
+	The one moment allowed to leave the key. Everything else in KINGPIN is D minor or its
+	relative major; the dome lifts to D MAJOR — the same D the band is already sitting on,
+	with the third raised — so it does not modulate away from the score so much as switch
+	a light on inside it. That lift is spent here and nowhere else.
+
+	Three layers: the ball going round the dome (a rush that only ever rises), a
+	glockenspiel arpeggio up the triad, and a bell at D6 landing on a brass chord. Under
+	the knocker on the ladder and over everything else that has a pitch.
+	"""
+	gen = rng("dome_loop")
+	n = n_of(2.10)
+	out = np.zeros(n)
+	climb_n = n_of(0.52)
+	ramp = np.linspace(0.0, 1.0, climb_n) ** 0.80
+	centre = 620.0 * (1.0 + 7.0 * ramp)
+	air = sweep_filter(noise(climb_n, gen), centre, q=1.6, kind="bp")
+	air = sweep_filter(air, centre * 1.50, q=0.70, kind="lp")
+	add_at(out, unit(air * (ramp ** 1.3) * asr_env(climb_n, 0.025, 0.10, 1.2)), 0, 0.42)
+	for i, f in enumerate((587.33, 739.99, 880.00, 1174.66)):        # D5 F#5 A5 D6
+		g_n = n_of(0.70)
+		add_at(out, unit(modal(_hit(g_n, gen, ms=0.40, lo=1800.0, hi=13000.0,
+		                            sharp=10.0, click=0.80),
+		                       [(f, 0.115, 1.00), (f * 1.0022, 0.108, 0.50),
+		                        (f * 2.758, 0.048, 0.30), (f * 5.404, 0.020, 0.12)])),
+		       n_of(0.240 + 0.075 * i), 0.30 + 0.09 * i)
+	bell_n = n_of(1.35)
+	bell = modal(_hit(bell_n, gen, ms=0.55, lo=2000.0, hi=14000.0, sharp=9.0, click=0.90),
+	             [(1174.66, 0.520, 1.00), (1177.20, 0.500, 0.55),
+	              (1174.66 * 2.758, 0.190, 0.28), (1174.66 * 5.404, 0.070, 0.10)])
+	add_at(out, unit(bell * (1.0 + 0.09 * np.sin(2.0 * np.pi * 6.0 * t_axis(bell_n)))),
+	       n_of(0.560), 1.00)
+	for i, f in enumerate((146.83, 293.66, 369.99, 440.00)):         # D3 D4 F#4 A4
+		add_at(out, _brass(f, n_of(1.15), gen, 0.88 - 0.05 * i, rip_cents=50.0,
+		                   attack=0.028, release=0.44, bright=0.92),
+		       n_of(0.545 + 0.012 * i), 0.34)
+	add_at(out, _drum(73.42, n_of(1.10), gen, 0.90, tau=0.36, head_hz=720.0), n_of(0.540), 0.50)
+	return _finish(out, -1.55, wet=0.20, rt60=0.95, predelay=0.014, tilt_db=1.5, taper=0.16)
+
+
+def heist_start() -> np.ndarray:
+	"""The crew moves (docs/05 §5). Nobody says anything, because nobody has to.
+
+	The quietest "mode starting" sound in the game and the only one built out of
+	*restraint*: a watch ticked three times, a car door pushed to rather than slammed,
+	and a single muted horn on the tonic. Loud is what `heist_blown` is for.
+	"""
+	gen = rng("heist_start")
+	n = n_of(1.50)
+	out = np.zeros(n)
+	for i, at in enumerate((0.000, 0.230, 0.460)):
+		tick_n = n_of(0.06)
+		add_at(out, unit(modal(_hit(tick_n, gen, ms=0.30, lo=1600.0, hi=11000.0,
+		                            sharp=11.0, click=0.50, click_ms=0.07),
+		                       [(3180.0, 0.0035, 0.60), (5960.0, 0.0018, 0.35),
+		                        (980.0, 0.0080, 0.25)])), n_of(at), 0.34 - 0.04 * i)
+	add_at(out, unit(modal(_hit(n_of(0.36), gen, ms=5.0, lo=45.0, hi=2600.0,
+	                            sharp=3.2, click=0.45),
+	                       [(78.0, 0.095, 0.62), (148.0, 0.062, 0.55), (292.0, 0.034, 0.42),
+	                        (588.0, 0.017, 0.26)])), n_of(0.560), 0.85)
+	add_at(out, _paper(n_of(0.40), gen, 1100.0, 6000.0, tau=0.09, grip=0.55), n_of(0.640), 0.22)
+	add_at(out, _brass(146.83, n_of(0.86), gen, 0.72, rip_cents=25.0, attack=0.070,
+	                   release=0.34, bright=0.58), n_of(0.600), 0.55)
+	return _finish(out, -4.4, wet=0.16, rt60=0.72, predelay=0.014, tilt_db=-2.0, taper=0.20)
+
+
+def heist_beat() -> np.ndarray:
+	"""One beat of the sequence lands: a tumbler drops and the crew moves on.
+
+	It fires five or six times inside a heist, so it is punctuation and it is short — the
+	same argument `rollover_click` makes. The confirming ping is A5, the chime unit's own
+	A, so a beat landing under a Wire draw is a unison and not a wrong note.
+	"""
+	gen = rng("heist_beat")
+	n = n_of(0.34)
+	out = np.zeros(n)
+	add_at(out, unit(modal(_hit(n_of(0.16), gen, ms=0.9, lo=500.0, hi=7000.0,
+	                            sharp=7.0, click=0.70, click_ms=0.11),
+	                       [(305.0, 0.0180, 0.55), (712.0, 0.0100, 0.60),
+	                        (1520.0, 0.0055, 0.42), (2980.0, 0.0028, 0.22)])), 0, 1.00)
+	ping_n = n_of(0.26)
+	add_at(out, unit(modal(_hit(ping_n, gen, ms=0.35, lo=1600.0, hi=12000.0,
+	                            sharp=10.0, click=0.75),
+	                       [(880.00, 0.070, 1.00), (880.00 * 1.0024, 0.066, 0.50),
+	                        (880.00 * 2.758, 0.026, 0.22)])), n_of(0.038), 0.60)
+	return _finish(out, -7.05, wet=0.10, rt60=0.34, tilt_db=0.5, taper=0.24)
+
+
+def heist_blown() -> np.ndarray:
+	"""It went loud. Somebody hit a sensor and the building found out.
+
+	An alarm bell hammering on its gong twice a second (the real ones strike about
+	that fast and never quite the same twice), a tritone in the brass — D against Ab,
+	the interval a plan makes when it stops working — and the door that ends it.
+	"""
+	gen = rng("heist_blown")
+	n = n_of(1.50)
+	out = np.zeros(n)
+	for i, at in enumerate((0.000, 0.135, 0.270, 0.405, 0.540)):
+		add_at(out, _desk_bell(n_of(0.52), gen, 1810.0 * (1.0 + 0.004 * (i % 3)), 0.30),
+		       n_of(at), 0.72 - 0.05 * i)
+	for i, f in enumerate((146.83, 207.65, 293.66)):                # D3 Ab3 D4 — a tritone
+		add_at(out, _brass(f, n_of(1.05), gen, 0.90 - 0.06 * i, rip_cents=80.0,
+		                   attack=0.020, release=0.30, bright=0.86),
+		       n_of(0.030 + 0.014 * i), 0.50)
+	add_at(out, _cell_door(n_of(0.60), gen, gain_low=1.15), n_of(0.820), 0.62)
+	return _finish(out, -2.8, wet=0.15, rt60=0.70, predelay=0.013, tilt_db=1.0, taper=0.16)
+
+
+def election_win() -> np.ndarray:
+	"""The Puppet Mayor takes City Hall (docs/05 §8).
+
+	A civic tower bell struck twice — its tierce is a minor third, so the biggest public
+	victory in the game still has something wrong with it — with an F major flourish over
+	the top, the score's relative major, the same key the casino pays in. The crowd is
+	paper: a thousand ballots and a ticker-tape window, which is the only honest way to
+	do a crowd without a crowd.
+	"""
+	gen = rng("election_win")
+	n = n_of(2.00)
+	out = np.zeros(n)
+	add_at(out, _tower_bell(n_of(1.85), gen, 174.61, tail=1.00), 0, 1.00)
+	add_at(out, _tower_bell(n_of(1.40), gen, 175.30, tail=0.80), n_of(0.480), 0.52)
+	for i, f in enumerate((349.23, 523.25, 698.46)):                # F4 C5 F5
+		add_at(out, _brass(f, n_of(1.05), gen, 0.86 - 0.05 * i, rip_cents=65.0,
+		                   attack=0.022, release=0.32), n_of(0.220 + 0.012 * i), 0.40)
+	add_at(out, _drum(87.31, n_of(0.95), gen, 0.85, tau=0.32, head_hz=740.0), n_of(0.215), 0.46)
+	ticker = np.zeros(n)
+	for i in range(26):
+		add_at(ticker, _paper(n_of(0.16), gen, 1800.0, 9500.0, tau=0.030, grip=0.60),
+		       n_of(float(gen.uniform(0.24, 1.60))), float(gen.uniform(0.18, 0.50)))
+	out += 0.26 * unit(ticker)
+	return _finish(out, -1.95, wet=0.20, rt60=1.00, predelay=0.015, tilt_db=0.5, taper=0.16)
+
+
+def empire_start() -> np.ndarray:
+	"""EMPIRE MODE. Every feature lit, every stem playing, x10 on everything (docs/02 R7).
+
+	The biggest sound in the game that is not the knocker, and it gets there by *width*
+	rather than by level: a timpani roll under a plate swelling into a struck bell, the
+	whole horn section on a Dm add9 spread over three octaves, and the drum. The peak
+	still sits under the rank-up pair — the ladder is a promise about which sound wins
+	when two land on the same frame, and a mode starting never beats a career moving.
+	"""
+	gen = rng("empire_start")
+	n = n_of(2.20)
+	out = np.zeros(n)
+	roll = np.zeros(n)
+	at = 0.010
+	gap = 0.058
+	for i in range(14):
+		add_at(roll, _drum(58.27, n_of(0.55), gen, 0.35 + 0.65 * (i / 13.0),
+		                   tau=0.24, head_hz=560.0), n_of(at), 0.30 + 0.70 * (i / 13.0))
+		at += gap
+		gap *= 0.955
+	out += 0.62 * unit(roll)
+	swell_n = n_of(0.70)
+	add_at(out, _gong(swell_n, gen, 155.56, tau=0.55, bright=1.15)
+	       * np.linspace(0.0, 1.0, swell_n) ** 1.6, 0, 0.55)
+	add_at(out, _gong(n_of(1.55), gen, 220.00, tau=1.05, bright=1.30), n_of(0.700), 0.72)
+	for i, f in enumerate((73.42, 146.83, 220.00, 293.66, 349.23, 440.00, 587.33)):
+		add_at(out, _brass(f, n_of(1.45), gen, 0.94 - 0.035 * i, rip_cents=70.0,
+		                   attack=0.022, release=0.40), n_of(0.700 + 0.010 * i), 0.34)
+	add_at(out, _brass(659.26, n_of(1.30), gen, 0.60, rip_cents=45.0, attack=0.045,
+	                   release=0.40), n_of(0.790), 0.24)        # the add9, up top
+	add_at(out, _drum(73.42, n_of(1.30), gen, 1.0, tau=0.42, head_hz=720.0), n_of(0.695), 0.72)
+	add_at(out, _register_bell(n_of(1.10), gen, 1760.0, 1.00), n_of(0.705), 0.34)
+	return _finish(out, -1.65, wet=0.22, rt60=1.15, predelay=0.016, tilt_db=1.0, taper=0.16)
+
+
+def empire_end() -> np.ndarray:
+	"""Sixty seconds are up and the city goes back to being a city.
+
+	The reverse of the start and built from the same parts, played backwards in shape:
+	the chord sags a whole tone instead of arriving, the plate is struck once and damped
+	rather than swelled, and the last thing in it is one coin, because there is always
+	one still rolling when the lights come up.
+	"""
+	gen = rng("empire_end")
+	n = n_of(1.80)
+	out = np.zeros(n)
+	sag_n = n_of(1.15)
+	hold = n_of(0.34)
+	bend = np.ones(sag_n)
+	bend[hold:] = expline(sag_n - hold, 1.0, 2.0 ** (-2.0 / 12.0))
+	for i, f in enumerate((146.83, 293.66, 349.23, 440.00)):
+		add_at(out, _brass(f, sag_n, gen, 0.82 - 0.06 * i, rip_cents=18.0, attack=0.045,
+		                   release=0.46, bright=0.70, bend=bend), n_of(0.010), 0.52)
+	add_at(out, _gong(n_of(0.90), gen, 130.81, tau=0.42, bright=0.75), n_of(0.020), 0.44)
+	add_at(out, _metal_ping(n_of(0.55), gen, 2740.0, tau=0.085), n_of(1.170), 0.26)
+	return _finish(out, -4.05, wet=0.20, rt60=1.05, predelay=0.015, tilt_db=-1.5, taper=0.18)
+
+
+def reunion_start() -> np.ndarray:
+	"""The five-ball Family Reunion: the trough empties and everybody is on the table.
+
+	Five kicks, accelerating, because the trough fires as fast as it can reload — and
+	then the family chord, Dm with the sixth in it, the same voicing `meeting_end` leaves
+	unresolved. This one resolves.
+	"""
+	gen = rng("reunion_start")
+	n = n_of(1.60)
+	out = np.zeros(n)
+	at = 0.010
+	gap = 0.135
+	for i in range(5):
+		add_at(out, _kicker(n_of(0.34), gen, 0.80 + 0.05 * i), n_of(at), 0.72 + 0.07 * i)
+		at += gap
+		gap *= 0.90
+	for i, f in enumerate((146.83, 220.00, 293.66, 349.23, 246.94)):   # D A D F B — Dm6
+		add_at(out, _brass(f, n_of(1.05), gen, 0.84 - 0.05 * i, rip_cents=45.0,
+		                   attack=0.030, release=0.36, bright=0.88),
+		       n_of(0.480 + 0.014 * i), 0.44)
+	add_at(out, _drum(73.42, n_of(1.00), gen, 0.90, tau=0.34, head_hz=700.0), n_of(0.475), 0.55)
+	return _finish(out, -2.55, wet=0.18, rt60=0.88, predelay=0.014, tilt_db=0.5, taper=0.16)
+
+
+def briefcase_drop() -> np.ndarray:
+	"""A mystery briefcase lands on the playfield (docs/03 §3).
+
+	Leather is nearly all damping: the modes are wide, low and gone inside 60 ms, and
+	what you actually hear is the two latches rattling and whatever is inside it
+	shifting. If this rings, it is a suitcase made of wood.
+	"""
+	gen = rng("briefcase_drop")
+	n = n_of(0.62)
+	out = np.zeros(n)
+	add_at(out, unit(modal(_hit(n_of(0.28), gen, ms=5.5, lo=50.0, hi=2400.0,
+	                            sharp=3.0, click=0.40),
+	                       [(84.0, 0.055, 0.62), (163.0, 0.036, 0.52), (330.0, 0.020, 0.38),
+	                        (690.0, 0.010, 0.22)])), 0, 1.00)
+	for at, det in ((0.024, 1.00), (0.041, 1.06)):
+		add_at(out, unit(modal(_hit(n_of(0.14), gen, ms=0.40, lo=1300.0, hi=10000.0,
+		                            sharp=10.0, click=0.55),
+		                       [(2340.0 * det, 0.0060, 0.60), (4180.0 * det, 0.0030, 0.35),
+		                        (7600.0 * det, 0.0016, 0.15)])), n_of(at), 0.34)
+	add_at(out, _paper(n_of(0.26), gen, 900.0, 5200.0, tau=0.045, grip=0.50), n_of(0.030), 0.20)
+	return _finish(out, -5.5, wet=0.09, rt60=0.38, tilt_db=-1.5, taper=0.22)
+
+
+def briefcase_leave() -> np.ndarray:
+	"""Nobody opened it, so it goes away again — and it takes whatever was in it.
+
+	Two latches snapping shut, leather dragged off a surface, and a two-note fall on a
+	single muted horn: A3 down to F3, the smallest possible way to say "that was yours".
+	The quietest event in the wave, because a missed opportunity does not get a fanfare.
+	"""
+	gen = rng("briefcase_leave")
+	n = n_of(0.85)
+	out = np.zeros(n)
+	for at, det in ((0.000, 1.00), (0.062, 0.96)):
+		add_at(out, unit(modal(_hit(n_of(0.16), gen, ms=0.45, lo=1200.0, hi=9500.0,
+		                            sharp=9.0, click=0.65),
+		                       [(1980.0 * det, 0.0075, 0.62), (3640.0 * det, 0.0038, 0.36),
+		                        (6900.0 * det, 0.0018, 0.16)])), n_of(at), 0.72)
+	drag_n = n_of(0.30)
+	add_at(out, _scrape(drag_n, gen, 620.0, 300.0, q=4.0, walk_hz=45.0, depth=0.35)
+	       * asr_env(drag_n, 0.030, 0.16, 1.2), n_of(0.140), 0.30)
+	for at, f in ((0.230, 220.00), (0.400, 174.61)):                 # A3 -> F3
+		add_at(out, _brass(f, n_of(0.42), gen, 0.62, rip_cents=15.0, attack=0.055,
+		                   release=0.22, bright=0.54), n_of(at), 0.50)
+	return _finish(out, -7.5, wet=0.17, rt60=0.72, predelay=0.014, tilt_db=-2.0, taper=0.22)
+
+
+def skip_town() -> np.ndarray:
+	"""One held note, and the game's saddest sequence starts under it (docs/06 §1).
+
+	This is the handoff: `AudioDirector.play_farewell()` sheds the band stem by stem
+	behind it, so the event itself has to be the *least* eventful thing in the set — a
+	single bowed D3, the note the whole score is built on, swelling in over a quarter of
+	a second and taking two more to leave. No percussion, no bell, nothing that could be
+	read as a reward. The last thing you hear before the band starts packing up.
+	"""
+	gen = rng("skip_town")
+	n = n_of(2.60)
+	t = t_axis(n)
+	f0 = 146.83
+	# bowed rather than blown: a saw through a body, with the bow's own noise on it and
+	# a vibrato that only arrives once the note is already sounding
+	vib = 1.0 + 0.0035 * np.sin(2.0 * np.pi * 4.4 * t) * np.clip((t - 0.55) / 0.9, 0.0, 1.0)
+	string = bl_saw(f0 * vib, n, cap=40) + 0.5 * bl_saw(f0 * 2.0 * vib, n, cap=24)
+	body = formants(string, [(320.0, 3.2, 1.00), (640.0, 2.6, 0.45), (1180.0, 3.0, 0.22)])
+	bow = bandpass(noise(n, gen), 900.0, 4200.0, order=2) * 0.05
+	tone = lowpass(body + 0.55 * string + bow, 3400.0, order=2)
+	env = asr_env(n, 0.26, 1.35, 1.6) * (0.88 + 0.12 * np.sin(2.0 * np.pi * 0.5 * t))
+	return _finish(unit(tone * env), -5.1, wet=0.26, rt60=1.45, predelay=0.020,
+	               tilt_db=-2.5, taper=0.24)
+
+
+def train_away() -> np.ndarray:
+	"""The train window: the last four seconds of a city (docs/06 §1).
+
+	Two horn calls and the rail underneath them. The horn is a chord — one pipe is a
+	boat, three or four beating against each other is a locomotive — pitched on the
+	score's own D minor seventh, band-limited to 2 kHz and mostly reverb, because it is
+	already a long way off when you hear it. The rail is bogies, not sleepers: four
+	wheels cross each joint, so the clicks come in pairs of pairs, and the pattern slows
+	by a hair across the file because the whole thing is still accelerating away.
+
+	`AudioDirector.play_farewell()` fires this last, over the fade of the final bass
+	note, and returns when it has finished.
+	"""
+	gen = rng("train_away")
+	n = n_of(3.80)
+	out = np.zeros(n)
+	# the rail: bogie pairs, quieter and duller as the train goes
+	period = 0.470
+	at = 0.060
+	i = 0
+	while at < 3.30:
+		away = at / 3.30
+		for pair, offset in enumerate((0.0, 0.082)):
+			for wheel, w_off in enumerate((0.0, 0.030)):
+				click_n = n_of(0.09)
+				f0 = 720.0 * float(gen.uniform(0.88, 1.16))
+				click = unit(modal(_hit(click_n, gen, ms=0.9, lo=180.0, hi=5200.0,
+				                        sharp=7.0, click=0.60, click_ms=0.12),
+				                   [(f0, 0.0130, 0.55), (f0 * 2.05, 0.0070, 0.50),
+				                    (f0 * 3.85, 0.0035, 0.26), (168.0, 0.0260, 0.40)]))
+				add_at(out, click, n_of(at + offset + w_off),
+				       (0.80 - 0.52 * away) * (1.0 - 0.14 * pair) * (1.0 - 0.20 * wheel))
+		at += period * (1.0 + 0.020 * i)
+		i += 1
+	# the roll of the wheels between the joints, and the air moving with it
+	roll = bandpass(noise(n, gen), 90.0, 1600.0, order=2)
+	roll *= (0.42 - 0.30 * np.linspace(0.0, 1.0, n)) * (0.75 + 0.25 * np.sin(2.0 * np.pi * 2.13 * t_axis(n)))
+	out += 0.55 * unit(roll)
+	# and the horn: long, short, the way a grade crossing is called
+	horn_a = _far_horn(n_of(1.30), gen, (146.83, 174.61, 220.00, 261.63),
+	                   sag_cents=40.0, attack=0.16, release=0.55)
+	add_at(out, horn_a, n_of(0.420), 0.95)
+	horn_b = _far_horn(n_of(0.85), gen, (146.83, 174.61, 220.00, 261.63),
+	                   sag_cents=70.0, attack=0.13, release=0.42)
+	add_at(out, horn_b, n_of(2.020), 0.62)
+	return _finish(out, -6.1, wet=0.42, rt60=1.70, predelay=0.026, tilt_db=-3.0, taper=0.22)
+
+
 # ------------------------------------------------------------------- registry
 
 # Events that are designed to be looped rather than fired once. AudioDirector sets
@@ -1802,6 +2577,31 @@ EVENTS: dict[str, callable] = {
 	"meeting_end": meeting_end,
 	"radio_squelch": radio_squelch,
 	"staircase_crest": staircase_crest,
+	# --- wave 4, specs/m3-fall-rise.md AUDIO-4: the endgame ---
+	"boss_start": boss_start,
+	"boss_phase": boss_phase,
+	"boss_beaten": boss_beaten,
+	"wrench_telegraph": wrench_telegraph,
+	"crane_telegraph": crane_telegraph,
+	"crane_pull": crane_pull,
+	"container_break": container_break,
+	"pier_splash": pier_splash,
+	"smuggling_start": smuggling_start,
+	"shipment_out": shipment_out,
+	"chair_take": chair_take,
+	"sitdown": sitdown,
+	"dome_loop": dome_loop,
+	"heist_start": heist_start,
+	"heist_beat": heist_beat,
+	"heist_blown": heist_blown,
+	"election_win": election_win,
+	"empire_start": empire_start,
+	"empire_end": empire_end,
+	"reunion_start": reunion_start,
+	"briefcase_drop": briefcase_drop,
+	"briefcase_leave": briefcase_leave,
+	"skip_town": skip_town,
+	"train_away": train_away,
 	# --- wave 3: velocity layers (docs/08 §8). Not events — extra rungs under three
 	# events that already exist, so they are rendered here but never named by gameplay.
 	"flipper_up_soft": flipper_up_soft,
@@ -1828,6 +2628,15 @@ PITCHED_EVENTS: dict[str, tuple[float, float]] = {
 	# The Club's own bar, two octaves above chime_a — measured after the whoosh has
 	# finished so nothing but the bar is left in the window.
 	"staircase_crest": (2349.32, 0.42),
+	# Wave 4. The dome's bell is D6, one octave over the chime unit's D5 and one under
+	# the Club's D7 — the three tuned rewards of the table are the same note in three
+	# registers. Measured late, once the horns are into their release and the bell is
+	# the only thing left holding that pitch.
+	"dome_loop": (1174.66, 1.40),
+	# The Skip Town note IS the score's tonic: D3, the note the bass line walks from.
+	# Nothing else in the file lives inside the search band, so this measures the note
+	# itself rather than a partial of it.
+	"skip_town": (146.83, 0.70),
 }
 
 

@@ -38,7 +38,7 @@ BASS_TUNING_TOLERANCE_CENTS = 5.0
 TUNED_SFX_TOLERANCE_CENTS = 6.0
 LOOP_WRAP_RATIO_MAX = 1.5      # step across the seam vs. the loudest step in the file
 LOOP_EDGE_RMS_MIN = 0.02       # both ends must actually be ringing, not faded to silence
-SIZE_BUDGET_MB = 24.0          # raised from 16 for wave 3 (the voice bank)
+SIZE_BUDGET_MB = 32.0          # raised again for wave 4 (the endgame set + city 2)
 
 # --- wave 3 gates -------------------------------------------------------------
 # A velocity layer is a *spectral* difference, so the centroid has to move with impact by
@@ -59,6 +59,32 @@ PEAK_ORDER: tuple[tuple[str, str], ...] = (
 	("knocker", "staircase_crest"),
 	("staircase_crest", "reel_stop"),
 	("reel_stop", "wheel_clatter"),
+	# --- wave 4. Two new claims carry design weight and the rest keep the endgame's own
+	# families in order. dome_loop is the biggest PITCHED sound in the game and is still
+	# not allowed past the knocker; empire_start is the everything-lit moment and is
+	# still not allowed past the rank-up pair, because a mode starting never outranks a
+	# career moving. Telegraphs sit under the events they telegraph, for the reason
+	# radio_squelch does: a warning warns, it does not announce.
+	("knocker", "dome_loop"),
+	("dome_loop", "rankup_fanfare"),
+	("rankup_fanfare", "empire_start"),
+	("empire_start", "jackpot"),
+	("jackpot", "election_win"),
+	("election_win", "boss_beaten"),
+	("boss_beaten", "boss_start"),
+	("boss_start", "boss_phase"),
+	("boss_phase", "wrench_telegraph"),
+	("empire_start", "empire_end"),
+	("reunion_start", "heist_blown"),
+	("heist_blown", "heist_start"),
+	("heist_start", "heist_beat"),
+	("drain", "pier_splash"),
+	("pier_splash", "container_break"),
+	("crane_pull", "crane_telegraph"),
+	("shipment_out", "smuggling_start"),
+	("sitdown", "chair_take"),
+	("skip_town", "train_away"),
+	("briefcase_drop", "briefcase_leave"),
 )
 
 VOICE_SECONDS = (0.80, 1.60)   # docs/08 §5 phrases: long enough to read, short enough to fire

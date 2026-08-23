@@ -33,6 +33,13 @@ const EVENTS: PackedStringArray = [
 	# specs/m2-content.md §1/§4 — the Club deck
 	"wheel_clatter", "chip_stack", "card_riffle", "reel_stop", "jackpot",
 	"meeting_start", "meeting_jackpot", "meeting_end", "radio_squelch", "staircase_crest",
+	# specs/m3-fall-rise.md AUDIO-4 — the endgame
+	"boss_start", "boss_phase", "boss_beaten", "wrench_telegraph",
+	"crane_telegraph", "crane_pull", "container_break", "pier_splash",
+	"smuggling_start", "shipment_out", "chair_take", "sitdown", "dome_loop",
+	"heist_start", "heist_beat", "heist_blown", "election_win",
+	"empire_start", "empire_end", "reunion_start",
+	"briefcase_drop", "briefcase_leave", "skip_town", "train_away",
 ]
 
 ## Loops, not one-shots: exempt from the one-shot length cap and held to a seam check.
@@ -46,6 +53,10 @@ const FICTION_EVENTS: PackedStringArray = [
 	"coin_drop", "siren", "raid_start", "raid_win", "raid_lose",
 	"chip_stack", "card_riffle", "jackpot", "meeting_start", "meeting_jackpot",
 	"meeting_end", "radio_squelch", "staircase_crest",
+	"boss_start", "boss_phase", "boss_beaten", "smuggling_start", "shipment_out",
+	"chair_take", "sitdown", "dome_loop", "heist_start", "heist_beat", "heist_blown",
+	"election_win", "empire_start", "empire_end", "reunion_start",
+	"briefcase_drop", "briefcase_leave", "skip_town", "train_away",
 ]
 
 ## docs/08 §8. Quietest first; the middle entry is the event's own file.
@@ -79,6 +90,30 @@ const PEAK_ORDER: Array = [
 	["knocker", "staircase_crest"],
 	["staircase_crest", "reel_stop"],
 	["reel_stop", "wheel_clatter"],
+	# Wave 4. The two that carry design weight: the dome loop is the biggest PITCHED
+	# sound in the game and still loses to the knocker, and Empire Mode — everything lit,
+	# x10 on everything — still loses to the rank-up pair, because a mode starting never
+	# outranks a career moving. The telegraphs sit under what they telegraph.
+	["knocker", "dome_loop"],
+	["dome_loop", "rankup_fanfare"],
+	["rankup_fanfare", "empire_start"],
+	["empire_start", "jackpot"],
+	["jackpot", "election_win"],
+	["election_win", "boss_beaten"],
+	["boss_beaten", "boss_start"],
+	["boss_start", "boss_phase"],
+	["boss_phase", "wrench_telegraph"],
+	["empire_start", "empire_end"],
+	["reunion_start", "heist_blown"],
+	["heist_blown", "heist_start"],
+	["heist_start", "heist_beat"],
+	["drain", "pier_splash"],
+	["pier_splash", "container_break"],
+	["crane_pull", "crane_telegraph"],
+	["shipment_out", "smuggling_start"],
+	["sitdown", "chair_take"],
+	["skip_town", "train_away"],
+	["briefcase_drop", "briefcase_leave"],
 ]
 
 ## Everything on one AudioStreamSynchronized — the level stack plus the state layers.
@@ -119,6 +154,8 @@ func run(t: TestCtx) -> void:
 	_test_director(t)
 	_test_say(t)
 	_test_music_states(t)
+	_test_rico_dropout(t)
+	_test_farewell(t)
 
 
 ## The 16-bit PCM payload of a committed WAV, read straight off disk.
@@ -731,4 +768,235 @@ func _test_music_states(t: TestCtx) -> void:
 		t.near(sync.get_sync_stream_volume(i), calm[i], 0.01,
 			"restarting after a faded stop should restore the mix (%s)" % SYNCED_STEMS[i])
 	director.music_stop(false)
+	director.stop_all()
+
+
+## docs/05 §9 — the RICO wiretap. Three things are being protected.
+##
+## One: the cuts are INSTANT. Every assertion below is made without calling _process()
+## in between, because a wire being cut does not fade and the whole phase reads wrong if
+## it does. Two: the order is fixed — Fiction, then the comfort instruments, then
+## everything but the machine and the bass. Three, and the one that would actually break
+## a run: lifting the dropout restores the mix EXACTLY, including any level or state
+## change the game made while the wires were cut.
+func _test_rico_dropout(t: TestCtx) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var director: Node = tree.root.get_node_or_null("AudioDirector") if tree != null else null
+	if director == null:
+		return
+	var fiction := AudioServer.get_bus_index("Fiction")
+	var ui := AudioServer.get_bus_index("UI")
+
+	director.music_start()
+	var sync: AudioStreamSynchronized = (director.get_node_or_null("Music")
+		as AudioStreamPlayer).stream as AudioStreamSynchronized
+	if sync == null:
+		return
+	var level := 7
+	director.music_set_level(level)
+	director.music_set_state(&"hot")
+	director._process(4.0)
+	t.eq(director.rico_step(), 0, "the wiretap should start lifted")
+	var before := PackedFloat32Array()
+	for i in SYNCED_STEMS.size():
+		before.append(sync.get_sync_stream_volume(i))
+
+	# Step 1 — the story goes quiet and the machine carries on. The score is untouched:
+	# the fiction lives on a bus, so cutting it costs nothing in the stack.
+	director.rico_dropout(1)
+	t.eq(director.rico_step(), 1, "rico_dropout(1) did not take")
+	t.ok(AudioServer.is_bus_mute(fiction), "step 1 should cut the Fiction bus")
+	t.ok(not AudioServer.is_bus_mute(ui), "step 1 should leave the UI bus alone")
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), before[i], 0.01,
+			"step 1 should not touch the score (%s)" % SYNCED_STEMS[i])
+
+	# Step 2 — the comfort instruments go, and they go now, not over a fade.
+	director.rico_dropout(2)
+	for i in SYNCED_STEMS.size():
+		var comfort: bool = i == 2 or i == 4 or i == 6
+		t.near(sync.get_sync_stream_volume(i), -80.0 if comfort else before[i], 0.01,
+			"step 2 should take exactly the comfort stems (%s)" % SYNCED_STEMS[i])
+
+	# Step 3 — everything but the Mechanics bus and the heartbeat.
+	director.rico_dropout(3)
+	t.ok(AudioServer.is_bus_mute(ui), "step 3 should cut the UI bus too")
+	t.ok(AudioServer.is_bus_mute(fiction), "step 3 should keep the Fiction bus cut")
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), before[0] if i == 0 else -80.0, 0.01,
+			"step 3 should leave only the bass (%s)" % SYNCED_STEMS[i])
+
+	# Idempotent, and out of range clamps rather than wrapping.
+	director.rico_dropout(3)
+	director.rico_dropout(99)
+	t.eq(director.rico_step(), 3, "a step past the end should clamp to the last cut")
+	t.near(sync.get_sync_stream_volume(1), -80.0, 0.01, "a clamped step changed the mix")
+
+	# A level change made while the wires are cut is remembered, not applied...
+	director.music_set_level(3)
+	t.eq(director.music_level(), 3, "music_set_level should still be accepted mid-dropout")
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), before[0] if i == 0 else -80.0, 0.01,
+			"a level change must not escape the dropout (%s)" % SYNCED_STEMS[i])
+
+	# ...and lifting the dropout lands on the mix the game asked for, in one frame.
+	director.rico_dropout(0)
+	t.eq(director.rico_step(), 0, "rico_dropout(0) did not lift")
+	t.ok(not AudioServer.is_bus_mute(fiction), "lifting should un-cut the Fiction bus")
+	t.ok(not AudioServer.is_bus_mute(ui), "lifting should un-cut the UI bus")
+	t.eq(String(director.music_state()), "hot", "the dropout ate the music state")
+	var want := _expected_mix("hot", 3)
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), want[i], 0.01,
+			"lifting should restore the level/state mix exactly (%s)" % SYNCED_STEMS[i])
+
+	# And a full round trip with nothing else happening restores byte-for-byte.
+	director.music_set_level(level)
+	director._process(4.0)
+	director.rico_dropout(3)
+	director.rico_dropout(0)
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), before[i], 0.01,
+			"a dropout round trip changed the mix (%s)" % SYNCED_STEMS[i])
+	director.music_set_state(&"calm")
+	director.music_stop(false)
+	director.stop_all()
+
+
+## Step the director's clock in small slices, asserting on the way that no stem ever
+## gets LOUDER. The farewell only takes things away; a stem coming back up would mean a
+## level or state call had leaked into the sequence.
+func _farewell_run(t: TestCtx, director: Node, sync: AudioStreamSynchronized,
+		seconds: float, label: String) -> void:
+	var was := PackedFloat32Array()
+	for i in SYNCED_STEMS.size():
+		was.append(sync.get_sync_stream_volume(i))
+	var left := seconds
+	while left > 0.0:
+		var step: float = minf(0.02, left)
+		director._process(step)
+		left -= step
+		for i in SYNCED_STEMS.size():
+			var now: float = sync.get_sync_stream_volume(i)
+			if now > was[i] + 0.001:
+				t.ok(false, "%s: %s came back up (%.1f -> %.1f dB)"
+					% [label, SYNCED_STEMS[i], was[i], now])
+			was[i] = now
+
+
+## docs/08 §1 — Skip Town, the game's saddest musical moment, as a dB trajectory.
+##
+## The claims: eight players leave one at a time from the top of the stack, on the beat
+## grid, each with a fade sharper than a music fade; the bass is alone for two bars; the
+## train closes it; and the sequence owns music control while it runs, so nothing the
+## rest of the game says can put an instrument back.
+func _test_farewell(t: TestCtx) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var director: Node = tree.root.get_node_or_null("AudioDirector") if tree != null else null
+	if director == null:
+		return
+	var train: AudioStream = load(SFX_DIR + "train_away.wav")
+	for child in director.get_children():
+		var voice := child as AudioStreamPlayer
+		if voice != null and String(voice.name).begins_with("Voice"):
+			voice.stream = null
+
+	director.music_start()
+	var sync: AudioStreamSynchronized = (director.get_node_or_null("Music")
+		as AudioStreamPlayer).stream as AudioStreamSynchronized
+	if sync == null:
+		return
+	director.music_set_state(&"calm")
+	director.music_set_level(LEVEL_STEMS)
+	director._process(4.0)
+	for i in LEVEL_STEMS:
+		t.near(sync.get_sync_stream_volume(i), 0.0, 0.01,
+			"the whole band should be up before the farewell (%s)" % SYNCED_STEMS[i])
+
+	var total: float = director.play_farewell()
+	t.ok(director.is_farewell_playing(), "play_farewell() did not start the sequence")
+	# Seven exits on the beat grid, two bars of bass, and a train: about twenty seconds.
+	t.ok(total > 18.0 and total < 22.0,
+		"the farewell should run about 20 s, got %.2f" % total)
+	t.near(director.play_farewell(), total, 0.05,
+		"a second call should report the time left, not start a second farewell")
+
+	# Music control belongs to the sequence now.
+	director.music_set_level(2)
+	t.eq(director.music_level(), LEVEL_STEMS, "music_set_level should be refused mid-farewell")
+	director.music_set_state(&"raid")
+	t.eq(String(director.music_state()), "calm", "music_set_state should be refused mid-farewell")
+
+	# The shed: after each exit's fade has run, that stem is gone and everything below it
+	# is still playing. The beats are FAREWELL_SHED_BEATS; a beat is 60/92 s.
+	var beat := 60.0 / 92.0
+	var shed_at: PackedInt32Array = [0, 2, 5, 7, 10, 12, 15]
+	var at := 0.0
+	for k in shed_at.size():
+		var mark: float = float(shed_at[k]) * beat + 0.55
+		_farewell_run(t, director, sync, mark - at, "shed %d" % (k + 1))
+		at = mark
+		var alive: int = LEVEL_STEMS - (k + 1)
+		for i in SYNCED_STEMS.size():
+			t.near(sync.get_sync_stream_volume(i), 0.0 if i < alive else -80.0, 0.5,
+				"after exit %d, %s should be %s" % [k + 1, SYNCED_STEMS[i],
+					"playing" if i < alive else "gone"])
+		t.ok(director.is_farewell_playing(), "the farewell ended early at exit %d" % (k + 1))
+
+	# The bass rings alone for two bars — and it is still ringing a bar and a half in.
+	_farewell_run(t, director, sync, 6.0 * beat, "bass alone")
+	at += 6.0 * beat
+	t.near(sync.get_sync_stream_volume(0), 0.0, 0.01, "the last bass note should ring alone")
+	var heard_train := false
+	for child in director.get_children():
+		var voice := child as AudioStreamPlayer
+		if voice != null and voice.stream == train:
+			heard_train = true
+	t.ok(not heard_train, "the train arrived before the bass had finished")
+
+	# Then it lets go, over a fade of its own that is longer than the exits were.
+	_farewell_run(t, director, sync, 25.0 * beat - at + 0.1, "the last note")
+	at = 25.0 * beat + 0.1
+	t.near(sync.get_sync_stream_volume(0), -80.0, 1.0, "the last note should have let go")
+	for child in director.get_children():
+		var voice := child as AudioStreamPlayer
+		if voice != null and voice.stream == train:
+			heard_train = true
+	t.ok(heard_train, "the farewell should end on the train")
+
+	# And when the train has gone, so has the city: silent, stopped, level 0, calm.
+	director._process(total - at + 0.5)
+	t.ok(not director.is_farewell_playing(), "the farewell should end itself")
+	t.eq(director.music_level(), 0, "a city that is over is at level 0")
+	t.eq(String(director.music_state()), "calm", "a city that is over is calm")
+	t.ok(not director.is_music_playing(), "the stack should be stopped when the train has gone")
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), -80.0, 0.01,
+			"nothing should be left playing after the farewell (%s)" % SYNCED_STEMS[i])
+
+	# Control is back.
+	director.music_start()
+	director.music_set_level(4)
+	t.eq(director.music_level(), 4, "music control should return after the farewell")
+
+	# The two ways to abandon it. farewell_stop() hands the stack back to level/state...
+	director._process(4.0)
+	director.play_farewell()
+	director._process(2.0)
+	director.farewell_stop()
+	t.ok(not director.is_farewell_playing(), "farewell_stop() did not cancel the sequence")
+	director.music_set_level(5)
+	director._process(4.0)
+	var back := _expected_mix("calm", 5)
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), back[i], 0.01,
+			"cancelling should hand the stack back to level/state (%s)" % SYNCED_STEMS[i])
+
+	# ...and music_stop() is allowed to interrupt it, because a scene tearing down must
+	# never be refused.
+	director.play_farewell()
+	director._process(1.0)
+	director.music_stop(false)
+	t.ok(not director.is_farewell_playing(), "music_stop() should cancel a running farewell")
+	t.ok(not director.is_music_playing(), "music_stop(false) should still stop immediately")
 	director.stop_all()
