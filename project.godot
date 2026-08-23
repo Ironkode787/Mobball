@@ -10,6 +10,7 @@ config/name="KINGPIN"
 config/description="A pinball racket. Points are money. The table is your career."
 run/main_scene="res://game/main.tscn"
 config/features=PackedStringArray("4.5", "GL Compatibility")
+config/icon="res://icon.png"
 
 [autoload]
 
