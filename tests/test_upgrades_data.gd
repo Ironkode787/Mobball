@@ -719,6 +719,7 @@ func _test_loader_rejects(t: TestCtx) -> void:
 	t.ok(ghosted.errors.size() > 0, "loader reports reveal.purchased pointing nowhere")
 
 	_test_rejects_m2_kinds(t)
+	_test_rejects_m3_kinds(t)
 	_test_rejects_specialists(t)
 
 	t.ok(Upgrades.from_json("{ not json", "broken", true).errors.size() > 0, "loader survives broken JSON")
@@ -792,6 +793,49 @@ func _test_rejects_m2_kinds(t: TestCtx) -> void:
 	if loaded.nodes.size() == 1:
 		var s := _stats(loaded, {"crew.example": 2})
 		t.ok(_snapshot(s) != _snapshot(_stats(loaded, {})), "and every one of them moves a number")
+
+
+## The M3 laundering kinds (the SIM-2 findings). Both exist because the wash cap stopped
+## mattering once income went multiplicative, and both are one number — so, again, the band IS
+## the design, and it is what a T6/T7 tuning commit will be measured against.
+func _test_rejects_m3_kinds(t: TestCtx) -> void:
+	# A cap MULTIPLIER helps by going up: 1.0..3.0, like every other multiplier of that shape.
+	_rejects_effect(t, "launder_cap_mult below 1.0 (a smaller cap, sold as an upgrade)",
+		{"kind": "launder_cap_mult", "value": 0.9})
+	_rejects_effect(t, "launder_cap_mult past 3.0 (one card should not own the wash)",
+		{"kind": "launder_cap_mult", "value": 4.0})
+	_rejects_effect(t, "launder_cap_mult as a money string",
+		{"kind": "launder_cap_mult", "value": "2"})
+	_rejects_effect(t, "launder_cap_mult with a target (the cap is the career's, not a group's)",
+		{"kind": "launder_cap_mult", "target": "all", "value": 1.5})
+
+	# The share is a fraction, and 0.5 instead of 0.05 is THE typo this band exists to catch.
+	_rejects_effect(t, "a clean_share of half of everything", {"kind": "clean_share", "value": 0.5})
+	_rejects_effect(t, "a clean_share past what one node may buy",
+		{"kind": "clean_share", "value": 0.2})
+	_rejects_effect(t, "a clean_share of nothing", {"kind": "clean_share", "value": 0.0})
+	_rejects_effect(t, "a negative clean_share (the table does not launder backwards)",
+		{"kind": "clean_share", "value": -0.05})
+	_rejects_effect(t, "clean_share with no value at all", {"kind": "clean_share"})
+
+	# And the numbers a T6/T7 line would actually be written with must load and fold.
+	var node := _valid_node()
+	node["tier"] = 6
+	node["cost"] = "1B"
+	node["reveal"] = {"rank": 6}
+	node["repeat"] = {"max": 5, "growth": 1.15}
+	node["effects"] = [
+		{"kind": "launder_cap_add", "value": "20M", "per_level": true},
+		{"kind": "launder_cap_mult", "value": 1.4, "per_level": true},
+		{"kind": "clean_share", "value": 0.03, "per_level": true},
+	]
+	var loaded := _load_nodes([node])
+	t.eq(loaded.errors.size(), 0, "a T6 laundering line loads: %s" % ", ".join(loaded.errors))
+	if loaded.nodes.size() == 1:
+		var s := _stats(loaded, {"rackets.example": 3})
+		t.ok(s.launder_cap().equals_approx(BigMoney.parse("20M").mul(3.0 * pow(1.4, 3.0)), 1e-6),
+			"…and the cap is adds × the compounded multiplier (got %s)" % s.launder_cap().text())
+		t.near(s.clean_share(), 0.09, 1e-9, "…and three levels of 3% is 9% arriving clean")
 
 
 func _test_rejects_specialists(t: TestCtx) -> void:
@@ -891,5 +935,7 @@ func _snapshot(s: Stats) -> Array:
 	out.append(s.auto_launder_per_sec())
 	out.append(s.kickback_cooldown_mult())
 	out.append(s.aim_line_level())
+	out.append(s.launder_cap_mult())
+	out.append(s.clean_share())
 	out.append(s.specialists())
 	return out

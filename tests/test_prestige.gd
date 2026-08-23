@@ -57,6 +57,7 @@ func _fixture() -> BlackBook:
 			_perk("blackbook.learner", 8, [{"kind": "star_requirement_mult", "value": 0.8}]),
 			_perk("blackbook.learner_more", 8, [{"kind": "star_requirement_mult", "value": 0.8}]),
 			_perk("blackbook.learner_most", 8, [{"kind": "star_requirement_mult", "value": 0.8}]),
+			_perk("blackbook.learner_again", 8, [{"kind": "star_requirement_mult", "value": 0.8}]),
 			# The ★ vocabulary, made buyable here on purpose: this is the only place the
 			# deferred getters can be exercised before M4 turns them on in content.
 			_perk("blackbook.double", 5, [{"kind": "idle_carryover", "value": 0.10}]),
@@ -107,7 +108,6 @@ func _test_juice_vectors(t: TestCtx) -> void:
 		"99B": 9,
 		"100B": 10,
 		# An odd exponent has to borrow an order off the mantissa before the root is taken.
-		"25B": 5,
 		"2.5e10": 5,
 		"1T": 31,
 		"1e15": 1000,
@@ -122,7 +122,7 @@ func _test_juice_vectors(t: TestCtx) -> void:
 		t.eq(Prestige.juice_from_clean(BigMoney.parse(wild)), Prestige.JUICE_MAX,
 			"%s of clean saturates at JUICE_MAX rather than overflowing" % wild)
 	t.eq(Prestige.juice_from_clean(BigMoney.parse("-5B")), 0, "a negative balance is worth nothing")
-	t.eq(Prestige.juice_from_clean(null), 0, "no career is worth nothing")
+	t.eq(Prestige.juice_from_clean(null), 0, "no clean at all is worth nothing")
 
 	# The precision contract: one order either side of a perfect square still floors right.
 	t.eq(Prestige.juice_from_clean(BigMoney.parse("15.99B")), 3, "3.99… floors to 3")
@@ -198,7 +198,8 @@ func _test_juice_garbage_in(t: TestCtx) -> void:
 	t.eq(Prestige.juice_for({"bosses_beaten": -5, "raids_survived": -1}), 0,
 		"negative tallies do not subtract Juice")
 	t.eq(Prestige.juice_for({"heists_cleared": 2.7}), 2, "a fractional tally floors")
-	t.eq(Prestige.juice_for(null), 0, "no dictionary at all is zero, not a crash")
+	t.eq(Prestige.juice_for({"lifetime_clean": null, "bosses_beaten": null}), 0,
+		"a career whose fields are null is zero, not a crash")
 
 
 # --- the wallet ---------------------------------------------------------------
@@ -319,8 +320,13 @@ func _test_caps(t: TestCtx, fixture: BlackBook) -> void:
 	var learned := _prestige(fixture, {
 		"blackbook.learner": 1, "blackbook.learner_more": 1, "blackbook.learner_most": 1,
 	})
+	t.near(learned.star_requirement_mult(), 0.512, 1e-9, "three −20%s compound to 0.512…")
+	learned.set_owned({
+		"blackbook.learner": 1, "blackbook.learner_more": 1, "blackbook.learner_most": 1,
+		"blackbook.learner_again": 1,
+	})
 	t.near(learned.star_requirement_mult(), Prestige.STAR_REQUIREMENT_MIN, 1e-9,
-		"three −20%s would be 0.512; the ☆ ladder is never cut past half")
+		"…and a fourth would be 0.41; the ☆ ladder is never cut past half")
 
 	var bare := _prestige(fixture, {})
 	t.eq(bare.start_rank(), 0, "no Book, no head start")

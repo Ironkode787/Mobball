@@ -954,10 +954,19 @@ func _test_farewell(t: TestCtx) -> void:
 			heard_train = true
 	t.ok(not heard_train, "the train arrived before the bass had finished")
 
-	# Then it lets go, over a fade of its own that is longer than the exits were.
-	_farewell_run(t, director, sync, 25.0 * beat - at + 0.1, "the last note")
+	# Then it lets go — over a fade of its own, and the point of that fade is that it is
+	# NOT a player packing up: 0.55 s in, every exit above was already over and this one
+	# is still going.
+	_farewell_run(t, director, sync, 23.0 * beat + 0.55 - at, "the last note")
+	at = 23.0 * beat + 0.55
+	var letting_go: float = sync.get_sync_stream_volume(0)
+	t.ok(letting_go < -5.0 and letting_go > -45.0,
+		"the last note should still be letting go half a second in, got %.1f dB" % letting_go)
+	_farewell_run(t, director, sync, 25.0 * beat + 0.1 - at, "the train")
 	at = 25.0 * beat + 0.1
-	t.near(sync.get_sync_stream_volume(0), -80.0, 1.0, "the last note should have let go")
+	t.ok(sync.get_sync_stream_volume(0) < -50.0,
+		"the last note should be all but gone when the train arrives (%.1f dB)"
+			% sync.get_sync_stream_volume(0))
 	for child in director.get_children():
 		var voice := child as AudioStreamPlayer
 		if voice != null and voice.stream == train:

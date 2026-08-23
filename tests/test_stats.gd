@@ -22,6 +22,7 @@ func run(t: TestCtx) -> void:
 	_test_fold_table(t)
 	_test_specialist_powers(t, fixture)
 	_test_specialist_caps(t, fixture)
+	_test_m3_laundering(t, fixture)
 	_test_min_and_max_buckets(t, fixture)
 	_test_specialist_roster(t, fixture)
 	_test_docket_preview(t, fixture)
@@ -137,6 +138,22 @@ func _fixture() -> Upgrades:
 			_node("crew.bigedge", 5, "6M", [
 				{"kind": "casino_edge_add", "value": 0.12},
 			]),
+			# --- the M3 laundering kinds (the SIM-2 findings) -------------------------
+			_node("crew.washer", 6, "1B", [
+				{"kind": "launder_cap_add", "value": "10M", "per_level": true},
+				{"kind": "launder_cap_mult", "value": 1.5, "per_level": true},
+			], {"max": 6, "growth": 1.3}),
+			_node("crew.skimmer", 6, "2B", [
+				{"kind": "clean_share", "value": 0.05, "per_level": true},
+			], {"max": 4, "growth": 1.4}),
+			# A second cap multiplier, so the PRODUCT fold has two owners to compound.
+			_node("crew.bigwash", 7, "50B", [
+				{"kind": "launder_cap_mult", "value": 2.0},
+			]),
+			# Greedy on purpose: 4 levels of the skimmer plus this is 0.30, past the cap.
+			_node("crew.bigskim", 7, "60B", [
+				{"kind": "clean_share", "value": 0.10},
+			]),
 		],
 	}, "test_stats fixture")
 
@@ -194,6 +211,9 @@ func _test_baseline(t: TestCtx, fixture: Upgrades) -> void:
 	t.eq(s.auto_launder_per_sec(), 0.0, "no accountant, no automatic wash")
 	t.eq(s.kickback_cooldown_mult(), 1.0, "kickbacks cool down at full price")
 	t.eq(s.aim_line_level(), 0, "no ghost line on Case the Joint")
+	# M3: an unwashed career reads like M1 too — no cap multiplier, no clean share.
+	t.eq(s.launder_cap_mult(), 1.0, "the wash cap is whatever the adds bought, times one")
+	t.eq(s.clean_share(), 0.0, "every dollar the table pays is dirty")
 	t.eq(s.specialists(), [] as Array[Dictionary], "an empty roster")
 
 
@@ -380,6 +400,53 @@ func _test_specialist_caps(t: TestCtx, fixture: Upgrades) -> void:
 	t.ok(float(Upgrades.EFFECT_SPECS[&"casino_edge_add"]["max"]) <= Stats.CASINO_EDGE_MAX,
 		"the loader lets one effect author %.2f of a %.2f cap"
 		% [float(Upgrades.EFFECT_SPECS[&"casino_edge_add"]["max"]), Stats.CASINO_EDGE_MAX])
+
+
+## The two M3 kinds SIM-2 asked for. The finding was structural: `launder_cap_add` is an
+## ADDITIVE cap chasing MULTIPLICATIVE income (the sim measured the cap binding on 107 of 107
+## late Nights, with 100% of wash shots then moving nothing), so the answers are a cap that
+## multiplies and a share of each payout that skips the queue entirely.
+func _test_m3_laundering(t: TestCtx, fixture: Upgrades) -> void:
+	# The multiplier rides INSIDE launder_cap(), so every existing caller gets the whole cap.
+	var one := _stats(fixture, {"crew.washer": 1})
+	_money(t, one.launder_cap(), "15M", "one level: $10M of adds × 1.5")
+	t.near(one.launder_cap_mult(), 1.5, 1e-9, "…and the multiplier reads on its own")
+
+	# PRODUCT compounds per level while the adds stay linear — which is the whole point:
+	# three levels is $30M of adds against ×3.375, not $30M against ×4.5.
+	var three := _stats(fixture, {"crew.washer": 3})
+	t.near(three.launder_cap_mult(), pow(1.5, 3.0), 1e-9, "the cap multiplier compounds")
+	_money(t, three.launder_cap(), "101.25M", "three levels: $30M × 3.375")
+
+	# Two owners of the kind multiply each other, like every other PRODUCT bucket.
+	var both := _stats(fixture, {"crew.washer": 2, "crew.bigwash": 1})
+	t.near(both.launder_cap_mult(), 1.5 * 1.5 * 2.0, 1e-9, "two nodes compound")
+	_money(t, both.launder_cap(), "90M", "$20M of adds × 4.5")
+
+	# A multiplier with nothing to multiply is still nothing: the cap is adds × mult, and a
+	# career that never bought a wash cap cannot wash by owning the multiplier alone.
+	var empty_cap := _stats(fixture, {"crew.bigwash": 1})
+	_money(t, empty_cap.launder_cap(), "0", "×2 of no cap is no cap")
+
+	# clean_share SUMs and is capped where Stats caps it.
+	var share := _stats(fixture, {"crew.skimmer": 2})
+	t.near(share.clean_share(), 0.10, 1e-9, "two levels of 5% is 10%")
+	var greedy := _stats(fixture, {"crew.skimmer": 4, "crew.bigskim": 1})
+	t.near(greedy.clean_share(), Stats.CLEAN_SHARE_MAX, 1e-9,
+		"0.30 of promises is 0.25 of payout — docs/03 §2 keeps the quarter ceiling")
+	t.ok(Stats.CLEAN_SHARE_MAX <= 0.25, "and the ceiling is a quarter, not a faucet")
+
+	# The loader may never author a single effect past what Stats will honour, and for the
+	# share it is tighter still: no one card may buy half the ceiling.
+	t.ok(float(Upgrades.EFFECT_SPECS[&"clean_share"]["max"]) <= Stats.CLEAN_SHARE_MAX * 0.5,
+		"one node buys at most half the clean-share ceiling (%.2f of %.2f)"
+		% [float(Upgrades.EFFECT_SPECS[&"clean_share"]["max"]), Stats.CLEAN_SHARE_MAX])
+	t.ok(float(Upgrades.EFFECT_SPECS[&"launder_cap_mult"]["min"]) >= 1.0,
+		"a cap multiplier under 1.0 would be a nerf sold as an upgrade")
+
+	# Both kinds fold where the docket says they fold.
+	t.eq(Stats.fold_of(&"launder_cap_mult"), Stats.Fold.PRODUCT, "a cap multiplier compounds")
+	t.eq(Stats.fold_of(&"clean_share"), Stats.Fold.SUM, "a share sums")
 
 
 func _test_min_and_max_buckets(t: TestCtx, fixture: Upgrades) -> void:
