@@ -35,23 +35,62 @@ Decision: **Godot 4.5+, GDScript** (typed), C++/GDExtension reserved for the phy
 
 ## 3. Project architecture
 
+### Session state flow
+
+The shipped host has a deliberate pre-Night state between attract and live play. The flow
+model prepares the Night's data before it creates the table session:
+
 ```
-res://
-  core/            # BallSim, flipper, nudge, camera, haptics, input
-  economy/         # currencies, BigMoney, rates, Heat, offline calc  (pure logic, no nodes)
-  content/
-    upgrades/      # one .tres resource per Ledger node (data-driven)
-    jobs/  heists/ bosses/  cities/
-  table/
-    segments/      # one scene per zone (alley.tscn, club.tscn, docks.tscn...)
-    hardware/      # bumper.tscn, spinner.tscn, storefront_bank.tscn, ... (reusable, skinnable)
-  ui/              # ledger corkboard, count, newspaper, rapsheet
-  audio/           # stem stacks, event map, buses
-  sim/             # headless autoplayer + balance harness (runs in CI)
+attract ── tap START ──▶ roll_call ── START NIGHT ──▶ night ── last guy ──▶ count
+                              │                                  ▲            │
+                              │                                  │            │
+                              └─ jobs + Bench + ordered          └────────────┘
+                                 prepared_lineup                  NEXT NIGHT
+                                                               (opens Roll Call)
+count ◀──────────────────────────────────────────────────────────▶ ledger
 ```
 
-**Data-driven everything:** upgrades, jobs, bosses' phase tables, city rule-twists are
-Resources — designers (us) tune without code. The economy core is engine-agnostic pure
+`Game.open_roll_call()` rolls **Tonight's Work**, advances the Bench between Nights, and enters
+`roll_call`; `RollCallScreen` renders the active job slips and available guys. The player's
+selection append order is the serve order (there is no drag-reorder contract). The Start action
+calls `Game.start_prepared_night()`, which resolves selected persistent guy IDs against the
+free Bench, removes invalid/duplicate/held entries, and stores the ordered result in
+`Game.prepared_lineup` before entering `night`. `NightController` reads that array and binds
+each guy to the ball in that order. The target is `min(3, available.size())`; the Bench keeps at
+least one guy available and the Night safely serves a shorter lineup. Direct test/sim callers
+may still call `Game.start_night()`, which uses the first available guys and bypasses the screen.
+
+### Ball identity data path
+
+`BallDesign` (`game/core/ball_design.gd`) is a plain deterministic descriptor derived from a
+guy's persistent numeric ID. `NightController._bind_guy()` attaches the guy to the ball and
+applies that descriptor; `BallPreview` (`game/ui/ball_preview.gd`) consumes the same descriptor
+for Roll Call. Both call `BallDesign.draw_ball()`, the shared live/preview renderer, so metallic
+base, high-contrast band geometry, crest, and orientation cannot drift between UI and physics.
+An empty guy uses the anonymous descriptor and remains the plain steel debug ball. The design
+descriptor is presentation data, not save data.
+
+```
+res://
+  game/
+    core/           # Ball, BallDesign, flipper, nudge, camera, haptics, input
+    economy/        # currencies, BigMoney, rates, Heat, offline calc (pure logic, no nodes)
+    flow/           # Game state machine, Roll Call handoff, Night, jobs, Bench, modes
+    content/        # upgrades.json, jobs.json, names and other data-driven content
+    table/
+      segments/     # one scene per zone (alley, club, docks...)
+      hardware/     # bumper, spinner, storefront bank, ... (reusable, skinnable)
+    ui/             # Roll Call/BallPreview, ledger corkboard, count, HUD, rapsheet
+    audio/          # stem stacks, event map, buses
+    sim/            # headless autoplayer + balance harness (runs in CI)
+```
+
+**Data-driven everything:** upgrades are the Ledger data set; jobs are loaded from
+`game/content/jobs.json` and carry their exact objective (`desc`), Respect reward, check ID,
+rank gate, and optional hardware gate. Roll Call displays those data fields and derives the
+`ANY GUY` / `ONE GUY` / `FIRST GUY` / `ALL NIGHT` scope label from the check contract. Boss
+phase tables, city rule-twists, and other content remain data-driven; designers (us) tune
+without changing the session or renderer contracts. The economy core is engine-agnostic pure
 GDScript: it runs headless in CI for balance sims (§7).
 
 ## 4. The growing table (modular segments)

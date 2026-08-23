@@ -7,7 +7,7 @@ extends Node
 ## never touches the scene tree: `game/main.gd` hosts the table and the screens and reacts
 ## to `state_changed`, and `game/flow/night.gd` drives the live Night.
 ##
-##     attract ──start_night──▶ night ──end_night──▶ count ⇄ ledger
+##     attract ──roll_call──▶ night ──end_night──▶ count ⇄ ledger
 ##                                ▲                    │
 ##                                └──── start_night ───┘
 
@@ -62,6 +62,7 @@ const SKILL_SHOT_EXP := 2
 const COLD_STORAGE_FRACTION := 0.5
 ## Music stems audible per rank (docs/08 §1) — rank 0 already has a band, R7 has all eight.
 const MUSIC_LEVEL_OFFSET := 1
+const GUYS_PER_NIGHT := 3
 ## THE RICO RAID (docs/05 §9): surviving it pays twice the held dirty, in clean — the single
 ## largest payout in the game, which is what a two-minute federal raid is supposed to be
 ## worth. Losing it is the ordinary confiscation, doubled.
@@ -129,6 +130,10 @@ var owned: Dictionary = {}
 ## The live NightController while `state == &"night"` (typed loosely to keep game.gd and
 ## night.gd out of a class-reference cycle).
 var night: Node = null
+## The ordered crew chosen at Roll Call. Kept in the model so the host can tear down the
+## screen before NightController is created without losing serve order.
+var prepared_lineup: Array[Dictionary] = []
+var _night_prepared: bool = false
 ## Untaken offline earnings; the attract screen and The Count offer them.
 var safe_pending: BigMoney = BigMoney.zero()
 ## Wall-clock stamp the Safe accrues from.
@@ -1421,6 +1426,8 @@ func new_game(seed_value: int = 0) -> void:
 	career = _blank_career()
 	commission = Commission.new()
 	boss = null
+	prepared_lineup = []
+	_night_prepared = false
 	_armored.clear()
 	_armored_bank.clear()
 	set_fielded([])
@@ -1434,10 +1441,59 @@ func new_game(seed_value: int = 0) -> void:
 	state = &"attract"
 
 
-## attract/count → night. The host scene builds the NightController when it sees the state.
+## Prepare the next Night's jobs and Bench without starting the table. The Roll Call screen
+## uses this state; direct callers can still use start_night() and skip the screen.
+func open_roll_call() -> void:
+	if state == &"night" or state == &"roll_call":
+		return
+	_prepare_night()
+	state = &"roll_call"
+	AudioDirector.music_set_state(&"calm")
+
+
+## Start the Night. Existing sims and tests call this directly, so an unprepared call keeps
+## the old behavior and automatically serves the first three available guys.
 func start_night() -> void:
 	if state == &"night":
 		return
+	if not _night_prepared:
+		_prepare_night()
+	_start_prepared_night(prepared_lineup)
+
+
+## Accept an ordered lineup from Roll Call. Invalid, held or duplicate entries are removed;
+## if the roster has fewer than three available guys, all remaining guys are valid.
+func start_prepared_night(chosen: Array[Dictionary]) -> void:
+	if state == &"night":
+		return
+	if not _night_prepared:
+		_prepare_night()
+	var valid: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for candidate: Dictionary in chosen:
+		var id := int(candidate.get("id", -1))
+		var guy := bench.find_by_id(id) if bench != null else {}
+		if guy.is_empty() or String(guy.get("state", "")) != Bench.STATE_FREE or seen.has(id):
+			continue
+		seen[id] = true
+		valid.append(guy)
+		if valid.size() >= GUYS_PER_NIGHT:
+			break
+	var available := bench.available() if bench != null else []
+	var want := mini(GUYS_PER_NIGHT, available.size())
+	if valid.size() < want:
+		for guy: Dictionary in available:
+			if seen.has(int(guy.get("id", -1))):
+				continue
+			valid.append(guy)
+			seen[int(guy.get("id", -1))] = true
+			if valid.size() >= want:
+				break
+	prepared_lineup = valid
+	_start_prepared_night(prepared_lineup)
+
+
+func _prepare_night() -> void:
 	if bench == null:
 		bench = Bench.new(session_seed, stats.bench_slots())
 	night_no += 1
@@ -1463,6 +1519,19 @@ func start_night() -> void:
 	_reset_night_tallies()
 	_armored.clear()
 	_armored_bank.clear()
+	prepared_lineup = []
+	for guy: Dictionary in bench.available():
+		if prepared_lineup.size() >= GUYS_PER_NIGHT:
+			break
+		prepared_lineup.append(guy)
+	_night_prepared = true
+
+
+func _start_prepared_night(chosen: Array[Dictionary]) -> void:
+	if state == &"night":
+		return
+	prepared_lineup = chosen.duplicate()
+	_night_prepared = false
 	state = &"night"
 	Events.night_started.emit(night_no)
 	AudioDirector.music_set_state(&"calm")
@@ -1523,6 +1592,10 @@ func end_night(summary: Dictionary) -> Dictionary:
 	if night_dirty.cmp(best_night) > 0:
 		best_night = night_dirty
 	last_night = s
+	# The ordered crew is only a hand-off between Roll Call and the live controller.  Do not
+	# leave it attached to The Count (or let a later special-night entry reuse stale guys).
+	prepared_lineup = []
+	_night_prepared = false
 	state = &"count"
 	Events.night_ended.emit(s)
 	AudioDirector.music_set_state(&"count")

@@ -203,10 +203,18 @@ func start() -> void:
 	extras = []
 
 	lineup = []
-	for g in Game.bench.available():
-		if lineup.size() >= GUYS_PER_NIGHT:
-			break
-		lineup.append(g)
+	for g: Dictionary in Game.prepared_lineup:
+		if not g.is_empty():
+			lineup.append(g)
+			if lineup.size() >= GUYS_PER_NIGHT:
+				break
+	# Direct NightController users and older callers still receive the original first-three
+	# behavior when Game has no prepared Roll Call lineup.
+	if lineup.is_empty():
+		for g in Game.bench.available():
+			if lineup.size() >= GUYS_PER_NIGHT:
+				break
+			lineup.append(g)
 
 	if TableAPI.has_property(table, "auto_respawn"):
 		table.set("auto_respawn", false)
@@ -744,6 +752,7 @@ func _bind_guy(ball: Ball, guy: Dictionary) -> void:
 		return
 	Balls.set_guy(ball, guy)
 	_ball_guys[ball.get_instance_id()] = guy
+	ball.apply_guy_design(guy)
 
 
 ## Strictly who is on this ball — empty if nobody was ever attached to it.

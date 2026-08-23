@@ -9,20 +9,25 @@ player does, and payout. Chance decides *what* fires; skill resolves it (P2).
 
 ## 1. Jobs ("Tonight's Work")
 
-The mission system and the main ☆ Respect faucet. Up to 3 paper slips pinned to the board;
-rerolls via the Consigliere. Drawn from a pool tagged by rank & owned features. Examples:
+The mission system and the main ☆ Respect faucet. Active paper slips are rolled from the
+rank-and-hardware-eligible pool (the number of slips is an upgrade-driven job-slot count), and
+the player sees them before serving a Night. On the pre-Night **Roll Call** screen, each slip
+under **Tonight's Work** shows its exact objective text, its **RESPECT +N** reward, and a scope
+label:
 
-- *Shake the Block* — collect all 3 storefronts within one guy's run (☆10)
-- *No Loose Ends* — finish a Night with zero briefcases left on the field (☆5)
-- *Send a Message* — 6 bumper hits in 5s (☆5)
-- *Quiet Money* — launder $50k in one Night without passing Heat 40 (☆15)
-- *The Milk Run* — 3 Getaway Loops in one guy (☆10)
-- *Bank Error* — win 3 casino bets in a row (☆20; gated so it's never the only slip)
-- *Old Debts* — pinch-free Night (nobody drains before minute 3) (☆25)
+- **ANY GUY** — progress may come from any guy in the Night (for example, *Send a Message*:
+  “Hit 6 bumpers inside 5 seconds.” — Respect +5).
+- **ONE GUY** — the objective must be completed by one guy's run (for example, *The Milk Run*:
+  “Make 3 spinner passes with one guy.” — Respect +8; *Shake the Block* is Respect +20).
+- **FIRST GUY** — the objective is tied specifically to the first guy served (for example,
+  *Old Debts*: “Keep your first guy alive for 3 minutes.” — Respect +15).
+- **ALL NIGHT** — progress is tracked across the Night (for example, *Keep It Quiet*:
+  “Bank $2K dirty this Night without passing Heat 40.” — Respect +10).
 
-**Story Jobs** (one per rank) are handcrafted multi-step sequences ending in a table-wide mode
-(e.g. R3's "Made Man": light all storefronts, then the ceremony — 60s where every switch pays
-☆ fractions). Story Jobs gate the Commission fight for that rank.
+These labels are derived from the shipped check contract: `bumper_burst` is **ANY GUY**,
+`switch_count_one_ball` and `collect_all_one_ball` are **ONE GUY**, `ball_survival` is
+**FIRST GUY**, and other checks are **ALL NIGHT**. The Roll Call slip is the source of truth for
+the exact text and reward; scope is explicit and the screen does not require drag-reordering.
 
 ## 2. RAIDS (Heat 100)
 
