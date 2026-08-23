@@ -58,6 +58,10 @@ const SAINTS_MAX := 3
 ## The Golden Ball's home tier when nobody has bought ★ The Golden Era (docs/04 branch C T7).
 const GOLDEN_BALL_TIER := 7
 
+## Mirrors `Commission.SPOIL_PREFIX`. A spoil id is not a Ledger node and not a perk; it is
+## the third thing an owned map can hold, and the only one this file keeps across cities.
+const SPOIL_PREFIX := "spoil."
+
 static var _shared: Prestige = null
 
 ## The Black Book the owned ids are resolved against. Null uses the shipped file; tests inject
@@ -415,6 +419,7 @@ func to_dict() -> Dictionary:
 		"earned": juice_earned,
 		"cities": cities_finished,
 		"owned": _owned.duplicate(),
+		"spoils": _trophies.duplicate(),
 	}
 
 
@@ -423,6 +428,7 @@ func from_dict(d: Dictionary) -> void:
 	juice_earned = 0
 	cities_finished = 0
 	_owned.clear()
+	_trophies.clear()
 	_recompute()
 	if d == null or d.is_empty():
 		return
@@ -432,6 +438,11 @@ func from_dict(d: Dictionary) -> void:
 	var raw: Variant = d.get("owned", {})
 	if raw is Dictionary:
 		set_owned(raw as Dictionary)
+	var spoils: Variant = d.get("spoils", [])
+	if spoils is Array or spoils is PackedStringArray:
+		for id: Variant in spoils:
+			if id is String:
+				remember_spoil(String(id))
 
 
 # --- internals ----------------------------------------------------------------

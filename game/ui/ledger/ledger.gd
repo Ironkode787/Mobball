@@ -281,11 +281,17 @@ func _on_perk_buy(id: String) -> void:
 	_refresh()
 
 
-## The spoils this career took, as trophy descriptors for the board (`spoil.*`, docs/05 §6).
-## Names come from the flow lane's own fight table via `LedgerStyle.spoil_descriptor`.
+## The trophy shelf, as descriptors for the board (`spoil.*`, docs/05 §6). Names come from the
+## flow lane's own fight table via `LedgerStyle.spoil_descriptor`.
+##
+## Anything the CURRENT career has taken is nailed to the prestige shelf on the way past,
+## because docs/06 §1 keeps spoils across Skip Town while the career's owned map does not
+## survive it. The wall is the one place a player's whole history is visible at once.
 func _trophies() -> Array[Dictionary]:
-	var out: Array[Dictionary] = []
 	for id in _spoil_ids():
+		prestige.remember_spoil(id)
+	var out: Array[Dictionary] = []
+	for id in prestige.trophies():
 		out.append(LedgerStyle.spoil_descriptor(id))
 	return out
 

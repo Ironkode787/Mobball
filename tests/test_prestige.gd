@@ -22,6 +22,7 @@ func run(t: TestCtx) -> void:
 	_test_caps(t, fixture)
 	_test_deferred_getters(t, fixture)
 	_test_stats_effects(t, fixture)
+	_test_trophy_shelf(t, fixture)
 	_test_serialization(t, fixture)
 	_test_shipped_book(t)
 
@@ -386,6 +387,32 @@ func _test_stats_effects(t: TestCtx, fixture: BlackBook) -> void:
 	t.eq(p.start_rank(), 1, "the perk-kind effect on another perk still folded normally")
 
 
+## docs/06 §1: a Skip Town keeps the boss spoils. The career's owned map does not survive the
+## train, so the shelf lives here instead.
+func _test_trophy_shelf(t: TestCtx, fixture: BlackBook) -> void:
+	var p := Prestige.new(fixture)
+	t.eq(p.trophies().size(), 0, "a new player has taken nothing off anybody")
+	t.eq(p.remember_spoil("spoil.sammys_spare"), true, "the first time a spoil lands is news")
+	t.eq(p.remember_spoil("spoil.sammys_spare"), false, "…the second time is not")
+	t.eq(p.remember_spoil("spoil.cold_storage"), true, "a second spoil goes up too")
+	t.eq(p.has_trophy("spoil.cold_storage"), true, "and the shelf knows it has it")
+	t.eq(p.trophies(), PackedStringArray(["spoil.sammys_spare", "spoil.cold_storage"]),
+		"the shelf keeps them in the order they were taken")
+
+	# Only spoils. A Ledger node or a perk on the trophy wall is a category error.
+	t.eq(p.remember_spoil("rackets.numbers_game"), false, "a bought upgrade is not a trophy")
+	t.eq(p.remember_spoil("blackbook.old_contacts"), false, "and neither is a perk")
+	t.eq(p.remember_spoil(""), false, "nor is nothing at all")
+	t.eq(p.trophies().size(), 2, "so the shelf still holds two")
+
+	# The whole point: they are still there in the next city.
+	p.skip_town({"bosses_beaten": 2})
+	t.eq(p.trophies().size(), 2, "leaving town does not empty the wall")
+	var shelf := p.trophies()
+	shelf.append("spoil.invented")
+	t.eq(p.trophies().size(), 2, "trophies() hands out a copy")
+
+
 # --- serialization ------------------------------------------------------------
 
 
@@ -394,10 +421,12 @@ func _test_serialization(t: TestCtx, fixture: BlackBook) -> void:
 	p.buy("blackbook.contacts")
 	p.buy("blackbook.stash")
 	p.skip_town({"bosses_beaten": 3})
+	p.remember_spoil("spoil.sammys_spare")
 	var d := p.to_dict()
 
 	var loaded := Prestige.new(fixture)
 	loaded.from_dict(d)
+	t.eq(loaded.trophies(), p.trophies(), "the trophy shelf round-trips")
 	t.eq(loaded.juice, p.juice, "the wallet round-trips")
 	t.eq(loaded.juice_earned, p.juice_earned, "so does what was earned")
 	t.eq(loaded.cities_finished, p.cities_finished, "so do the cities")
@@ -425,6 +454,10 @@ func _test_serialization(t: TestCtx, fixture: BlackBook) -> void:
 	t.eq(junk.has("blackbook.ghost"), false, "an id the Book does not know is dropped")
 	t.eq(junk.has("blackbook.stash"), false, "a level of zero owns nothing")
 	t.eq(junk.owned().size(), 1, "and nothing else survived")
+
+	junk.from_dict({"spoils": ["spoil.sammys_spare", "rackets.numbers_game", 7, "spoil.sammys_spare"]})
+	t.eq(junk.trophies(), PackedStringArray(["spoil.sammys_spare"]),
+		"a hand-edited shelf keeps the spoils and drops everything else")
 
 	t.eq(Prestige.new(fixture).to_dict()["owned"], {}, "a fresh Prestige serializes empty")
 	var blank := Prestige.new(fixture)

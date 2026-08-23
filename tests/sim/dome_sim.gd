@@ -444,7 +444,6 @@ func _s4_lap() -> void:
 			"%d payouts for one lap" % earn_count(TableScore.GROUP_PENTHOUSE))
 
 	# ...and the lap closes BEFORE the ball is home: the crown is the loop, not the delivery
-	check(_home == 0 or true, "")
 	var landed := Vector2.ZERO
 	var home := false
 	for i in range(ticks(4.0)):
