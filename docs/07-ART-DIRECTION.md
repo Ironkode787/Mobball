@@ -44,9 +44,19 @@ every color carries one meaning). Cities re-theme the ambient palette, never the
 - **Neon** = emissive sprites + WorldEnvironment 2D glow; flicker/ballast-hum animation on a
   per-sign personality curve. Budgeted Light2D count with baked glow textures as the fallback ([09-TECH](09-TECH.md) §8).
 - Film grain + subtle vignette overlay; paper-texture overlay on all UI panes.
-- The ball: real-time-ish fake reflection (matcap-style) so the gold ball reads *expensive*.
+- The ball: real-time-ish fake reflection (matcap-style) so the metallic ball reads *expensive*.
 - Slow-mo moments get a halftone-enlarging "printed frame" effect — the game freeze-frames like
   a pulp panel.
+
+### Ball identity (shared live/preview renderer)
+
+Every named Bench guy keeps a persistent numeric ID. `BallDesign` deterministically derives the
+ball's metallic base, a high-contrast band geometry, crest mark, and orientation from that ID;
+names, traits, and palette color are not identity inputs. The band geometry and crest are always
+part of the read, so identity is never color-only. `BallDesign.draw_ball()` is the shared
+renderer used by the live `Ball` and the Roll Call `BallPreview`, keeping the preview and table
+face in lockstep. Empty/anonymous debug balls use the original plain steel treatment — no
+identity band or crest.
 
 ## 3. Character art
 

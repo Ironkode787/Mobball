@@ -26,13 +26,19 @@ func _run() -> void:
 	await _frames(40)
 	await _shot("1_attract")
 
-	# ATTRACT → NIGHT via a real touch on ROLL CALL.
+	# ATTRACT → ROLL CALL via a real touch on ROLL CALL, then start the prepared Night.
 	var roll := _find_button(get_tree().root, "ROLL CALL")
 	_check(roll != null, "ROLL CALL button exists")
 	if roll != null:
 		await _tap(roll)
 		await _frames(30)
-	_check(Game.state == &"night", "touch on ROLL CALL starts the night (state=%s)" % Game.state)
+	_check(Game.state == &"roll_call", "touch on ROLL CALL opens Roll Call (state=%s)" % Game.state)
+	var start_night := _find_button(get_tree().root, "START NIGHT")
+	_check(start_night != null, "START NIGHT button exists on Roll Call")
+	if start_night != null:
+		await _tap(start_night)
+		await _frames(30)
+	_check(Game.state == &"night", "START NIGHT launches the prepared Night (state=%s)" % Game.state)
 	await _shot("2_night")
 
 	# Reach The Count fast: force-drain the guys (programmatic — input is not under test here).

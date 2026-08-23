@@ -91,9 +91,12 @@ only, tiny clean allowance (see [03](03-ECONOMY.md) §2: "Pocket Money").
 ### R1 — THE JOB BOARD + NUMBERS LANE
 
 A left-side lane with a **spinner** (a bicycle wheel — the numbers game runs on it). The Job
-board (three paper slips on the wall art) activates missions. Lean/nudge unlocks with a tiny
-Inspector intro. **Shots:** spinner lane (steady dirty trickle per spin — first "aim for value"
-decision).
+board (three paper slips on the wall art) activates missions. At the start of each Night, the
+pre-Night **Roll Call** screen shows those active slips under **Tonight's Work**, then shows the
+available Bench guys. The player selects the crew and the selection order explicitly sets who
+serves first, second, and third; a short available roster starts with all of its guys (there is
+no dead-end waiting for three). Lean/nudge unlocks with a tiny Inspector intro. **Shots:**
+spinner lane (steady dirty trickle per spin — first "aim for value" decision).
 
 ### R2 — THE CORNER
 
