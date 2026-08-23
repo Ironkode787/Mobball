@@ -74,6 +74,11 @@ var juice_earned: int = 0
 var cities_finished: int = 0
 
 var _owned: Dictionary = {}
+## Every boss spoil this player has ever taken, in the order they were taken — the trophy
+## shelf. docs/06 §1 lists spoils among the things a Skip Town KEEPS: the career that took
+## them is gone, the wall is not. (Re-earning their effects in the new city is the "old
+## friends" arc of docs/06 §5, which is a flow-lane job and does not exist yet.)
+var _trophies: PackedStringArray = []
 ## Folded perk buckets, rebuilt from `_owned` by `_recompute()` — same discipline as `Stats`:
 ## a full rebuild, never an incremental mutation, so load, buy and respec are one code path.
 var _sum: Dictionary = {}
@@ -211,6 +216,29 @@ func skip_town(career: Dictionary) -> int:
 ## ★ Traveling Light scales Pocket Money by this number.
 func city_number() -> int:
 	return cities_finished + 1
+
+
+# --- the trophy shelf ---------------------------------------------------------
+
+
+## Nails a boss spoil (`spoil.*`, docs/05 §6) to the wall for good. Returns true the first
+## time, so a caller can play the beat exactly once. Ids that are not spoils are ignored:
+## this shelf is for things that were taken, never for things that were bought.
+func remember_spoil(id: String) -> bool:
+	if not id.begins_with(SPOIL_PREFIX) or _trophies.has(id):
+		return false
+	_trophies.append(id)
+	return true
+
+
+## Every spoil ever taken, oldest first. The Ledger's trophy shelf is drawn from this rather
+## than from the career's owned map, so leaving town does not empty the wall.
+func trophies() -> PackedStringArray:
+	return _trophies.duplicate()
+
+
+func has_trophy(id: String) -> bool:
+	return _trophies.has(id)
 
 
 # --- the Black Book -----------------------------------------------------------

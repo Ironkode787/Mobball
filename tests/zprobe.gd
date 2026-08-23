@@ -1,5 +1,5 @@
 extends Node2D
-## TEMPORARY probe (TABLE-4): how fast can a club mini-flipper get a ball round the ceiling?
+## TEMPORARY probe (TABLE-4): what does a lap up the deck's right lane carry to the corner?
 
 const TABLE_SCENE := preload("res://game/table/table_main.tscn")
 
@@ -23,49 +23,40 @@ func step(n: int = 1) -> void:
 
 func _run() -> void:
 	await step(6)
-	var club := table.club
 	var pent := table.penthouse
 	var dome := table.city_hall
-	print("gravity %.0f" % ProjectSettings.get_setting("physics/2d/default_gravity"))
-	var fl: Flipper = club.flipper_left
-	for offset: float in [0.3, 0.45, 0.6, 0.75, 0.9]:
+	for v0: float in [2000.0, 2400.0, 2600.0, 2900.0, 3300.0, 3800.0]:
 		table.despawn_ball()
 		await step(2)
 		var b := table.spawn_ball()
-		var at: Vector2 = fl.cradle_point(offset) + fl.strike_normal() * 6.0
-		b.place(at)
-		b.set_velocity(Vector2.ZERO)
-		await step(6)
-		var launch := b.speed()
-		table.flipper_left.set_pressed(true)
-		var best := 0.0
-		var at_corner := 0.0
-		var in_dome := false
-		var in_pent := false
-		var top := 0.0
-		for i in range(360):
+		b.place(Vector2(985.0, -200.0))
+		b.set_velocity(Vector2(0.0, -v0))
+		var best_dome := 0.0
+		var best_pent := 0.0
+		var got := ""
+		for i in range(300):
 			await step(1)
-			if i == 12:
-				table.flipper_left.set_pressed(false)
 			if b == null or not is_instance_valid(b):
+				got = "lost"
 				break
 			var p := b.global_position
-			best = maxf(best, b.speed())
-			top = minf(top, p.y)
 			if dome.loop.entry_rect().has_point(p):
-				at_corner = maxf(at_corner,
+				best_dome = maxf(best_dome,
 						b.linear_velocity.dot(dome.loop.tangent_at(dome.loop.project(p))))
 			if pent.stairs.entry_rect().has_point(p):
-				at_corner = maxf(at_corner, 0.0)
+				best_pent = maxf(best_pent,
+						b.linear_velocity.dot(pent.stairs.tangent_at(pent.stairs.project(p))))
 			if dome.loop.riding():
-				in_dome = true
+				got = "DOME"
 				break
 			if pent.stairs.riding():
-				in_pent = true
+				got = "penthouse"
 				break
-		print("  cradle %.2f: launch %.0f best %.0f | along-dome-at-mouth %.0f | dome=%s pent=%s top=%.0f"
-				% [offset, launch, best, at_corner, in_dome, in_pent, top])
-		table.flipper_left.set_pressed(false)
+			if table.club.roulette.holds_ball():
+				got = "wheel"
+				break
+		print("  up the right lane at %.0f -> %s | best along dome %.0f, pent %.0f"
+				% [v0, got if got != "" else "(nothing)", best_dome, best_pent])
 	table.despawn_ball()
 	await step(2)
 	get_tree().quit(0)
