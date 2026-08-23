@@ -88,7 +88,7 @@ boss_start.wav          1.600s    -2.40   -18.66    16.3     1747Hz    1376ms   
 boss_phase.wav          0.900s    -3.20   -21.18    18.0     1821Hz     547ms      —    77.6
 boss_beaten.wav         1.900s    -2.10   -20.34    18.2     2240Hz    1289ms      —   163.7
 wrench_telegraph.wav    2.000s    -6.00   -29.69    23.7     3166Hz     225ms      —   172.3
-crane_telegraph.wav     1.400s    -7.00   -20.23    13.2      993Hz     687ms      —   120.6
+crane_telegraph.wav     1.200s    -7.00   -20.31    13.3     1017Hz     296ms      —   103.4
 crane_pull.wav          0.700s    -4.50   -21.53    17.0      852Hz     466ms      —    60.3
 container_break.wav     0.950s    -4.00   -27.22    23.2     1573Hz     494ms      —    81.9
 pier_splash.wav         1.100s    -3.80   -21.69    17.9     2186Hz     843ms      —    94.8
@@ -114,7 +114,7 @@ bumper_hit_soft.wav     0.326s    -6.00   -20.63    14.6      854Hz     291ms   
 bumper_hit_hard.wav     0.484s    -1.70   -22.17    20.5     1456Hz     433ms      —    41.7
 sling_hit_soft.wav      0.192s    -7.50   -26.70    19.2      973Hz     172ms      —    16.6
 sling_hit_hard.wav      0.254s    -2.40   -22.68    20.3     1958Hz     181ms      —    22.0
-subtotal                                                                            7735.9
+subtotal                                                                            7718.7
 
 VELOCITY LAYERS — docs/08 §8. Three files per physical event, picked at play
 time by AudioDirector.play(event, {"impact": 0..1}); jitter still applies inside
@@ -242,4 +242,4 @@ skill_shot_ding  1760.00-> 1759.74Hz -0.26c  tilt_warning     1046.50-> 1045.67H
 staircase_crest  2349.32-> 2349.36Hz +0.03c  dome_loop        1174.66-> 1174.59Hz -0.10c
 skip_town         146.83->  146.84Hz +0.08c
 
-TOTAL COMMITTED AUDIO: 16.39 MiB (85 SFX + 27 voice + 23 music files), budget 32 MiB
+TOTAL COMMITTED AUDIO: 16.37 MiB (85 SFX + 27 voice + 23 music files), budget 32 MiB

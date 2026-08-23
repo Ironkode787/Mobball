@@ -290,7 +290,21 @@ func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {})
 	night_dirty = night_dirty.add(v)
 	_book_group(group, v, base)
 	jobs.on_earn(v, group)
+	_take_clean_share(v)
 	return v
+
+
+## ★ the Black Book's clean share (`Stats.clean_share`, cap 0.25). A slice of every switch is
+## already clean by the time it reaches the pocket — but it is drawn AGAINST tonight's wash
+## cap, the switch was hot money for the whole of its value, and it books as LAUNDERED rather
+## than as clean income, because dirty really did become clean. All three properties are what
+## keep it a convenience instead of a second, unpriced faucet: see the docstring on
+## `Stats.clean_share()`.
+func _take_clean_share(v: BigMoney) -> void:
+	var share := stats.clean_share()
+	if share <= 0.0 or v == null or not v.is_positive():
+		return
+	launder(1.0, BigMoney.min_of(v.mul(share), launder_cap_left()))
 
 
 ## Money that arrives already priced — a bet's winnings, a Wire ticket. It lands in the wallet
@@ -423,15 +437,15 @@ func career_raid_survived() -> void:
 
 
 ## The career as the Juice formula wants to read it (docs/06 §2). Handed to the meta lane's
-## `Prestige` — which is why the keys are its vocabulary, not this file's.
-func career_record() -> Dictionary:
+## `Prestige` verbatim — which is why the keys are its vocabulary, not this file's, and why
+## `lifetime_clean` is money EARNED rather than money held.
+func career_totals() -> Dictionary:
 	return {
 		"lifetime_clean": lifetime_clean(),
 		"bosses_beaten": commission.beaten.size(),
 		"heists_cleared": int(career.get("heists_cleared", 0)),
 		"raids_survived": int(career.get("raids_survived", 0)),
-		"excess_respect": maxi(respect - RANK_RESPECT[clampi(rank, 0,
-				RANK_RESPECT.size() - 1)], 0),
+		"excess_respect": maxi(respect - rank_threshold(rank), 0),
 	}
 
 
@@ -889,7 +903,7 @@ func skip_town_available() -> bool:
 ## What the train is worth and what gets on it, without getting on it. The Count shows this
 ## and the player agonizes over the last line, which is the point (docs/06 §1).
 func skip_town_preview() -> Dictionary:
-	var record := career_record()
+	var record := career_totals()
 	return {
 		"available": skip_town_available(),
 		"juice": SkipTown.juice_for(record),
@@ -904,13 +918,55 @@ func skip_town_preview() -> Dictionary:
 	}
 
 
+## The Black Book perks that are GRANTED rather than read, applied at the one moment they
+## mean anything: a city beginning. Everything here is idempotent per city because it happens
+## exactly once — `new_game()` is the only door into a city, Skip Town included.
+func _apply_city_start() -> void:
+	var start := clampi(SkipTown.start_rank(), 0, RANK_RESPECT.size() - 1)
+	if start > 0:
+		rank = start
+		respect = rank_threshold(start)
+		Events.rank_changed.emit(rank)
+		Events.respect_changed.emit(respect)
+	if bench == null:
+		return
+	bench.trait_rank = rank
+	for i in SkipTown.bench_starters():
+		var starter := bench.hire()
+		starter["level"] = maxi(int(starter.get("level", 0)), 1)
+
+
+## ★ Kept Man: the specialists who come with you, most valuable first. The Book says how many
+## may be named; until a picker exists the crew picks itself by seniority, which is at least
+## the choice a player would make (TODO(UI): let them name them at The Count).
+func kept_specialist_ids(limit: int = -1) -> PackedStringArray:
+	var slots := SkipTown.kept_specialists() if limit < 0 else limit
+	var out: PackedStringArray = []
+	if slots <= 0:
+		return out
+	var rows: Array = []
+	for id: Variant in owned:
+		var key := String(id)
+		if key.begins_with("crew.") and int(owned[id]) > 0:
+			rows.append({"id": key, "level": int(owned[id])})
+	rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["level"]) != int(b["level"]):
+			return int(a["level"]) > int(b["level"])
+		return String(a["id"]) < String(b["id"]))
+	for row: Variant in rows:
+		if out.size() >= slots:
+			break
+		out.append(String((row as Dictionary)["id"]))
+	return out
+
+
 ## THE ACT. `keep` is the one guy who comes with you; an empty dict means you left alone.
 ##
 ## Order matters here. The career is SCORED first (the Juice is what the city was worth), the
 ## stash is measured off the clean pile before it is burned, and only then is everything torn
 ## down — so nothing that pays out is reading a wallet that has already been emptied.
 func skip_town(keep: Dictionary = {}) -> Dictionary:
-	var record := career_record()
+	var record := career_totals()
 	var result := {
 		"juice": SkipTown.award(record),
 		"breakdown": SkipTown.breakdown(record),
@@ -924,28 +980,27 @@ func skip_town(keep: Dictionary = {}) -> Dictionary:
 	var cities := int(career.get("cities", 0)) + 1
 	var seed_value := session_seed + cities
 	var kept_relics := heists.relics
+	# ★ Kept Man: the specialists named to come along, and the levels they arrive at.
+	var kept_nodes := {}
+	for id in kept_specialist_ids():
+		kept_nodes[id] = int(owned.get(id, 0))
+	result["kept_specialists"] = kept_nodes.keys()
+
+	# `new_game` IS the door into a city: it clears the career and applies the Black Book's
+	# city-start perks (★ Old Contacts, ★ Everybody Knows Somebody) on the way through.
 	new_game(seed_value)
 	career["cities"] = cities
 
-	# ★ Old Contacts seats the new career; ★ The Stash gives it something to work with. Both
-	# are read once, here, because a Black Book perk is a fact about a city rather than a fold
-	# over one (see game/meta/blackbook.gd).
-	rank = clampi(SkipTown.start_rank(), 0, RANK_RESPECT.size() - 1)
-	if rank > 0:
-		respect = RANK_RESPECT[rank]
+	# ★ The Stash: a slice of the city you left, as dirty, because of course it is.
 	if (result["stash"] as BigMoney).is_positive():
 		wallet.earn_dirty(result["stash"])
-
 	# The Museum is a shelf, not a racket: relics survive the city that took them.
 	heists.relics = kept_relics
-
-	# `new_game` already filled a bench; this one is dealt at the rank Old Contacts bought,
-	# so the crew in the new city can carry traits from its first Night.
-	bench = Bench.new(seed_value, stats.bench_slots())
-	bench.trait_rank = rank
-	for i in SkipTown.bench_starters():
-		var starter := bench.hire()
-		starter["level"] = maxi(starter.get("level", 0), 1)
+	for id: Variant in kept_nodes:
+		owned[String(id)] = int(kept_nodes[id])
+	if not kept_nodes.is_empty():
+		_push_owned_to_meta()
+		_recompute_stats()
 	if not (result["kept"] as Dictionary).is_empty():
 		result["kept"] = _keep_one_guy(result["kept"])
 
@@ -1006,7 +1061,7 @@ func economy_paused() -> bool:
 ## Who is waiting for this career at The Count, or an empty dict. Respect for the next rank
 ## has to be in the bank first — the ☆ get you the meeting, the fight gets you the chair.
 func boss_waiting() -> Dictionary:
-	return commission.waiting(rank, respect, RANK_RESPECT)
+	return commission.waiting(rank, respect, rank_ladder())
 
 
 ## The Count's "SAMMY'S WAITING" button. The next Night IS the fight.
@@ -1040,6 +1095,11 @@ func boss_finished(fight_id: StringName, victory: bool) -> Dictionary:
 		result["spoil"] = String(f.get("spoil", ""))
 		result["spoil_name"] = String(f.get("spoil_name", ""))
 		grant_spoil(String(f.get("spoil", "")))
+		# The trophy shelf is the Black Book's and it updates at the moment of victory, not at
+		# the next Skip Town — a spoil is a thing you did, and prestige only carries it.
+		var book := prestige()
+		if book != null and book.has_method("remember_spoil"):
+			book.call("remember_spoil", String(f.get("spoil", "")))
 		add_respect(int(f.get("respect", 0)), &"boss")
 		# The respect gate was already met; the fight was the only thing in the way.
 		_check_rank()
@@ -1143,7 +1203,7 @@ func add_respect(stars: int, _source: StringName = &"") -> void:
 func rank_for_respect(total: int) -> int:
 	var r := 0
 	for i in RANK_RESPECT.size():
-		if total >= RANK_RESPECT[i]:
+		if total >= rank_threshold(i):
 			r = i
 	return r
 
@@ -1152,7 +1212,7 @@ func respect_to_next_rank() -> int:
 	var next := rank + 1
 	if next >= RANK_RESPECT.size():
 		return 0
-	return maxi(RANK_RESPECT[next] - respect, 0)
+	return maxi(rank_threshold(next) - respect, 0)
 
 
 ## The ☆ say what rank you have earned; the Commission says what rank you are allowed to
@@ -1238,6 +1298,7 @@ func new_game(seed_value: int = 0) -> void:
 	best_night = BigMoney.zero()
 	last_night = {}
 	_reset_night_tallies()
+	_apply_city_start()
 	_booted = true
 	state = &"attract"
 
@@ -1278,7 +1339,7 @@ func start_night() -> void:
 ## night → count. `summary` comes from the NightController; the pocket-money wash, the
 ## headline and the record book are applied here so the Count screen only has to render.
 func end_night(summary: Dictionary) -> Dictionary:
-	var pocket := launder(1.0, BigMoney.min_of(stats.pocket_money(), night_dirty))
+	var pocket := launder(1.0, BigMoney.min_of(pocket_money(), night_dirty))
 	var s := summary.duplicate()
 	s["night"] = night_no
 	s["rank"] = rank
@@ -1298,7 +1359,7 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["heat"] = heat.value
 	s["bench_free"] = bench.available().size() if bench != null else 0
 	s["best_night"] = best_night
-	s["quiet_floor"] = stats.pocket_money()
+	s["quiet_floor"] = pocket_money()
 	s["clean_earned"] = night_clean
 	s["casino"] = casino.night_summary()
 	s["wire"] = wire.night_summary()
@@ -1501,6 +1562,10 @@ func to_dict() -> Dictionary:
 		"elections": elections.to_dict(),
 		"heists": heists.to_dict(),
 		"federal": federal.to_dict(),
+		# The Black Book is the meta lane's object and the only one that outlives a career —
+		# it rides in the same file because there is one save and it holds everything a player
+		# owns, bought, taken or carried between cities.
+		"prestige": _prestige_to_dict(),
 		"empire": empire.to_dict(),
 		"career": _career_to_dict(),
 		"commission": commission.to_dict(),
@@ -1526,6 +1591,9 @@ func from_dict(d: Dictionary) -> void:
 	respect = int(d.get("respect", 0))
 	rank = int(d.get("rank", 0))
 	night_no = int(d.get("night_no", 0))
+	# The Book is restored BEFORE anything reads a perk: `start_rank`, the ladder's prices and
+	# Pocket Money are all questions this file asks the moment a career comes back.
+	_prestige_from_dict(d.get("prestige", {}))
 	var raw_owned: Variant = d.get("owned", {})
 	owned = {}
 	if raw_owned is Dictionary:
@@ -1618,6 +1686,38 @@ func _on_upgrade_purchased(id: String, level: int) -> void:
 	save_now()
 
 
+## The meta lane's `Prestige` — Juice, the Black Book and what its perks promise. Reached
+## through `SkipTown`, which loads it by path for the same reason `LedgerState` is loaded by
+## path: a missing meta lane costs the Book, never the boot.
+func prestige() -> Object:
+	return SkipTown.prestige()
+
+
+## Black Book perks that are READ rather than granted: they are facts about the city you are
+## in, so they are folded where they are used instead of being applied once.
+
+
+## ★ Traveling Light: Pocket Money scales with the city number.
+func pocket_money() -> BigMoney:
+	return stats.pocket_money().mul(maxf(float(SkipTown.perk("pocket_money_mult", 1.0)), 0.0))
+
+
+## ★ Fast Learner: the ladder is cheaper in a city you have beaten before. The ranks are the
+## same ranks; the ☆ they cost are not.
+func rank_threshold(r: int) -> int:
+	var i := clampi(r, 0, RANK_RESPECT.size() - 1)
+	var mult := maxf(float(SkipTown.perk("star_requirement_mult", 1.0)), 0.01)
+	return int(round(float(RANK_RESPECT[i]) * mult))
+
+
+## The whole ladder at this city's prices — what `Commission.waiting` and the rank check read.
+func rank_ladder() -> PackedInt32Array:
+	var out: PackedInt32Array = []
+	for i in RANK_RESPECT.size():
+		out.append(rank_threshold(i))
+	return out
+
+
 func _meta_owned_store() -> GDScript:
 	if _ledger_state == null and ResourceLoader.exists(LEDGER_STATE_PATH):
 		_ledger_state = load(LEDGER_STATE_PATH)
@@ -1641,6 +1741,20 @@ func mark_reveal_event(id: StringName) -> void:
 	var r := _reveal()
 	if r != null and r.has_method("mark_event"):
 		r.call("mark_event", id)
+
+
+func _prestige_to_dict() -> Dictionary:
+	var p := prestige()
+	if p == null or not p.has_method("to_dict"):
+		return {}
+	var d: Variant = p.call("to_dict")
+	return d if d is Dictionary else {}
+
+
+func _prestige_from_dict(d: Variant) -> void:
+	var p := prestige()
+	if p != null and p.has_method("from_dict"):
+		p.call("from_dict", d if d is Dictionary else {})
 
 
 func _reveal_to_dict() -> Dictionary:

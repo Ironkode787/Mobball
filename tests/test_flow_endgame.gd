@@ -17,6 +17,7 @@ func run(t: TestCtx) -> void:
 	_federal_in_the_session(t)
 	_rico_verdict(t)
 	_empire_money(t)
+	_the_black_book(t)
 	_skip_town(t)
 	_save_round_trip(t)
 	Game.save.erase()
@@ -246,6 +247,43 @@ func _empire_money(t: TestCtx) -> void:
 	t.ok(Game.reunion_ready(), "and the back room is ready to send everybody")
 	Game.rank = 6
 	t.ok(not Game.reunion_ready(), "which is an R7 thing")
+
+
+## The META-3 contract: what the flow lane hands the meta lane and what it reads back.
+func _the_black_book(t: TestCtx) -> void:
+	Game.new_game(36)
+	Game.rank = 3
+	Game.respect = 500
+	Game.commission.mark_beaten(Commission.SAMMY)
+	Game.career["heists_cleared"] = 2
+	Game.career["raids_survived"] = 1
+	Game._book_lifetime_clean(BigMoney.of(4.0, 9))
+
+	var totals := Game.career_totals()
+	t.ok(totals["lifetime_clean"] is BigMoney, "lifetime_clean travels as BigMoney")
+	t.ok((totals["lifetime_clean"] as BigMoney).equals_approx(BigMoney.of(4.0, 9), 1e-9),
+			"and it is money EARNED, not money held")
+	t.eq(int(totals["bosses_beaten"]), 1, "bosses come off the Commission's own book")
+	t.eq(int(totals["heists_cleared"]), 2, "heists off the rap sheet")
+	t.eq(int(totals["raids_survived"]), 1, "raids too")
+	t.eq(int(totals["excess_respect"]), 500 - Game.rank_threshold(3),
+			"and excess_respect is the ☆ past the rank actually reached")
+	t.ok(SkipTown.juice_for(totals) > 0, "which the Book can score")
+
+	# The ladder is read through the perk fold, so a repeat city can be cheaper without any
+	# of the ranks moving.
+	t.eq(Game.rank_threshold(3), Game.RANK_RESPECT[3],
+			"an unbought Book prices the ladder exactly as shipped")
+	t.eq(Game.rank_ladder().size(), Game.RANK_RESPECT.size(), "and the whole ladder with it")
+	t.eq(Game.rank_for_respect(Game.RANK_RESPECT[4]), 4, "the ☆ still say what they said")
+
+	# The Book itself rides in the save file: the flow lane owns the file, meta owns the object.
+	var book := Game.prestige()
+	if book == null:
+		t.ok(true, "no meta lane: the Book is skipped, not crashed")
+		return
+	t.ok(book.has_method("to_dict"), "the Book serializes")
+	t.ok(Game.to_dict().has("prestige"), "and the save carries it")
 
 
 func _skip_town(t: TestCtx) -> void:

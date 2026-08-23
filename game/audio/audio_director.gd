@@ -12,12 +12,19 @@ extends Node
 ##   * `say(specialist, mood)` plays the muted-brass phrase bank (docs/08 §5) on a
 ##     channel of its own — one wiseguy at a time.
 ##
-## Wave 4 adds the two pieces of the endgame that are mix automation rather than files:
+## Wave 4 adds the three pieces of the endgame that are automation rather than files:
 ##   * `rico_dropout(step)` — the wiretap phase of the RICO raid (docs/05 §9). The Feds
 ##     cut wires; wires do not fade, so every step is instant, and step 0 puts the mix
 ##     back exactly as it was.
 ##   * `play_farewell()` — Skip Town (docs/08 §1): the stem stack shed one player at a
 ##     time on the beat grid, the last bass note left ringing alone, and a train.
+##   * `music_set_city(index)` — the next city's arrangement (docs/08 §7): same eight
+##     slots, its own tempo, key and band, plus the one bed stem a city may add.
+##
+## The four of them compose through one function, `_stem_target_for`: every stem's level
+## is a pure function of city, level, state, wiretap and farewell, so no two of them can
+## fight and lifting the wiretap restores the mix by re-deriving it rather than by
+## remembering it.
 ##
 ## Three Godot 4.5 details this file depends on, all verified headless:
 ##   * AudioStreamSynchronized.set_sync_stream_volume() takes DECIBELS, not a linear
@@ -636,11 +643,8 @@ func play_farewell() -> float:
 	_music_stopping = false
 	if _music_player != null and not _music_player.playing and _music_player.is_inside_tree():
 		_music_player.play()
+	_farewell_clear()
 	_farewell_active = true
-	_farewell_t = 0.0
-	_farewell_shed = 0
-	_farewell_bass_gone = false
-	_farewell_train_played = false
 	_farewell_lead = _seconds_to_next_beat()
 	_farewell_total = (_farewell_lead + float(FAREWELL_TRAIN_BEAT) * _sec_per_beat()
 		+ _train_seconds())
@@ -661,11 +665,7 @@ func farewell_stop() -> void:
 	_ensure_init()
 	if not _farewell_active:
 		return
-	_farewell_active = false
-	_farewell_t = 0.0
-	_farewell_shed = 0
-	_farewell_bass_gone = false
-	_farewell_train_played = false
+	_farewell_clear()
 	_fade_seconds = MUSIC_FADE_SECONDS
 	_recompute_targets()
 	set_process(true)
@@ -1148,6 +1148,15 @@ func _train_seconds() -> float:
 	return stream.get_length() if stream != null else FAREWELL_TRAIN_SECONDS
 
 
+## Back to "no farewell is running", without touching the mix.
+func _farewell_clear() -> void:
+	_farewell_active = false
+	_farewell_t = 0.0
+	_farewell_shed = 0
+	_farewell_bass_gone = false
+	_farewell_train_played = false
+
+
 ## One frame of the Skip Town sequence (docs/08 §1).
 ##
 ## Everything here is derived from one clock rather than from a chain of timers: how many
@@ -1179,11 +1188,7 @@ func _advance_farewell(delta: float) -> void:
 ## The city is over. The stack is silent, stopped, at level 0 and calm: whatever the next
 ## city wants, it asks for from there.
 func _end_farewell() -> void:
-	_farewell_active = false
-	_farewell_t = 0.0
-	_farewell_shed = 0
-	_farewell_bass_gone = false
-	_farewell_train_played = false
+	_farewell_clear()
 	_fade_seconds = MUSIC_FADE_SECONDS
 	_music_level = 0
 	_music_state = STATE_CALM

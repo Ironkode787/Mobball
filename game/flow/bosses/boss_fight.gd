@@ -32,6 +32,9 @@ const PHASE_BEAT := 1.4
 
 var id: StringName = &""
 var boss_name: String = ""
+## ★ Reputation Precedes You (docs/06 §3): the city's first fight opens at this phase instead
+## of at the beginning. 1 is every fight as shipped.
+var start_phase: int = 1
 var phases: int = 3
 ## Read by `Game.earn_switch`: while a fight is live the table earns nothing at all.
 var economy_paused: bool = true
@@ -93,7 +96,7 @@ func begin(p_table: Node2D, p_night: Node) -> void:
 	AudioDirector.play(&"knocker")
 	AudioDirector.music_set_state(&"hot")
 	set_physics_process(true)
-	_go_to_phase(1)
+	_go_to_phase(clampi(start_phase, 1, phases))
 
 
 ## Shut the fight down without deciding it (the Night was torn down mid-fight).

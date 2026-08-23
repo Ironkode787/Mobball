@@ -12,11 +12,18 @@ signal ledger_pressed
 signal next_night_pressed
 ## The Commission is asking (specs/m2-content.md §5). The next Night is the fight.
 signal boss_pressed
+## The war room booked a job for the next Night (docs/05 §5): target, approach, inside man.
+signal heist_pressed(target: StringName, approach: StringName, guy: Dictionary)
+## The player is getting on the train (docs/06 §1). `keep` is the one guy who comes along.
+signal skip_town_pressed(keep: Dictionary)
 
 ## Seconds each line takes to roll up, and the gap between the bill-counter ticks.
 const LINE_TIME := 0.55
 const TICK_INTERVAL := 0.07
 const LINE_GAP := 0.12
+## Jobs offered on the page at once. The board holds five targets; a Count screen that is
+## mostly heist buttons is a menu, not a newspaper.
+const HEIST_SLOTS := 2
 
 var summary: Dictionary = {}
 
@@ -91,6 +98,8 @@ func _build() -> void:
 	# The Commission's call sits above the spacer, so it is always on the page: below the
 	# buttons it could be pushed off the bottom of a tall tally.
 	_build_boss_call()
+	_build_war_room()
+	_build_train()
 
 	var grow := Control.new()
 	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -130,6 +139,63 @@ func _build_boss_call() -> void:
 	_body.add_child(PaperKit.label(
 			"NO EARNING. NO CLOCK. BEAT HIM AND THE RANK IS YOURS.",
 			PaperKit.FONT_SMALL, Feel.COL_INK.lightened(0.35)))
+
+
+## THE WAR ROOM (docs/05 §5). One button per job that is actually on the board tonight, each
+## with what it will cost to set up; the approach and the inside man are picked for you until
+## the planning screen lands (TODO(UI): target + approach + crew picker).
+func _build_war_room() -> void:
+	if not Game.heists_unlocked():
+		return
+	var offered := 0
+	for row in Game.heists.board(Game.night_no):
+		if not bool(row["available"]) or offered >= HEIST_SLOTS:
+			continue
+		offered += 1
+		var target := StringName(row["id"])
+		var stake := Heists.stake_for(target, Game.stats.idle_rate_total())
+		var guy := _inside_man()
+		var b := PaperKit.button("%s   ·   %s" % [String(row["name"]), stake.text()],
+				PaperKit.FONT_BODY, Feel.COL_CLEAN)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.disabled = not Game.wallet.can_afford_dirty(stake)
+		b.pressed.connect(func() -> void:
+			heist_pressed.emit(target, Heists.QUIET, guy))
+		_body.add_child(b)
+		var who := "" if guy.is_empty() else "   ·   INSIDE MAN: %s" % String(guy.get("name", ""))
+		_body.add_child(PaperKit.label("%s%s" % [String(row["blurb"]), who],
+				PaperKit.FONT_SMALL, Feel.COL_INK.lightened(0.35)))
+
+
+## The best man for the job: whoever on the Bench has a trait the war room can use.
+func _inside_man() -> Dictionary:
+	if Game.bench == null:
+		return {}
+	var free := Game.bench.available()
+	for g in free:
+		if not Heists.inside_man_effect(g).is_empty():
+			return g
+	return free[0] if not free.is_empty() else {}
+
+
+## SKIP TOWN (docs/06 §1). Never a step, never in the flow of the ordinary buttons, and it
+## says out loud what it costs — a player has to be able to read this and still want it.
+func _build_train() -> void:
+	if not Game.skip_town_available():
+		return
+	var preview := Game.skip_town_preview()
+	var keep := _inside_man()
+	var b := PaperKit.button("SKIP TOWN   ·   %d JUICE" % int(preview["juice"]),
+			PaperKit.FONT_BIG, Feel.COL_BRASS)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.pressed.connect(func() -> void: skip_town_pressed.emit(keep))
+	_body.add_child(b)
+	var line := "EVERYTHING GOES. THE BOOK, THE JUICE AND ONE GUY COME WITH YOU"
+	if not keep.is_empty():
+		line += "   ·   %s" % String(keep.get("name", ""))
+	if Game.federal.raids_lost > 0:
+		line = "THE CITY IS CLOSING IN.   " + line
+	_body.add_child(PaperKit.label(line, PaperKit.FONT_SMALL, Feel.COL_INK.lightened(0.35)))
 
 
 ## Tonight's work, and the Consigliere's rerolls (`job_reroll_add`). Only drawn when there is
@@ -205,6 +271,7 @@ func _build_lines() -> void:
 				PaperKit.FONT_SMALL, Feel.COL_CLEAN))
 	_build_boss_lines()
 	_build_club_lines()
+	_build_endgame_lines()
 	_add_money_row("CLEAN BALANCE", summary.get("clean", Game.wallet.clean), Feel.COL_CLEAN)
 	_add_int_row("RESPECT GAINED", int(summary.get("respect", 0)), Feel.COL_BRASS.darkened(0.25))
 	_add_int_row("JOBS DONE", int(summary.get("jobs_done", 0)), Feel.COL_INK)
@@ -274,6 +341,60 @@ func _build_club_lines() -> void:
 		_add_int_row("COLLECTION ROUNDS RUN", int(rounds.get("rounds", 0)), Feel.COL_INK)
 		_add_int_row("   perfect", int(rounds.get("won", 0)), Feel.COL_CLEAN,
 				PaperKit.FONT_SMALL)
+
+
+## The M3 lines, each only when it happened. Same rule as the Club's: a mode that did not
+## run does not get a row saying it did not run.
+func _build_endgame_lines() -> void:
+	var docks: Dictionary = summary.get("smuggling", {})
+	if int(docks.get("shipments", 0)) > 0:
+		_add_money_row("SHIPMENTS OUT   ·   %d" % int(docks.get("shipments", 0)),
+				docks.get("paid", null), Feel.COL_DIRTY)
+	elif int(docks.get("runs", 0)) > 0:
+		_body.add_child(PaperKit.label("THE SHIPMENT DID NOT MAKE IT", PaperKit.FONT_SMALL,
+				Feel.COL_INK.lightened(0.35)))
+
+	var job: Dictionary = summary.get("heist", {})
+	if not job.is_empty() and not String(job.get("name", "")).is_empty():
+		var line := "%s — %s" % [String(job["name"]),
+				"CLEARED" if bool(job.get("cleared", false)) else "BLOWN OUT"]
+		_add_money_row(line, job.get("paid", null), Feel.COL_CLEAN)
+		if int(job.get("blown", 0)) > 0:
+			_body.add_child(PaperKit.label("   %d beat%s got away" % [int(job["blown"]),
+					"" if int(job["blown"]) == 1 else "s"], PaperKit.FONT_SMALL,
+					Feel.COL_INK.lightened(0.35)))
+		if not String(job.get("relic", "")).is_empty():
+			_body.add_child(PaperKit.label("   SOMETHING FOR THE COLLECTION",
+					PaperKit.FONT_SMALL, Feel.COL_BRASS))
+
+	var chairs: Dictionary = summary.get("chairs", {})
+	if int(chairs.get("tonight", 0)) > 0:
+		_add_int_row("CHAIRS CLAIMED   ·   %d of %d" % [int(chairs.get("claimed", 0)),
+				int(chairs.get("chairs", CommissionChairs.CHAIRS))],
+				int(chairs.get("tonight", 0)), Feel.COL_BRASS)
+
+	var election: Dictionary = summary.get("election", {})
+	if int(election.get("term_left", 0)) > 0:
+		_add_int_row("CITY HALL   ·   NIGHTS LEFT IN THE TERM",
+				int(election["term_left"]), Feel.COL_BRASS)
+	elif int(election.get("lit", 0)) > 0:
+		_add_int_row("DISTRICTS CANVASSED   ·   of %d" % int(election.get("districts", 5)),
+				int(election["lit"]), Feel.COL_INK)
+
+	var crown: Dictionary = summary.get("empire", {})
+	if int(crown.get("runs", 0)) > 0:
+		_add_money_row("EMPIRE MODE   ·   %d" % int(crown["runs"]), crown.get("paid", null),
+				Feel.COL_BRASS)
+
+	if _money(summary.get("rico_payout", null)).is_positive():
+		_add_money_row("UNTOUCHABLE", summary.get("rico_payout", null), Feel.COL_CLEAN)
+	elif String(summary.get("rico", "")) == "lost":
+		_body.add_child(PaperKit.label("THE CASE STICKS", PaperKit.FONT_BODY, Feel.COL_DIRTY))
+
+	var fbi: Dictionary = summary.get("federal", {})
+	if bool(fbi.get("enabled", false)) and float(fbi.get("value", 0.0)) > 0.0:
+		_add_int_row("FEDERAL HEAT   ·   of 200", int(round(float(fbi.get("meter", 100.0)))),
+				Color("6EA8FF"))
 
 
 func _add_money_row(text: String, value: Variant, color: Color, size: int = PaperKit.FONT_BODY) -> void:

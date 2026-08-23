@@ -287,6 +287,10 @@ func _start_boss() -> void:
 		Game.commission.pending = &""
 		return
 	Game.commission.begin_fight(id)
+	# ★ Reputation Precedes You: the FIRST fight of a city opens a phase in. Every fight after
+	# it in the same city starts where fights always start.
+	if Game.commission.beaten.is_empty():
+		fight.start_phase = SkipTown.boss_start_phase()
 	boss = fight
 	boss.name = "Boss"
 	add_child(boss)

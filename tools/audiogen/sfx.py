@@ -1955,9 +1955,13 @@ def crane_telegraph() -> np.ndarray:
 	to the frame. It is a warning, so it sits low on the ladder — the pull is the loud
 	one — and it is nothing like `radio_squelch`: this is a machine announcing that it
 	is about to move, not a man telling another man to move.
+
+	1.2 s, because that is `CraneMagnet.TELEGRAPH`: like the wrench, the sound and the
+	tell are the same object, and a warning still sounding when the thing it warned about
+	happens has stopped being a warning.
 	"""
 	gen = rng("crane_telegraph")
-	n = n_of(1.40)
+	n = n_of(1.20)
 	t = t_axis(n)
 	out = np.zeros(n)
 	swell = np.clip(t / 0.55, 0.0, 1.0) ** 1.4
@@ -1969,8 +1973,8 @@ def crane_telegraph() -> np.ndarray:
 	teeth = 0.34 * sine(expline(n, 780.0, 1180.0)) + 0.14 * sine(expline(n, 1560.0, 2360.0))
 	motor = lowpass(whirr + teeth, 2600.0, order=2) * swell * asr_env(n, 0.050, 0.30, 1.2)
 	out += 0.42 * unit(motor)
-	for at in (0.10, 0.62):
-		add_at(out, _register_bell(n_of(0.55), gen, 940.0, 0.42), n_of(at), 0.62)
+	for at in (0.08, 0.52):
+		add_at(out, _register_bell(n_of(0.50), gen, 940.0, 0.42), n_of(at), 0.62)
 	return _finish(out, -7.0, wet=0.10, rt60=0.44, tilt_db=-1.5, taper=0.18)
 
 
@@ -2288,11 +2292,14 @@ def election_win() -> np.ndarray:
 		add_at(out, _brass(f, n_of(1.05), gen, 0.86 - 0.05 * i, rip_cents=65.0,
 		                   attack=0.022, release=0.32), n_of(0.220 + 0.012 * i), 0.40)
 	add_at(out, _drum(87.31, n_of(0.95), gen, 0.85, tau=0.32, head_hz=740.0), n_of(0.215), 0.46)
+	# The ticker is confetti, not the event: at any more than this the paper owns the
+	# spectrum and the bell — which is the whole reason this sound is a bell — becomes
+	# something happening behind it.
 	ticker = np.zeros(n)
 	for i in range(26):
-		add_at(ticker, _paper(n_of(0.16), gen, 1800.0, 9500.0, tau=0.030, grip=0.60),
+		add_at(ticker, _paper(n_of(0.16), gen, 1400.0, 7200.0, tau=0.030, grip=0.60),
 		       n_of(float(gen.uniform(0.24, 1.60))), float(gen.uniform(0.18, 0.50)))
-	out += 0.26 * unit(ticker)
+	out += 0.18 * unit(ticker)
 	return _finish(out, -1.95, wet=0.20, rt60=1.00, predelay=0.015, tilt_db=0.5, taper=0.16)
 
 
@@ -2446,7 +2453,10 @@ def skip_town() -> np.ndarray:
 	bow = bandpass(noise(n, gen), 900.0, 4200.0, order=2) * 0.05
 	tone = lowpass(body + 0.55 * string + bow, 3400.0, order=2)
 	env = asr_env(n, 0.26, 1.35, 1.6) * (0.88 + 0.12 * np.sin(2.0 * np.pi * 0.5 * t))
-	return _finish(unit(tone * env), -5.1, wet=0.26, rt60=1.45, predelay=0.020,
+	# Peak-placed well under its neighbours on purpose: this is a continuous tone with
+	# an 11 dB crest, and normalising it to a transient's peak would make the quietest
+	# moment in the game the loudest thing in the set (the `bribe_paid` trade).
+	return _finish(unit(tone * env), -6.0, wet=0.26, rt60=1.45, predelay=0.020,
 	               tilt_db=-2.5, taper=0.24)
 
 
@@ -2495,7 +2505,7 @@ def train_away() -> np.ndarray:
 	horn_b = _far_horn(n_of(0.85), gen, (146.83, 174.61, 220.00, 261.63),
 	                   sag_cents=70.0, attack=0.13, release=0.42)
 	add_at(out, horn_b, n_of(2.020), 0.62)
-	return _finish(out, -6.1, wet=0.42, rt60=1.70, predelay=0.026, tilt_db=-3.0, taper=0.22)
+	return _finish(out, -7.0, wet=0.42, rt60=1.70, predelay=0.026, tilt_db=-3.0, taper=0.22)
 
 
 # ------------------------------------------------------------------- registry

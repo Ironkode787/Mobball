@@ -76,7 +76,7 @@ static func _fallback_juice(career: Dictionary) -> int:
 ## not `Stats` effects (see the header of game/meta/blackbook.gd). Every getter is optional.
 
 
-static func _perk(name: String, fallback: Variant) -> Variant:
+static func perk(name: String, fallback: Variant) -> Variant:
 	var p := prestige()
 	if p == null or not p.has_method(name):
 		return fallback
@@ -86,22 +86,32 @@ static func _perk(name: String, fallback: Variant) -> Variant:
 
 ## ★ Old Contacts: the new city starts you at this rank instead of nothing.
 static func start_rank() -> int:
-	return maxi(int(_perk("start_rank", 0)), 0)
+	return maxi(int(perk("start_rank", 0)), 0)
 
 
 ## ★ Everybody Knows Somebody: leveled guys already on the new Bench.
 static func bench_starters() -> int:
-	return maxi(int(_perk("bench_starters", 0)), 0)
+	return maxi(int(perk("bench_starters", 0)), 0)
 
 
 ## ★ The Stash: this much of the city you left, carried as dirty into the next one.
 static func stash_fraction() -> float:
-	return maxf(float(_perk("stash_fraction", 0.0)), 0.0)
+	return maxf(float(perk("stash_fraction", 0.0)), 0.0)
 
 
 ## Which city this is: 1 before the first Skip Town.
 static func city_number() -> int:
-	return maxi(int(_perk("city_number", 1)), 1)
+	return maxi(int(perk("city_number", 1)), 1)
+
+
+## ★ Kept Man: how many specialists may be named to come with you.
+static func kept_specialists() -> int:
+	return maxi(int(perk("kept_specialists", 0)), 0)
+
+
+## ★ Reputation Precedes You: the phase the city's FIRST Commission fight opens at.
+static func boss_start_phase() -> int:
+	return maxi(int(perk("boss_start_phase", 1)), 1)
 
 
 ## Bank the Juice and count the city as left behind. Returns what it paid.

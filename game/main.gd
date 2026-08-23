@@ -208,6 +208,9 @@ func _want_count(on: bool) -> void:
 	count.ledger_pressed.connect(func() -> void: Game.open_ledger())
 	count.next_night_pressed.connect(func() -> void: Game.start_night())
 	count.boss_pressed.connect(func() -> void: Game.start_boss_night())
+	count.heist_pressed.connect(func(target: StringName, approach: StringName,
+			guy: Dictionary) -> void: Game.start_heist_night(target, approach, guy))
+	count.skip_town_pressed.connect(func(keep: Dictionary) -> void: Game.skip_town(keep))
 	add_child(count)
 
 
