@@ -380,10 +380,8 @@ func _s5_city_hall_circuit() -> void:
 	await step(2)
 	check(Game.empire.leg == 3, "the Penthouse gate is not the third leg")
 
-	if table.has_signal(&"dome_loop_completed"):
-		table.emit_signal(&"dome_loop_completed", 1400.0)
-	else:
-		table.emit_signal(&"chairs_completed")
+	check(table.has_signal(&"dome_loop_completed"), "the table has no dome to close the lap")
+	table.emit_signal(&"dome_loop_completed", 1400.0)
 	await step(2)
 	check(Game.empire.active, "the circuit did not light EMPIRE")
 

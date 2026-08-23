@@ -138,8 +138,6 @@ var _plunger: Plunger = null
 ## What happens when the between-balls beat runs out: &"same" (ball save), &"next", &"end".
 var _after_beat: StringName = &""
 var _wire_enabled: bool = false
-## The table reports its own dome lap; without it the chairs stand in as the final leg.
-var _dome_from_signal: bool = false
 var _collect_poll: float = 0.0
 ## Guys whose ball was saved and is waiting to be put back on the table next tick.
 var _reserve_queue: Array[Dictionary] = []
@@ -249,10 +247,10 @@ func start() -> void:
 	_connect_table(&"chairs_completed", _on_chairs_completed)
 	_connect_table(&"penthouse_entered", _on_penthouse_entered)
 	_connect_table(&"orbit_completed", _on_orbit_completed)
-	# THE CITY HALL CIRCUIT (docs/02 §2 R7). The dome is TABLE-4's; until a table grows it,
-	# the Penthouse's own bank is the last leg, so the crown is reachable on the table that
-	# exists rather than unreachable on the one that does not.
-	_dome_from_signal = _connect_table(&"dome_loop_completed", _on_dome_loop)
+	# THE CITY HALL CIRCUIT (docs/02 §2 R7). The dome is the last leg and the table reports it
+	# itself; a table with no dome overhead simply has no crown to light, which is correct —
+	# City Hall is a purchase (`city_hall`), not a default.
+	_connect_table(&"dome_loop_completed", _on_dome_loop)
 
 	_start_boss()
 	_start_heist()
@@ -1224,11 +1222,6 @@ func _on_chairs_completed() -> void:
 		return
 	if Game.chairs_completed():
 		_arpeggio([&"chime_a", &"chime_b", &"chime_c", &"headline_sting"], 0.12)
-	# Without a dome overhead the room itself is the top of the table, so the Commission bank
-	# closes the City Hall Circuit instead. TABLE-4's `dome_loop_completed` takes over the
-	# moment a table has one.
-	if not _dome_from_signal:
-		Game.empire_leg(&"dome")
 
 
 # ================================================================= elections =====
