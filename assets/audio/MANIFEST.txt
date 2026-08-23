@@ -100,14 +100,14 @@ dome_loop.wav           2.100s    -1.55   -18.74    17.2     2530Hz    1308ms   
 heist_start.wav         1.500s    -4.40   -22.97    18.6     2589Hz     782ms      —   129.2
 heist_beat.wav          0.340s    -7.05   -24.41    17.4     1170Hz     274ms      —    29.3
 heist_blown.wav         1.500s    -2.80   -18.62    15.8     3644Hz    1037ms      —   129.2
-election_win.wav        2.000s    -1.95   -16.85    14.9     4499Hz    1304ms      —   172.3
+election_win.wav        2.000s    -1.95   -16.88    14.9     3431Hz    1304ms      —   172.3
 empire_start.wav        2.200s    -1.65   -19.67    18.0     1776Hz    1349ms      —   189.5
 empire_end.wav          1.800s    -4.05   -24.18    20.1     1592Hz    1096ms      —   155.1
 reunion_start.wav       1.600s    -2.55   -19.64    17.1     1791Hz     998ms      —   137.9
 briefcase_drop.wav      0.620s    -5.50   -25.99    20.5     3632Hz     218ms      —    53.4
 briefcase_leave.wav     0.850s    -7.50   -25.65    18.2     1997Hz     752ms      —    73.3
-skip_town.wav           2.600s    -5.10   -16.54    11.4     1441Hz    1821ms      —   224.0
-train_away.wav          3.800s    -6.10   -21.76    15.7     1630Hz    2596ms      —   327.3
+skip_town.wav           2.600s    -6.00   -17.44    11.4     1442Hz    1821ms      —   224.0
+train_away.wav          3.800s    -7.00   -22.66    15.7     1630Hz    2596ms      —   327.3
 flipper_up_soft.wav     0.203s    -7.00   -26.83    19.8      727Hz     182ms      —    17.5
 flipper_up_hard.wav     0.291s    -2.00   -24.52    22.5     1393Hz     177ms      —    25.1
 bumper_hit_soft.wav     0.326s    -6.00   -20.63    14.6      854Hz     291ms      —    28.1

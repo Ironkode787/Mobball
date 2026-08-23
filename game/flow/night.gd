@@ -1113,10 +1113,11 @@ func _on_deck_returned() -> void:
 
 ## SMUGGLING RUNS (docs/02 §2 R5). The window is the mode; the yard is the table's.
 func _tick_docks(delta: float) -> void:
-	if not Game.smuggling.active:
-		return
+	# The clock runs whether or not a run is on it: the yard's re-arm gap is on the same tick,
+	# and a cooldown that only counts down while a run is live never counts down at all.
+	var was_running := Game.smuggling.active
 	Game.smuggling.tick(delta)
-	if Game.smuggling.active:
+	if Game.smuggling.active or not was_running:
 		return
 	# It ran out with cargo still standing. Nothing is lost but the window.
 	Game.smuggling_changed.emit(_smuggling_state(false, false))
@@ -1547,7 +1548,6 @@ func _on_rico_finished(survived: bool) -> void:
 	# The red meter is reset by the federal raid exactly as it is by an ordinary one: the
 	# Inspector's file and the Bureau's are the same night's work.
 	Game.heat.reset_after_raid(survived)
-	AudioDirector.play(&"rico_survived" if survived else &"rico_lost")
 	AudioDirector.play(&"raid_win" if survived else &"raid_lose")
 	AudioDirector.play(&"headline_sting")
 	Events.raid_ended.emit(survived)

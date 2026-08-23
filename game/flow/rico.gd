@@ -35,6 +35,11 @@ const SIREN_DB := -4.0
 ## Phase 1 asks the table to run its raid hardware at double speed.
 const SWEEP_SPEED := 2.0
 
+## Sim hook. The raid is built and begun inside `NightController.start()`, so there is no
+## window between construction and `begin()` for a headless run to shorten it in — a
+## process-wide default is the only honest place to put the knob. Zero means DURATION.
+static var duration_override: float = 0.0
+
 var active: bool = false
 var duration: float = DURATION
 var time_left: float = DURATION
@@ -62,6 +67,8 @@ func begin(table: Node2D) -> void:
 		return
 	_table = table
 	active = true
+	if duration_override > 0.0:
+		duration = duration_override
 	time_left = duration
 	phase = 0
 	wiretap_step = 0
@@ -69,7 +76,6 @@ func begin(table: Node2D) -> void:
 	_next_magnet = MAGNET_PERIOD
 	_telegraphed = false
 	TableAPI.call_if(_table, "set_raid_active", [true])
-	AudioDirector.play(&"rico_start")
 	AudioDirector.play(&"raid_start")
 	_siren = AudioDirector.play(&"siren", {"loop": true, "volume_db": SIREN_DB})
 	AudioDirector.music_set_state(&"raid")
@@ -152,7 +158,6 @@ func _enter_phase(n: int) -> void:
 		3:
 			# The wires come back — he wants you to hear this part.
 			_set_wiretap(0)
-			AudioDirector.play(&"rico_director")
 			AudioDirector.play(&"knocker")
 	AudioDirector.play(&"boss_phase")
 	changed.emit(state())

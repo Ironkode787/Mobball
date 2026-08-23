@@ -107,32 +107,42 @@ func unpark(ball: Ball) -> void:
 func _physics_process(_delta: float) -> void:
 	for key: Variant in _parked.keys():
 		var row: Dictionary = _parked[key]
-		var b: Ball = row["ball"]
-		if b == null or not is_instance_valid(b):
+		# Held as a Variant on purpose: a Night torn down under a parked ball frees it, and
+		# assigning a freed instance to a typed local is an error rather than a null.
+		var b: Variant = row["ball"]
+		if not is_instance_valid(b):
 			_parked.erase(key)
 			continue
-		b.place(row["at"])
+		(b as Ball).place(row["at"])
 
 
 func money(v: Variant) -> BigMoney:
 	return v if v is BigMoney else BigMoney.zero()
 
 
-## Re-open a Night with the ball held somewhere harmless, so a scenario owns its own clock.
-func fresh_night() -> void:
+## Close the Night and land on The Count — the only state the war room and the train can be
+## worked from, exactly as a player would reach them.
+func end_the_night() -> void:
+	if Game.state != &"night":
+		return
+	_parked.clear()
 	if main.night != null and is_instance_valid(main.night) and main.night.running:
-		_parked.clear()
-		var live := TableAPI.ball(table)
-		if live != null:
-			live.place(DRAIN_POINT)
-		await wait(0.4)
-		if Game.state == &"night":
-			main.night.stop()
-			Game.end_night({})
+		main.night.stop()
+	Game.end_night({})
+	await step(2)
+
+
+## Open one with the ball held somewhere harmless, so a scenario owns its own clock.
+func open_night() -> void:
 	Game.start_night()
 	await wait(0.4)
 	park(TableAPI.ball(table), SAFE_POINT)
 	await wait(0.2)
+
+
+func fresh_night() -> void:
+	await end_the_night()
+	await open_night()
 
 
 ## Every switch the flow lane sees comes through here, so a scenario can play a shot without
@@ -306,10 +316,11 @@ func _s4_heist_checklist() -> void:
 	begin("heists: the checklist advances on real switches and fails forward")
 	Game.wallet.earn_dirty(BigMoney.of(1.0, 9))
 	_heists.clear()
+	await end_the_night()
 	var planned := Game.plan_heist(Heists.PAYROLL, Heists.LOUD,
 			{"name": "Sal", "trait": GuyTraits.FAST})
 	check(not planned.is_empty(), "the war room refused the job")
-	await fresh_night()
+	await open_night()
 
 	var job := Game.heist
 	check(job != null and job.active, "the Night did not open on the job")
@@ -381,8 +392,10 @@ func _s5_city_hall_circuit() -> void:
 			"EMPIRE is not paying ×10")
 	var earned := Game.earn_switch(&"bumpers", BigMoney.from_float(100.0))
 	var clean_before := Game.wallet.clean
-	Game.empire.tick(EmpireMode.SECONDS)
-	await step(2)
+	# Run the mode's clock down to a frame's worth and let the NightController close it: what
+	# is under test is that the Night pays the dividend, not that a float reaches zero.
+	Game.empire.time_left = 0.02
+	await wait(0.3)
 	check(not Game.empire.active, "the sixty seconds did not run out")
 	var dividend := Game.wallet.clean.sub_clamped(clean_before)
 	check(dividend.is_positive(), "EMPIRE paid no dividend")
@@ -432,14 +445,10 @@ func _s7_rico_night() -> void:
 	Game.federal.value = FederalHeat.RICO_AT
 	Game.federal.rico_pending = true
 	Game.wallet.earn_dirty(BigMoney.of(4.0, 8))
+	# The raid is built and begun inside `NightController.start()`, so the clock has to be
+	# shortened before the Night opens at all.
+	RicoRaid.duration_override = RICO_SECONDS
 	await fresh_night()
-	if main.night != null:
-		main.night.rico_duration = RICO_SECONDS
-	# `fresh_night` opened the Night before the duration could be shortened; re-open it so the
-	# raid is built with the sim's clock on it.
-	await fresh_night()
-	if main.night != null:
-		main.night.rico_duration = RICO_SECONDS
 
 	check(main.night != null and main.night.rico != null,
 			"the Feds did not replace the Night")
@@ -457,10 +466,15 @@ func _s7_rico_night() -> void:
 			"the raid never reached the wiretap")
 
 	await wait(RICO_SECONDS)
+	RicoRaid.duration_override = 0.0
 	check(Game.wallet.clean.cmp(clean) > 0, "surviving the RICO raid paid nothing")
-	check(Game.wallet.clean.sub_clamped(clean).equals_approx(
-			dirty.mul(Game.RICO_CLEAN_PAYOUT), 1e-6),
-			"the payout is not twice the held dirty")
+	# The pile keeps earning through the raid, so the payout is measured against what was
+	# held when it started: at least twice that, and far more than an ordinary Beat the Rap.
+	var payout := Game.wallet.clean.sub_clamped(clean)
+	check(payout.cmp(dirty.mul(Game.RICO_CLEAN_PAYOUT)) >= 0,
+			"the payout is less than twice the dirty the raid opened on")
+	check(payout.cmp(dirty.mul(Game.RAID_CLEAN_PAYOUT)) > 0,
+			"the biggest payout in the game is smaller than an ordinary raid's")
 	check(is_zero_approx(Game.federal.value), "the blue meter did not empty")
 	check(not Game.rico_pending(), "the Feds are still at the door")
 	check(AudioDirector.rico_step() == 0 if AudioDirector.has_method("rico_step") else true,
@@ -474,12 +488,7 @@ func _s7_rico_night() -> void:
 ## comes along, and everything else is gone.
 func _s8_skip_town() -> void:
 	begin("skip town: the career ends and a city begins")
-	if Game.state == &"night" and main.night != null and is_instance_valid(main.night):
-		_parked.clear()
-		main.night.stop()
-		Game.end_night({})
-		await step(2)
-
+	await end_the_night()
 	Game.respect = 9_000
 	Game._book_lifetime_clean(BigMoney.of(9.0, 11))
 	check(Game.skip_town_available(), "R7 cannot leave town")
