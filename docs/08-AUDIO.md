@@ -128,7 +128,9 @@ The stem-growth *structure* is identical in every city, so the player's audio li
       byte-identical builds); `assets/audio/MANIFEST.txt` is the manifest. Nothing to license.
 - [x] Stem stack city 1 (10 synced stems + count piano, loop-verified, level-matched) +
       state mixes calm/hot/raid/count — `legit` ships with the Going-Legit upgrade (M2+)
-- [x] SFX vocabulary: 61 events + a 27-file specialist voice bank (`say()`) through wave 3;
+- [x] SFX vocabulary: 79 events + a 27-file specialist voice bank (`say()`) through wave 4;
+      city-2 stem set (New Carthage '27, Victrola-horn processed) + `music_set_city`,
+      `rico_dropout` (instant bus cuts, exact restore), `play_farewell` (the stem-shed);
       velocity layers live for flipper/bumper/sling (`impact` opt; medium layer = original
       file). Wave-3 contract lives in `assets/audio/MANIFEST.txt` + the generator itself.
       Remaining: gameplay callers pass `impact` (table lane), per-mood phrase variants.

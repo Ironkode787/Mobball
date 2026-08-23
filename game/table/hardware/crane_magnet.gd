@@ -103,6 +103,7 @@ func pull(b: Ball = null) -> bool:
 	if dir.length() < 1.0:
 		return false
 	target.kick(dir.normalized() * IMPULSE)
+	AudioDirector.play(&"crane_pull")
 	_flash = 1.0
 	queue_redraw()
 	pulled.emit(target)
