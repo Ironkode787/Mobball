@@ -36,6 +36,8 @@ const MUSIC_LEVELS := 9
 
 var _music_level: int = 2
 var _ledger_missing_logged: bool = false
+## The CanvasLayer the Ledger overlay rides (layer 2, above The Count's layer 1).
+var _ledger_layer: CanvasLayer = null
 
 
 func _ready() -> void:
@@ -216,13 +218,22 @@ func _want_count(on: bool) -> void:
 
 ## The Ledger belongs to the meta lane. Until it lands, opening it is a no-op that bounces
 ## straight back to The Count rather than a missing-resource error.
+##
+## The overlay rides its OWN CanvasLayer above The Count's: CountScreen is a CanvasLayer
+## (layer 1), so a Control added to Main draws in the world canvas UNDERNEATH it — state
+## flips to &"ledger" and nothing visibly happens. First device bug report; the desktop
+## sims asserted state and `visible`, never pixels (tests/device_probe.tscn does now).
 func _want_ledger(on: bool) -> void:
 	if on == (ledger != null and is_instance_valid(ledger)):
 		return
 	if not on:
 		if ledger.has_method("close"):
 			ledger.call("close")
-		ledger.queue_free()
+		if _ledger_layer != null and is_instance_valid(_ledger_layer):
+			_ledger_layer.queue_free()
+		else:
+			ledger.queue_free()
+		_ledger_layer = null
 		ledger = null
 		return
 	if not ResourceLoader.exists(LEDGER_SCENE_PATH):
@@ -237,7 +248,12 @@ func _want_ledger(on: bool) -> void:
 		return
 	ledger = scene.instantiate()
 	ledger.name = "Ledger"
-	add_child(ledger)
+	_ledger_layer = CanvasLayer.new()
+	_ledger_layer.name = "LedgerLayer"
+	# Above every screen: the HUD rides 10, The Count and the attract screen ride 20.
+	_ledger_layer.layer = 30
+	add_child(_ledger_layer)
+	_ledger_layer.add_child(ledger)
 	if ledger.has_signal("closed"):
 		ledger.connect("closed", func() -> void: Game.close_ledger())
 	if ledger.has_method("open"):

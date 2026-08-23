@@ -33,6 +33,7 @@ var _ball: Ball = null
 var _prev_local_y: float = 0.0
 var _prev_local_valid: bool = false
 var _glow: float = 0.0
+var _pivot_stall: float = 0.0
 
 var _rest_rot: float = 0.0
 var _up_rot: float = 0.0
@@ -251,8 +252,34 @@ func _fire() -> void:
 	_phase_time = 0.0
 	_buffered_at = -1000.0
 	_glow = 1.0
+	# A ball parked on the pivot dome sits at the center of rotation — the flip alone
+	# imparts nothing there, so the bat shrugs it toward the blade itself.
+	var sitter := _pivot_sitter()
+	if sitter != null:
+		sitter.kick(_pivot_pop_direction() * Feel.FLIPPER_PIVOT_POP)
 	Events.flipper_fired.emit(side)
 	AudioDirector.play(&"flipper_up")
+
+
+## The ball asleep on the pivot boss, if any: slow, hugging the pivot circle, sitting on
+## its upper half. Checks every live ball (multiball) with the bound ball as fallback.
+func _pivot_sitter() -> Ball:
+	var reach := Feel.FLIPPER_PIVOT_RADIUS * size_scale + Feel.BALL_RADIUS + 8.0
+	var candidates: Array[Ball] = Balls.live()
+	if candidates.is_empty() and _ball != null and is_instance_valid(_ball):
+		candidates = [_ball]
+	for b in candidates:
+		if b.linear_velocity.length() > Feel.HARDWARE_STALL_SPEED:
+			continue
+		var rel := b.global_position - global_position
+		if rel.length() <= reach and rel.y < 6.0:
+			return b
+	return null
+
+
+func _pivot_pop_direction() -> Vector2:
+	var tip := (to_global(Vector2(bat_length(), 0.0)) - global_position).normalized()
+	return (strike_normal() * 0.8 + tip * 0.6).normalized()
 
 
 func _begin_fall() -> void:
@@ -264,6 +291,17 @@ func _begin_fall() -> void:
 
 func _physics_process(delta: float) -> void:
 	_clock += delta
+	# Un-flipped naps on the pivot dome end on a timer too — the ball must never live there.
+	if _present and not dead and _pivot_sitter() != null:
+		_pivot_stall += delta
+		if _pivot_stall >= Feel.FLIPPER_PIVOT_STALL_SECONDS:
+			_pivot_stall = 0.0
+			var sitter := _pivot_sitter()
+			if sitter != null:
+				sitter.kick(_pivot_pop_direction() * Feel.FLIPPER_PIVOT_POP)
+				AudioDirector.play(&"wall_tap")
+	else:
+		_pivot_stall = 0.0
 	if _jam > 0.0:
 		_jam = maxf(_jam - delta, 0.0)
 		if _jam <= 0.0:

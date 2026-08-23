@@ -56,6 +56,10 @@ const BUMPER_RADIUS := 46.0
 const BUMPER_IMPULSE := 900.0
 const BUMPER_COOLDOWN := 0.10
 const HARDWARE_STALL_SPEED := 80.0    # a ball asleep on live hardware gets popped loose
+# The flipper's pivot boss is a dome AT the center of rotation: a ball resting there is
+# unmoved by the flip itself (first device bug report). The bat pops it toward the tip.
+const FLIPPER_PIVOT_POP := 420.0
+const FLIPPER_PIVOT_STALL_SECONDS := 2.0
 const BUMPER_VALUE := 10
 const SLING_IMPULSE := 750.0
 const SLING_COOLDOWN := 0.08
