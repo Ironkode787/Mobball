@@ -47,6 +47,19 @@ var _pan := Vector2.ZERO
 var _zoom := ZOOM_STEPS[0]
 var _dragging := false
 var _drag_travel := 0.0
+# Maps-style zoom (device request): raw touches tracked for the pinch; wheel/buttons set a
+# TARGET the view glides toward, anchored at a focal screen point so the spot under the
+# cursor/pinch stays put. Fingers get direct control (no lag); everything else eases.
+var _touches: Dictionary = {}
+var _pinching := false
+var _pinch_start_dist := 0.0
+var _pinch_start_zoom := 1.0
+var _pinch_mid := Vector2.ZERO
+var _zoom_target := ZOOM_STEPS[0]
+var _zoom_focus := Vector2.ZERO
+const ZOOM_MIN := 0.2
+const ZOOM_MAX := 2.0
+const ZOOM_GLIDE := 12.0
 var _selected := ""
 ## Centre request that arrived before the board had a size — re-applied on first layout.
 var _pending_center := ""
@@ -65,6 +78,16 @@ func _ready() -> void:
 	_ensure_layers()
 	if not resized.is_connected(_on_resized):
 		resized.connect(_on_resized)
+	set_process(true)
+
+
+## The glide half of maps-zoom: ease toward the target around the stored focal point.
+## Fingers (the pinch) bypass this entirely — they ARE the zoom while they are down.
+func _process(delta: float) -> void:
+	if _pinching or absf(_zoom_target - _zoom) < 0.0005:
+		return
+	var z := lerpf(_zoom, _zoom_target, 1.0 - exp(-ZOOM_GLIDE * delta))
+	_zoom_at(_zoom_focus, z)
 
 
 ## The cork and the sheet, built on demand rather than only in `_ready` — the headless test
@@ -297,10 +320,12 @@ func zoom() -> float:
 func cycle_zoom() -> void:
 	var i := 0
 	for s in ZOOM_STEPS.size():
-		if is_equal_approx(_zoom, _zoom_step(s)):
+		if is_equal_approx(_zoom_target, _zoom_step(s)):
 			i = s
 			break
-	set_zoom(_zoom_step((i + 1) % ZOOM_STEPS.size()))
+	# The button GLIDES to the next rung (maps feel), anchored at the view centre.
+	_zoom_focus = size * 0.5
+	_zoom_target = clampf(_zoom_step((i + 1) % ZOOM_STEPS.size()), ZOOM_MIN, ZOOM_MAX)
 
 
 ## A zero rung means "fit the whole width", which only the live board size knows.
@@ -313,9 +338,11 @@ func _zoom_step(i: int) -> float:
 	return clampf(size.x / _content.x, 0.18, 1.0)
 
 
+## Instant (shot rigs and tests need determinism); interactive paths glide via _zoom_target.
 func set_zoom(z: float) -> void:
-	var focus := (size * 0.5 - _pan) / _zoom
-	_zoom = clampf(z, 0.2, 2.0)
+	var focus := (size * 0.5 - _pan) / maxf(_zoom, 0.0001)
+	_zoom = clampf(z, ZOOM_MIN, ZOOM_MAX)
+	_zoom_target = _zoom
 	_pan = size * 0.5 - focus * _zoom
 	_apply_view()
 
@@ -375,15 +402,43 @@ func _on_resized() -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
+	# RAW touches drive the pinch. Single-finger pan/tap stays on the emulated-mouse path
+	# below (Android turns finger 0 into mouse events), so the two never double-handle:
+	# while two fingers are down, `_pinching` gates the mouse path off.
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed:
+			_touches[st.index] = st.position
+			if _touches.size() == 2:
+				_begin_pinch()
+		else:
+			_touches.erase(st.index)
+			if _pinching and _touches.size() < 2:
+				_pinching = false
+				_dragging = false          # the survivor re-anchors on its next press
+		return
+	if event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		if _touches.has(sd.index):
+			_touches[sd.index] = sd.position
+		if _pinching and _touches.size() >= 2:
+			_update_pinch()
+			accept_event()
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			set_zoom(_zoom * 1.12)
+			_zoom_focus = mb.position
+			_zoom_target = clampf(_zoom_target * 1.18, ZOOM_MIN, ZOOM_MAX)
 			accept_event()
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			set_zoom(_zoom / 1.12)
+			_zoom_focus = mb.position
+			_zoom_target = clampf(_zoom_target / 1.18, ZOOM_MIN, ZOOM_MAX)
 			accept_event()
 		elif mb.button_index == MOUSE_BUTTON_LEFT:
+			if _pinching:
+				accept_event()
+				return
 			if mb.pressed:
 				_dragging = true
 				_drag_travel = 0.0
@@ -393,12 +448,45 @@ func _gui_input(event: InputEvent) -> void:
 				if _drag_travel < TAP_SLOP:
 					_tap_at(mb.position)
 			accept_event()
-	elif event is InputEventMouseMotion and _dragging:
+	elif event is InputEventMouseMotion and _dragging and not _pinching:
 		var mm := event as InputEventMouseMotion
 		_drag_travel += mm.relative.length()
 		_pan += mm.relative
 		_apply_view()
 		accept_event()
+
+
+func _begin_pinch() -> void:
+	_pinching = true
+	_dragging = false
+	_drag_travel = TAP_SLOP * 2.0          # a pinch is never a tap
+	var pts := _touches.values()
+	_pinch_start_dist = maxf((pts[0] as Vector2).distance_to(pts[1] as Vector2), 1.0)
+	_pinch_start_zoom = _zoom
+	_pinch_mid = ((pts[0] as Vector2) + (pts[1] as Vector2)) * 0.5
+
+
+## Two fingers = absolute control, exactly like a map: the world point under the pinch
+## midpoint stays under it (zoom anchor), and moving both fingers together pans.
+func _update_pinch() -> void:
+	var pts := _touches.values()
+	var a := pts[0] as Vector2
+	var b := pts[1] as Vector2
+	var mid := (a + b) * 0.5
+	_pan += mid - _pinch_mid
+	_pinch_mid = mid
+	var dist := maxf(a.distance_to(b), 1.0)
+	var z := clampf(_pinch_start_zoom * dist / _pinch_start_dist, ZOOM_MIN, ZOOM_MAX)
+	_zoom_at(mid, z)
+	_zoom_target = _zoom                   # release leaves the view where the fingers put it
+
+
+## Zoom keeping the world point under `focus` (screen px) exactly under it.
+func _zoom_at(focus: Vector2, z: float) -> void:
+	var world := (focus - _pan) / maxf(_zoom, 0.0001)
+	_zoom = clampf(z, ZOOM_MIN, ZOOM_MAX)
+	_pan = focus - world * _zoom
+	_apply_view()
 
 
 func _tap_at(where: Vector2) -> void:

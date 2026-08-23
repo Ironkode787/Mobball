@@ -61,7 +61,11 @@ func _ready() -> void:
 	zoom = Vector2(static_zoom, static_zoom)
 	_find_table()
 	_read_bounds()
-	position = Vector2(static_center.x, clampf(static_center.y, min_center_y(), max_center_y()))
+	var start_lo := min_center_y()
+	var start_hi := max_center_y()
+	if start_lo > start_hi:
+		start_lo = start_hi
+	position = Vector2(static_center.x, clampf(static_center.y, start_lo, start_hi))
 
 
 func set_target(t: Node2D) -> void:
@@ -128,9 +132,11 @@ func _physics_process(delta: float) -> void:
 	_read_bounds()
 	var lo := min_center_y()
 	var hi := max_center_y()
-	if lo > hi:                                   # table shorter than the frame: centre it
-		lo = (lo + hi) * 0.5
-		hi = lo
+	if lo > hi:
+		# Table shorter than the frame (tall phones, early ranks): pin the table's BOTTOM
+		# to the screen bottom — flippers at thumb level, spare screen above the arch
+		# where the empire will grow, never a dead strip under the player's hands.
+		lo = hi
 	if target == null or not is_instance_valid(target):
 		var home := clampf(static_center.y, lo, hi)
 		position = position.lerp(Vector2(static_center.x, home),

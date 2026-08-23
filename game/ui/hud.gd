@@ -74,11 +74,17 @@ func _ready() -> void:
 			HORIZONTAL_ALIGNMENT_RIGHT)
 	_respect = _add_label(Vector2(0.0, 60.0), PaperKit.FONT_BIG, Feel.COL_BRASS,
 			HORIZONTAL_ALIGNMENT_RIGHT)
+	# The star sits AFTER the right-aligned respect text, hard against the strip's right
+	# edge — a fixed mid-strip position collided with the text on phones (device report).
+	_respect.offset_right = -72.0
 	_guy = _add_label(Vector2(26.0, 124.0), PaperKit.FONT_SMALL,
 			Feel.COL_NEWSPRINT.darkened(0.25))
+	# The roster line must never run under the heat bar (bar left edge = 540 - HEAT_W/2).
+	_guy.offset_right = -(1080.0 - (540.0 - HEAT_W * 0.5) + 12.0)
+	_guy.clip_text = true
 
 	_star = StarBadge.new()
-	_star.position = Vector2(1080.0 - 250.0, 74.0)
+	_star.position = Vector2(1080.0 - 62.0, 68.0)
 	_star.size = Vector2(34.0, 34.0)
 	_star.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_star)

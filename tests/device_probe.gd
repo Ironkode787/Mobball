@@ -61,6 +61,20 @@ func _run() -> void:
 	_check(overlay_visible, "the Ledger overlay exists and is visible")
 	await _shot("4_ledger")
 
+	# PINCH ZOOM (device request): two fingers diverging over the board must zoom in,
+	# maps-style. Raw ScreenTouch/Drag events through the full pipeline.
+	var board := _find_by_method(get_tree().root, "cycle_zoom")
+	_check(board != null, "the Ledger board exists")
+	if board != null:
+		var z0: float = board.call("zoom")
+		var c := (board as Control).get_global_rect().get_center()
+		var xf := (board as Control).get_viewport().get_final_transform() \
+				* (board as Control).get_canvas_transform()
+		var mid: Vector2 = xf * c
+		await _pinch(mid, 90.0, 260.0)
+		var z1: float = board.call("zoom")
+		_check(z1 > z0 * 1.3, "pinch-out zooms the board in (%.2f -> %.2f)" % [z0, z1])
+
 	# And back.
 	var close_btn := _find_button(get_tree().root, "CLOSE")
 	if close_btn != null:
@@ -111,6 +125,44 @@ func _tap(c: Control) -> void:
 	up.pressed = false
 	Input.parse_input_event(up)
 	await _frames(6)
+
+
+## Two synthesized fingers moving apart symmetrically around `mid` (window coords).
+func _pinch(mid: Vector2, from_half: float, to_half: float) -> void:
+	for i in 2:
+		var d := InputEventScreenTouch.new()
+		d.index = i
+		d.position = mid + Vector2(from_half * (1.0 if i == 0 else -1.0), 0)
+		d.pressed = true
+		Input.parse_input_event(d)
+	await _frames(3)
+	var steps := 12
+	for s in steps:
+		var half := lerpf(from_half, to_half, float(s + 1) / steps)
+		for i in 2:
+			var g := InputEventScreenDrag.new()
+			g.index = i
+			g.position = mid + Vector2(half * (1.0 if i == 0 else -1.0), 0)
+			g.relative = Vector2((to_half - from_half) / steps * (1.0 if i == 0 else -1.0), 0)
+			Input.parse_input_event(g)
+		await _frames(2)
+	for i in 2:
+		var u := InputEventScreenTouch.new()
+		u.index = i
+		u.position = mid + Vector2(to_half * (1.0 if i == 0 else -1.0), 0)
+		u.pressed = false
+		Input.parse_input_event(u)
+	await _frames(6)
+
+
+func _find_by_method(node: Node, method: String) -> Control:
+	if node is Control and node.has_method(method) and (node as Control).is_visible_in_tree():
+		return node
+	for child in node.get_children():
+		var found := _find_by_method(child, method)
+		if found != null:
+			return found
+	return null
 
 
 func _find_button(node: Node, text: String) -> Control:
