@@ -26,6 +26,7 @@ var nudge: NudgeController = null
 var hud: GameHUD = null
 var attract: AttractScreen = null
 var count: CountScreen = null
+var roll_call: RollCallScreen = null
 var ledger: Node = null
 var night: NightController = null
 
@@ -152,6 +153,7 @@ func _on_state_changed(state: StringName) -> void:
 func _apply_state(state: StringName) -> void:
 	var playing := state == &"night"
 	_want_attract(state == &"attract")
+	_want_roll_call(state == &"roll_call")
 	_want_night(playing)
 	_want_count(state == &"count" or state == &"ledger")
 	_want_ledger(state == &"ledger")
@@ -172,8 +174,22 @@ func _want_attract(on: bool) -> void:
 		return
 	attract = AttractScreen.new()
 	attract.name = "Attract"
-	attract.start_pressed.connect(func() -> void: Game.start_night())
+	attract.start_pressed.connect(func() -> void: Game.open_roll_call())
 	add_child(attract)
+
+
+func _want_roll_call(on: bool) -> void:
+	if on == (roll_call != null and is_instance_valid(roll_call)):
+		return
+	if not on:
+		roll_call.queue_free()
+		roll_call = null
+		return
+	roll_call = RollCallScreen.new()
+	roll_call.name = "RollCall"
+	roll_call.start_pressed.connect(func(lineup: Array[Dictionary]) -> void:
+		Game.start_prepared_night(lineup))
+	add_child(roll_call)
 
 
 func _want_night(on: bool) -> void:
@@ -208,7 +224,7 @@ func _want_count(on: bool) -> void:
 	count = CountScreen.new()
 	count.name = "Count"
 	count.ledger_pressed.connect(func() -> void: Game.open_ledger())
-	count.next_night_pressed.connect(func() -> void: Game.start_night())
+	count.next_night_pressed.connect(func() -> void: Game.open_roll_call())
 	count.boss_pressed.connect(func() -> void: Game.start_boss_night())
 	count.heist_pressed.connect(func(target: StringName, approach: StringName,
 			guy: Dictionary) -> void: Game.start_heist_night(target, approach, guy))

@@ -14,6 +14,7 @@ const WALL_TAP_SPEED := 700.0   ## below this a wall hit is silent — no machin
 var top_speed: float = 0.0          ## fastest this ball has been (debug HUD)
 var launched: bool = false          ## has left the shooter lane under power at least once
 var _draw_radius: float = Feel.BALL_RADIUS
+var _design: Dictionary = BallDesign.anonymous()
 
 
 func _ready() -> void:
@@ -78,6 +79,19 @@ func pulse() -> void:
 	queue_redraw()
 
 
+## Applies a guy's persistent visual identity without changing any physics state.  Empty or
+## anonymous/debug guys deliberately restore the original steel face.
+func apply_guy_design(guy: Dictionary) -> void:
+	_design = BallDesign.for_guy(guy)
+	queue_redraw()
+
+
+## Read-only descriptor for UI, tests, and debug overlays.  The copy prevents a preview from
+## accidentally mutating the live ball's identity.
+func design() -> Dictionary:
+	return _design.duplicate()
+
+
 func _process(delta: float) -> void:
 	if not is_equal_approx(_draw_radius, Feel.BALL_RADIUS):
 		_draw_radius = move_toward(_draw_radius, Feel.BALL_RADIUS, 90.0 * delta)
@@ -94,8 +108,4 @@ func _on_body_entered(body: Node) -> void:
 
 
 func _draw() -> void:
-	var r := _draw_radius
-	draw_circle(Vector2(0.0, 2.0), r, Color(0.0, 0.0, 0.0, 0.35))
-	draw_circle(Vector2.ZERO, r, Color(0.78, 0.79, 0.82))
-	draw_circle(Vector2(-r * 0.28, -r * 0.3), r * 0.34, Color(0.94, 0.95, 0.97))
-	draw_arc(Vector2.ZERO, r - RIM_WIDTH * 0.5, 0.0, TAU, 32, Color(0.32, 0.33, 0.36), RIM_WIDTH)
+	BallDesign.draw_ball(self, Vector2.ZERO, _draw_radius, _design)

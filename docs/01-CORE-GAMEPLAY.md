@@ -42,7 +42,11 @@ Feel targets, tuned in M0 before anything else exists ([10-ROADMAP](10-ROADMAP.m
 
 A **Night** is one classic pinball game reframed:
 
-1. **Roll call.** Pick tonight's guys from the Bench (default: 3 slots — pinball's 3 balls). Each guy = one ball-in-play.
+1. **Roll call.** Before the table goes live, the pre-Night **Roll Call** screen shows
+   **Tonight's Work** (the jobs already rolled for this Night) and the available guys from
+   the Bench. Select the guys and explicitly set their order; selection order is serve order.
+   There is no drag-reorder interaction. The target is up to three slots — pinball's three
+   balls — but a short Bench safely starts with every available guy.
 2. **Work.** Play until each guy is pinched (drained). Mid-night events fire: Jobs, draws, briefcases, Heat, maybe a Raid.
 3. **The Count.** The tally room: dirty cash counted (real bill-counter sample, numbers rolling up), laundering applied, Respect awarded, Heat resolved, newspaper headline generated from your night ("LAUNDROMAT REPORTS RECORD SOCK SEASON").
 
@@ -60,7 +64,14 @@ period-appropriate nicknames (Sal "Two Shoes", Franny the Wrench, Little Enzo).
 - **Traits** (one per guy, small but felt): *Heavy* (+mass, smashes gates, slower), *Lucky* (+5% briefcase odds), *Slippery* (one free outlane escape per Night), *Loud* (+10% dirty, +10% Heat), *Careful* (−15% Heat), *Fast* (+velocity cap, harder to control, +value), *Old-Timer* (+Respect from Jobs).
 - **Experience:** guys level slowly by surviving Nights (cap +2 traits). Losing a leveled guy *hurts* — by design.
 - **Pinched:** a drained guy sits in holding. After the Night he either walks (base: free after 1 Night off) or you **post Bail** (dirty cash — a core money sink) to use him again immediately. Raids can hand out longer stretches.
-- **Bench depth:** starts at 4 guys; upgrades expand it. If everyone's inside, you hire fresh nobodies (weak, traitless) — the game never hard-locks.
+- **Ball identity:** each persistent guy ID deterministically defines a metallic ball face — a
+  high-contrast band geometry and crest over the metallic base — so the same guy is recognizable
+  in Roll Call and on the live table. Identity is never color-only; an anonymous/debug ball
+  deliberately remains plain steel.
+- **Bench depth:** starts at 4 guys; upgrades expand it. If fewer than three are available,
+  Roll Call requires only that smaller set and the Night serves them safely. Between Nights the
+  Bench walks released holding guys and hires a fresh nobody when needed, so the game never
+  hard-locks.
 - **Multiball = the crew out together.** "Family Meeting" is literally three of your named guys on the table at once. The endgame "Family Reunion" is five. Survivors all bank their earnings; you feel who made it home.
 
 Why this works: it converts pinball's oldest abstraction into attachment, gives drains

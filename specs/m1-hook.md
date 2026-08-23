@@ -43,7 +43,21 @@ docs/04 + specs/ledger-data.md (upgrades), docs/05 §1–2 (jobs, raids).
 
 ## Lane 1 — FLOW (`game/flow/`, `game/ui/count/`, `game/ui/hud`, flow tests/sims)
 
-- **State machine:** attract (tap to start) → night → count → (ledger ↔ count) → night…
+- **State machine:** attract (tap to start) → `roll_call` → night → count → (ledger ↔ count)
+  → `roll_call` → night… `Game.open_roll_call()` prepares the next Night's jobs and Bench,
+  then the `RollCallScreen` shows **Tonight's Work** and the available guys. Each job slip shows
+  its exact `name`/`desc`, Respect reward, and the derived scope label **ANY GUY**, **ONE GUY**,
+  **FIRST GUY**, or **ALL NIGHT** (`bumper_burst` = ANY GUY; `switch_count_one_ball` and
+  `collect_all_one_ball` = ONE GUY; `ball_survival` = FIRST GUY; other shipped checks = ALL
+  NIGHT).
+  The player selects the available guys; append/selection order is serve order, with no
+  drag-reorder contract. Start calls `Game.start_prepared_night(chosen)`.
+- **Prepared lineup:** `Game.prepared_lineup` is the ordered model handoff from Roll Call to
+  `NightController`; Start resolves IDs against free Bench entries, drops invalid/duplicate/
+  held entries, and fills omissions from the remaining available guys. The target is
+  `min(3, available.size())`, so a shorter available roster starts safely with all available
+  guys. `Bench.night_tick()` guarantees at least one available guy; direct test/sim callers may
+  still use `Game.start_night()` to bypass the screen and take the first available guys.
 - **Night:** field up to 3 available guys sequentially from the Bench; ball serve via existing
   spawn; drain = `guy_pinched`; ball_saves from Stats give an 8 s save window after launch;
   after last guy → count. Idle trickle: `stats.idle_rate_total()` accrues to dirty each
