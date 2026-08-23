@@ -23,7 +23,7 @@ least one visible table change (pillar P1).
 |------|---------|--------|---------------------------|
 | T0 | Second Trash Can | +1 bumper | a second dented can |
 | T0 | Third Trash Can | +1 bumper, nest complete | the classic triangle |
-| T0 | Corner Boys | adds slingshots | two goons in folding chairs, kick animation |
+| T0 | Corner Boys | powers the starter sling triangles | two goons in folding chairs, kick animation |
 | T0 | Can Deposits ↻ | bumper value +25%/lvl | cans dent, fill with glowing junk |
 | T1 | The Numbers Game | unlocks spinner income + idle trickle | bicycle-wheel spinner |
 | T1 | Fast Fingers ↻ | spinner value +30%/lvl | wheel gains playing cards in spokes |
@@ -75,10 +75,10 @@ least one visible table change (pillar P1).
 
 | Tier | Upgrade | Effect | Table change |
 |------|---------|--------|--------------|
-| T0 | A Real Plunger | replaces rubber band; adds power bands | brass plunger |
-| T0 | Guard Rails | inlane guides | welded rails |
+| T0 | A Real Plunger | replaces the coarse 0.90/0.95/1.00 rubber pulls with continuous charge and detents | brass plunger |
+| T0 | Guard Rails | extends the short returns with vertical inlane guards | welded rails |
 | T0 | Fresh Rubbers ↻ | flipper rebound consistency, +5% power/lvl (cap 3) | red→black→purple rubbers |
-| T1 | Second Wind | 1 ball-save per Night (8s after launch) | chalk outline where ball returns |
+| T1 | Second Wind | 1 paid ball-save per Night (8s after launch); the free 6s bad-break return is baseline and one-use per guy | chalk outline where ball returns |
 | T1 | Brass Balls | ball tier 1: +5% value on all hits | visibly brass guy |
 | T2 | Bench Depth ↻ | +1 Bench slot (4→8) | more guys loitering in the backglass art |
 | T2 | The Enforcer's Corner | LEFT outlane kickback, 60s cooldown | Big Sal stands by the outlane, tips hat on save |

@@ -72,21 +72,24 @@ of normal play. Prestige loops compress all of this (see [06](06-PRESTIGE-AND-CI
 
 ### R0 — THE ALLEY (the bare table)
 
-The machine as found: two flippers, **one** dented trash-can bumper, bare wood, a single
-hand-painted sign. No slingshots. No inlane guides. Even the plunger is a rubber band.
-It should feel like a garage-built machine — because the *absence* of standard pinball
-furniture is the tutorial. The first upgrades you buy are the furniture:
+The machine as found: two flippers, **one** dented trash-can bumper, battered dead sling
+triangles, short inlane return sweeps, bare wood, and a single hand-painted sign. The
+slings have no kick, score, Corner Boy figures or glow yet; the long vertical inlane guards
+are still missing. It should feel like a garage-built machine — because each upgrade's
+physical job is the tutorial. The first upgrades you buy are the furniture:
 
 - *Second and third trash can* (bumper cluster — they're literally trash cans; hits knock
   garbage value out of them)
-- *Corner Boys* (slingshots — two lookouts in folding chairs who kick the ball back)
-- *Guard Rails* (inlane guides), *Chalk Lines* (lane lights), *A Real Plunger*.
+- *Corner Boys* (power the dead slings — two lookouts in folding chairs who kick the ball back)
+- *Guard Rails* (extend the short returns with vertical inlane guards), *Chalk Lines* (lane
+  lights), *A Real Plunger*.
 
 Buying pinball's standard parts one at a time teaches what each part does — the genre's
 furniture becomes the incremental game's first tier. First laundering: none yet. Dirty cash
 only, tiny clean allowance (see [03](03-ECONOMY.md) §2: "Pocket Money").
 
-**Shots:** bumper nest (earn), rebuilt slings (survive), Drop-Off lanes ×2.
+**Shots:** bumper nest (earn), starter sling triangles (survive; Corner Boys later power them),
+Drop-Off lanes ×2.
 
 ### R1 — THE JOB BOARD + NUMBERS LANE
 

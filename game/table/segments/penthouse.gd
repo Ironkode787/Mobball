@@ -311,22 +311,53 @@ func _draw() -> void:
 	# Glass over the skyline: the room is a tint, not a lid, so the painted city behind the
 	# Club still reads through it (docs/02 §4 "glassy and quiet").
 	draw_colored_polygon(pts, Color(COL_GLASS.r, COL_GLASS.g, COL_GLASS.b, 0.82))
-	for i in range(6):
-		var x := lerpf(ROOM_LEFT + 60.0, ROOM_RIGHT - 60.0, float(i) / 5.0)
+	# Floor-to-ceiling windows: a quiet skyline grid behind the dangerous furniture.
+	for i in range(7):
+		var x := lerpf(ROOM_LEFT + 60.0, ROOM_RIGHT - 60.0, float(i) / 6.0)
 		draw_line(Vector2(x, ROOM_TOP + inset), Vector2(x - 26.0, FLOOR_APEX.y - 30.0),
 				Color(1.0, 1.0, 1.0, 0.05), 18.0)
+	for i in range(3):
+		var y := ROOM_TOP + 118.0 + float(i) * 92.0
+		draw_line(Vector2(ROOM_LEFT + inset, y), Vector2(ROOM_RIGHT - inset, y + 6.0),
+				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
+				Feel.COL_NEWSPRINT.b, 0.07), 3.0)
+	# A long wool runner pulls the eye through the two offset chair rows to the Sit-Down.
+	var runner := PackedVector2Array([
+		Vector2(92.0, -834.0), Vector2(470.0, -834.0),
+		Vector2(422.0, -560.0), Vector2(148.0, -560.0),
+	])
+	draw_colored_polygon(runner, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.20))
+	draw_polyline(PackedVector2Array([
+		runner[0], runner[1], runner[2], runner[3], runner[0],
+	]), Feel.COL_BRASS.darkened(0.58), 3.0)
 	_draw_long_table()
 	var font := ThemeDB.fallback_font
 	if font != null:
-		draw_string(font, Vector2(ROOM_LEFT + 34.0, ROOM_TOP + 62.0), "THE PENTHOUSE",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Feel.COL_BRASS)
+		var plaque := Rect2(ROOM_LEFT + 30.0, ROOM_TOP + 24.0, 284.0, 58.0)
+		draw_rect(plaque, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.70))
+		draw_rect(plaque, Feel.COL_BRASS.darkened(0.22), false, 3.0)
+		draw_string(font, plaque.position + Vector2(0.0, 41.0), "THE PENTHOUSE",
+				HORIZONTAL_ALIGNMENT_CENTER, plaque.size.x, 28, Feel.COL_BRASS)
+		draw_string(font, Vector2(ROOM_LEFT + 84.0, -574.0), "SIT-DOWN",
+				HORIZONTAL_ALIGNMENT_CENTER, 170.0, 14, Feel.COL_BRASS.darkened(0.38))
 
 
 ## The long table the five chairs sit around. Paint only — see TABLE_AT.
 func _draw_long_table() -> void:
 	var r := Rect2(TABLE_AT - TABLE_SIZE * 0.5, TABLE_SIZE)
-	draw_rect(r, Feel.COL_INK.lightened(0.06))
-	draw_rect(r, Feel.COL_BRASS.darkened(0.35), false, 3.0)
+	# Chamfered walnut table, one bold object in the calmest room on the machine.
+	var chamfer := 14.0
+	var top := PackedVector2Array([
+		Vector2(r.position.x + chamfer, r.position.y),
+		Vector2(r.end.x - chamfer, r.position.y), Vector2(r.end.x, r.position.y + chamfer),
+		Vector2(r.end.x, r.end.y - chamfer), Vector2(r.end.x - chamfer, r.end.y),
+		Vector2(r.position.x + chamfer, r.end.y), Vector2(r.position.x, r.end.y - chamfer),
+		Vector2(r.position.x, r.position.y + chamfer),
+	])
+	draw_colored_polygon(top, Color("251711"))
+	draw_polyline(PackedVector2Array([
+		top[0], top[1], top[2], top[3], top[4], top[5], top[6], top[7], top[0],
+	]), Feel.COL_BRASS.darkened(0.30), 3.0)
 	draw_line(Vector2(r.position.x + 16.0, TABLE_AT.y), Vector2(r.end.x - 16.0, TABLE_AT.y),
 			Feel.COL_BRASS.darkened(0.55), 2.0)
 	# five place settings, one per chair, so an empty seat reads from the felt

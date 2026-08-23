@@ -8,7 +8,7 @@
       "flavor": "The rubber band goes back in the drawer. Progress.",
       "cost": "50", "repeat": null, "requires": [],
       "effects": [{"kind": "feature_flag", "target": "plunger_bands"}],
-      "table_change": "a brass plunger replaces the rubber band — launch power becomes chargeable"
+      "table_change": "a brass plunger replaces the coarse rubber pulls — continuous charge and detents make launch power precise"
     },
     {
       "id": "rackets.trash_2",
@@ -35,7 +35,7 @@
       "flavor": "Two guys, two folding chairs, remarkable reflexes.",
       "cost": "220", "repeat": null, "requires": [],
       "effects": [{"kind": "unlock_hardware", "target": "slingshots"}],
-      "table_change": "slingshots appear above the flippers"
+      "table_change": "the dead sling triangles wake up: Corner Boys add the kick, score and figures"
     },
     {
       "id": "muscle.guard_rails",
@@ -44,7 +44,7 @@
       "flavor": "Welded by a guy who owes us.",
       "cost": "300", "repeat": null, "requires": ["muscle.corner_boys"],
       "effects": [{"kind": "unlock_hardware", "target": "inlane_guides"}],
-      "table_change": "inlane guides tame the outlanes"
+      "table_change": "vertical guard rails extend the short battered inlane returns and tame the outlanes"
     },
     {
       "id": "rackets.can_deposits",

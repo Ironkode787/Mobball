@@ -1,23 +1,65 @@
 class_name BandedPlunger
 extends Plunger
-## The Drop-Off, at two levels of build-out. The machine as found has a rubber band where
-## the plunger should be (docs/02 §2 R0): you get one launch strength, take it or leave it.
-## `muscle.real_plunger` sets the `plunger_bands` flag and the real spring goes in — from
-## then on this is the M0 plunger, charge bands and all, and plunge power becomes a skill.
+## The Drop-Off, at two levels of build-out. Before `muscle.real_plunger`, the rubber band
+## offers three deliberately coarse pulls — enough to feed this geometry, but not enough to
+## aim a skill shot precisely. The upgrade keeps the same hardware node and turns on the real
+## Plunger charge/detent path, so a player gets continuous precision rather than a fourth band.
+
+## These are intentionally safe launch powers. The shipped geometry starts to miss the arch
+## below roughly 0.90, so the starter agency is bounded to reliable feeds.
+const STARTER_POWERS := [0.90, 0.95, 1.00]
+## Touch pulls are mapped to these bands in 64 px steps; desktop input keeps the middle band.
+const STARTER_BAND_DISTANCE_PX := 64.0
+const DEFAULT_STARTER_BAND := 1
 
 var bands_enabled: bool = false
-## Overridden by the table with ProgressionTable.PLUNGER_FIXED_POWER; hard enough to clear
-## the arch on its own, because a launch that dies in the lane is not a game.
-var fixed_power: float = 0.92
+var starter_powers: Array = STARTER_POWERS
+var starter_band: int = DEFAULT_STARTER_BAND
+var starter_pull_px: float = 0.0
+## Kept as a scene/script compatibility field for old table fixtures. Starter launches use
+## `starter_band`, not this legacy scalar.
+var fixed_power: float = STARTER_POWERS[DEFAULT_STARTER_BAND]
+## A starter release is meaningful only after a press saw a ball ready in the lane. This
+## prevents a stale touch-up (or a release after the ball has been removed) from firing.
+var _starter_press_armed: bool = false
+
+
+## Feed the coarse starter agency from a touch's downward pull distance. Real-plunger users
+## keep the inherited analog charge path; their touch drag never changes this value.
+func set_starter_pull(distance_px: float) -> void:
+	if bands_enabled or starter_powers.is_empty():
+		return
+	starter_pull_px = maxf(distance_px, 0.0)
+	starter_band = clampi(int(floor(starter_pull_px / STARTER_BAND_DISTANCE_PX)),
+			0, starter_powers.size() - 1)
+
+
+func set_starter_band(index: int) -> void:
+	if bands_enabled or starter_powers.is_empty():
+		return
+	starter_band = clampi(index, 0, starter_powers.size() - 1)
+
+
+func starter_power() -> float:
+	if starter_powers.is_empty():
+		return 0.95
+	return starter_powers[clampi(starter_band, 0, starter_powers.size() - 1)]
 
 
 func set_pressed(pressed: bool) -> void:
 	if bands_enabled:
+		_starter_press_armed = false
 		super.set_pressed(pressed)
 		return
-	if not enabled or pressed:
+	if not enabled:
+		_starter_press_armed = false
 		return
-	launch(fixed_power)
+	if pressed:
+		_starter_press_armed = ball_ready()
+		return
+	if _starter_press_armed:
+		launch(starter_power())
+	_starter_press_armed = false
 
 
 func release() -> void:
@@ -25,10 +67,12 @@ func release() -> void:
 		super.release()
 		return
 	charging = false
-	launch(fixed_power)
+	if _starter_press_armed:
+		launch(starter_power())
+	_starter_press_armed = false
 
 
-## Every launch goes through here, so the rubber band clamps scripted launches too — a bare
-## table cannot be plunged at full power by the flow lane either.
+## Every launch goes through here, so the starter rubber band clamps scripted launches too —
+## a bare table cannot be plunged at full power by the flow lane without selecting its top band.
 func launch(p: float) -> void:
-	super.launch(p if bands_enabled else fixed_power)
+	super.launch(p if bands_enabled else starter_power())

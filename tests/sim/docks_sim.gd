@@ -327,13 +327,16 @@ func _s1_dormancy() -> void:
 	near(table.bounds().size.y, ProgressionTable.PLAY_BOTTOM, 0.001,
 			"table bounds must not grow before either room")
 
-	# a ball down the numbers lane with no yard built goes where it always went
-	await drop_at(Vector2(103.0, 1100.0), Vector2(0.0, 900.0))
-	await wait(0.3)
+	# A ball down the numbers lane with no yard built stays in that corridor. At this tier the
+	# relocated kickback may save it before it reaches the foot, so downward distance is no
+	# longer evidence of dormancy; the entry signal and collision audit above are.
+	await drop_at(Vector2(ProgressionTable.SPINNER_AT.x, 1100.0), Vector2(0.0, 900.0))
+	await wait(0.45)
 	check(_entered_docks == 0, "the yard took a ball before it was built")
 	var b := table.ball
-	check(b == null or not is_instance_valid(b) or b.global_position.y > 1300.0,
-			"the ball did not fall past the (absent) dock gate")
+	check(b == null or not is_instance_valid(b)
+			or b.global_position.x < ProgressionTable.LANE_GUIDE_X,
+			"the absent yard displaced the ball out of the numbers corridor")
 	table.despawn_ball()
 	finish()
 
@@ -445,7 +448,7 @@ func _s2_docks_geometry() -> void:
 func _s3_dock_gate() -> void:
 	begin("the dock gate is one-way off the numbers lane")
 	use(DOCKS_IDS)
-	await drop_at(Vector2(103.0, 1080.0), Vector2(0.0, 700.0))
+	await drop_at(Vector2(ProgressionTable.SPINNER_AT.x, 1080.0), Vector2(0.0, 700.0))
 	var arrived := false
 	for i in range(ticks(2.5)):
 		await step(1)

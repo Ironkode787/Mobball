@@ -88,8 +88,9 @@ const CHEEK_TOP_Y := -250.0
 const CHEEK_END := Vector2(598.0, -162.0)
 
 # ------------------------------------------------------------------ getting up and down
-## Mouth of the Staircase: the corridor outside the payphones, above Fat Tony's bank.
-const STAIR_MOUTH := Vector2(893.0, 1005.0)
+## Mouth of the Staircase: the aimed gap between Lucky's low facade and Fat Tony's pawnshop.
+## It is a centre-right jackpot shot now, not a hidden switch in the shooter gutter.
+const STAIR_MOUTH := Vector2(695.0, 1250.0)
 const STAIR_ENTRY_SPEED := 1650.0
 const STAIR_CLIMB_GRAVITY := 460.0
 const STAIR_MAX_SPEED := 1800.0
@@ -99,10 +100,10 @@ const STAIR_MAX_SPEED := 1800.0
 ## whole point of the shot.
 const STAIR_RELEASE_SPEED := 480.0
 const STAIR_PATH: PackedVector2Array = [
-	Vector2(893.0, 1005.0), Vector2(898.0, 880.0), Vector2(906.0, 700.0),
-	Vector2(918.0, 520.0), Vector2(940.0, 360.0), Vector2(968.0, 210.0),
-	Vector2(992.0, 60.0), Vector2(1004.0, -140.0), Vector2(1008.0, -400.0),
-	Vector2(1004.0, -640.0), Vector2(988.0, -770.0), Vector2(940.0, -812.0),
+	Vector2(695.0, 1250.0), Vector2(690.0, 1110.0), Vector2(700.0, 950.0),
+	Vector2(735.0, 795.0), Vector2(720.0, 630.0), Vector2(760.0, 470.0),
+	Vector2(820.0, 300.0), Vector2(875.0, 100.0), Vector2(900.0, -140.0),
+	Vector2(900.0, -390.0), Vector2(880.0, -620.0), Vector2(850.0, -760.0),
 	Vector2(830.0, -815.0),
 ]
 ## The way down. It stays clear of the shooter-lane column so the one-way gate's latch never
@@ -426,17 +427,64 @@ func _draw() -> void:
 	_draw_backdrop()
 	var felt := Feel.COL_FELT.lerp(COL_VIOLET, 0.22)
 	draw_colored_polygon(felt_polygon(), felt)
-	# the carpet runner down the middle of the room, and the neon over the door
-	draw_line(Vector2(DECK_LEFT + 30.0, DECK_BOTTOM - 22.0),
-			Vector2(DECK_RIGHT - 30.0, DECK_BOTTOM - 22.0), COL_NEON_ROSE.darkened(0.55), 5.0)
-	for i in range(6):
-		var y := lerpf(DECK_TOP + 90.0, DECK_BOTTOM - 90.0, float(i) / 5.0)
-		draw_line(Vector2(DECK_LEFT + 26.0, y), Vector2(DECK_LEFT + 44.0, y),
-				COL_VIOLET.darkened(0.4), 3.0)
+	_draw_room_inlay()
 	var font := ThemeDB.fallback_font
 	if font != null:
-		draw_string(font, Vector2(DECK_LEFT + 34.0, DECK_TOP + 78.0), "THE CLUB",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 44, COL_NEON_ROSE)
+		var sign := Rect2(DECK_LEFT + 32.0, DECK_TOP + 28.0, 256.0, 70.0)
+		draw_rect(sign, Feel.COL_INK.darkened(0.18))
+		draw_rect(sign, COL_NEON_ROSE.darkened(0.10), false, 4.0)
+		draw_string(font, sign.position + Vector2(0.0, 50.0), "THE CLUB",
+				HORIZONTAL_ALIGNMENT_CENTER, sign.size.x, 38, COL_NEON_ROSE)
+		draw_string(font, Vector2(DECK_LEFT + 54.0, -246.0), "HOUSE FLOOR",
+				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Feel.COL_BRASS.darkened(0.32))
+
+
+## Casino carpet and a small proscenium organize the wheel, reels and bats as a room rather
+## than loose hardware on violet felt. Reserved colors remain tied to their actual modes.
+func _draw_room_inlay() -> void:
+	# Broad carpet runner from the bats to the wheel.
+	var runner := PackedVector2Array([
+		Vector2(662.0, -68.0), Vector2(914.0, -68.0),
+		Vector2(886.0, -690.0), Vector2(688.0, -690.0),
+	])
+	draw_colored_polygon(runner, Color(COL_VIOLET.r, COL_VIOLET.g, COL_VIOLET.b, 0.09))
+	draw_polyline(PackedVector2Array([
+		Vector2(662.0, -68.0), Vector2(688.0, -690.0),
+	]), COL_VIOLET.darkened(0.46), 4.0)
+	draw_polyline(PackedVector2Array([
+		Vector2(914.0, -68.0), Vector2(886.0, -690.0),
+	]), COL_VIOLET.darkened(0.46), 4.0)
+	for i in range(8):
+		var y := -112.0 - float(i) * 68.0
+		var x := 788.0 + (8.0 if i % 2 == 0 else -8.0)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(x, y - 10.0), Vector2(x + 10.0, y),
+			Vector2(x, y + 10.0), Vector2(x - 10.0, y),
+		]), Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.18))
+
+	# Roulette is the visual sun of the Club even before the wheel is bought.
+	for i in range(12):
+		var a := float(i) * TAU / 12.0
+		draw_line(WHEEL_AT + Vector2(cos(a), sin(a)) * 86.0,
+				WHEEL_AT + Vector2(cos(a), sin(a)) * 110.0,
+				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.16), 3.0)
+	draw_arc(WHEEL_AT, 112.0, 0.0, TAU, 40, Feel.COL_BRASS.darkened(0.62), 3.0)
+
+	# A stage around the slot bank gives its three columns one clear silhouette.
+	var stage := Rect2(Vector2(680.0, -420.0), Vector2(220.0, 196.0))
+	draw_rect(stage, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.22))
+	draw_rect(stage, Feel.COL_BRASS.darkened(0.62), false, 3.0)
+	for i in range(7):
+		var x := lerpf(stage.position.x + 14.0, stage.end.x - 14.0, float(i) / 6.0)
+		draw_circle(Vector2(x, stage.position.y + 10.0), 3.0, Feel.COL_BRASS.darkened(0.35))
+
+	# Brass fascia and violet aisle markers make the deck edge read as a second storey.
+	draw_line(Vector2(DECK_LEFT + 30.0, DECK_BOTTOM - 22.0),
+			Vector2(DECK_RIGHT - 30.0, DECK_BOTTOM - 22.0), COL_NEON_ROSE.darkened(0.55), 5.0)
+	for i in range(7):
+		var y := lerpf(DECK_TOP + 120.0, DECK_BOTTOM - 90.0, float(i) / 6.0)
+		draw_line(Vector2(DECK_LEFT + 26.0, y), Vector2(DECK_LEFT + 48.0, y - 4.0),
+				COL_VIOLET.darkened(0.40), 3.0)
 
 
 ## Once the table has an upstairs, the space around it is in shot. This is the back of the

@@ -344,6 +344,25 @@ func _draw_yard() -> void:
 		Vector2(LEFT_LOW_TO.x + GUIDE_THICK * 0.5, RIGHT_TO.y),
 	])
 	draw_colored_polygon(pts, Feel.COL_FELT.lerp(COL_WATER, 0.45))
+	# Loading-bay hazard stripes frame the committed mini-field without using the reserved
+	# Heat color. They make the one-way gate and the safe quay route readable as one system.
+	for i in range(8):
+		var t0 := float(i) / 8.0
+		var t1 := minf(t0 + 0.055, 1.0)
+		var a := ROOF_FROM.lerp(ROOF_TO, t0) + Vector2(0.0, 12.0)
+		var b := ROOF_FROM.lerp(ROOF_TO, t1) + Vector2(0.0, 12.0)
+		draw_line(a, b, COL_RUST.lightened(0.20), 6.0)
+	# concrete seams and stencilled cargo arrows
+	for i in range(3):
+		var y := 1244.0 + float(i) * 44.0
+		draw_line(Vector2(174.0, y), Vector2(405.0, y + 48.0),
+				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
+				Feel.COL_NEWSPRINT.b, 0.07), 2.0)
+	for i in range(3):
+		var p := Vector2(190.0 + float(i) * 76.0, 1342.0 + float(i) * 6.0)
+		draw_polyline(PackedVector2Array([
+			p + Vector2(-10.0, 8.0), p, p + Vector2(10.0, 8.0),
+		]), COL_RUST.darkened(0.12), 4.0)
 	# quay boards, and a bollard so the pier edge reads as an edge
 	for i in range(7):
 		var t := (float(i) + 0.5) / 7.0
@@ -357,10 +376,15 @@ func _draw_yard() -> void:
 func _draw_water() -> void:
 	var r := Rect2(WATER_AT - WATER_SIZE * 0.5, WATER_SIZE)
 	draw_rect(r, COL_WATER.darkened(0.35))
-	for i in range(5):
-		var y := lerpf(r.position.y + 12.0, r.end.y - 10.0, float(i) / 4.0)
+	for i in range(7):
+		var y := lerpf(r.position.y + 12.0, r.end.y - 10.0, float(i) / 6.0)
 		var w := r.size.x * (0.34 + 0.12 * float(i % 3))
 		var x := r.position.x + 12.0 + float((i * 37) % 40)
 		draw_line(Vector2(x, y), Vector2(minf(x + w, r.end.x - 8.0), y),
 				COL_WATER.lightened(0.28), 3.0)
 	draw_rect(r, COL_WATER.lightened(0.10), false, 2.0)
+	# Broken reflection of the quay light: spectacle, but still unmistakably the danger zone.
+	for i in range(4):
+		var x := r.position.x + 18.0 + float(i) * 23.0
+		draw_line(Vector2(x, r.position.y + 8.0), Vector2(x + 9.0, r.end.y - 7.0),
+				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.13), 3.0)

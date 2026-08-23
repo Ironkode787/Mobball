@@ -42,7 +42,7 @@ const PLUNGER_DETENTS := 4            # audible ratchet clicks across the pull
 const PLUNGER_REST_SPEED := 60.0      # ball must be this calm to be plungeable
 
 # --- nudge / tilt ---
-const NUDGE_IMPULSE := 260.0
+const NUDGE_IMPULSE := 360.0
 const NUDGE_UP_BIAS := 0.35           # how much of a side nudge lifts the ball
 const NUDGE_VISUAL_OFFSET := 6.0      # px the cabinet kicks on screen
 const NUDGE_SPRING := 640.0           # cabinet spring constant (1/s^2)

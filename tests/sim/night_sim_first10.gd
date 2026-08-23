@@ -22,14 +22,12 @@ const COACH_BELOW_Y := 1250.0
 ## Seconds of coached play per Night — enough for the alley to bank a Night's takings.
 const COACH_SECONDS := 8.0
 ## A launch has this long to put the ball on the playfield before the sim calls the feed
-## broken (see PLAYABLE_FIXED_POWER).
+## broken (see PLAYABLE_STARTER_BAND).
 const FEED_SECONDS := 2.5
 const LANE_X := 900.0
-## The R0 rubber band must still *deliver*. specs/m1-hook.md says fixed 0.75, but on the
-## shipped geometry 0.75 leaves the ball in the shooter lane forever (measured: apex y 732,
-## the arch needs y < ~420). If the table has not been retuned yet the sim says so out loud
-## and nudges the power, so the rest of the acceptance path still gets exercised.
-const PLAYABLE_FIXED_POWER := 0.95
+## The R0 rubber band must still *deliver*. The three starter bands are 0.90/0.95/1.00;
+## use the top band as a coaching fallback if a table fixture cannot feed at the default.
+const PLAYABLE_STARTER_BAND := 2
 
 var main: Main = null
 var table: Node2D = null
@@ -118,11 +116,14 @@ func _serve_and_launch() -> bool:
 	if not reached and not _feed_warned:
 		_feed_warned = true
 		print("        TABLE LANE: the R0 plunger cannot feed the playfield —")
-		print("        BandedPlunger.fixed_power %.2f leaves the ball in the shooter lane;"
-				% p.get("fixed_power"))
-		print("        this geometry needs >= 0.90. Coaching the ball on to finish the run.")
+		if p is BandedPlunger:
+			var starter := p as BandedPlunger
+			print("        BandedPlunger starter band %d (%.2f) left the ball in the shooter lane;"
+					% [starter.starter_band, starter.starter_power()])
+		print("        this geometry needs a safe starter feed. Coaching the ball on to finish the run.")
 	if not reached:
-		p.set("fixed_power", PLAYABLE_FIXED_POWER)
+		if p is BandedPlunger:
+			(p as BandedPlunger).set_starter_band(PLAYABLE_STARTER_BAND)
 	return reached
 
 
@@ -184,7 +185,17 @@ func _boot_fresh() -> void:
 	check(not Game.stats.flag(&"plunger_bands"), "the rubber band is already a real plunger")
 	check(not Game.stats.hardware_unlocked(&"bumper_2"), "the second can is already out")
 	check(not _hardware_present(&"bumper_2"), "an unbought can is standing on the playfield")
-	check(not _hardware_present(&"slingshots"), "the alley starts without slingshots")
+	check(not _hardware_present(&"slingshots"),
+			"Corner Boys are not powered on the bare table")
+	var starter_sling := TableAPI.call_if(table, "hardware_node", [&"slingshots"], null) as Slingshot
+	check(starter_sling != null and starter_sling.visible,
+			"the bare table is missing its passive sling triangle")
+	check(starter_sling != null and starter_sling.is_present()
+			and not starter_sling.is_powered(),
+			"the bare sling is not solid dead rubber")
+	var face := starter_sling.get_node_or_null("Face") as Area2D if starter_sling != null else null
+	check(face != null and face.collision_layer == 0 and face.collision_mask == 0,
+			"the bare sling face sensor is still powered")
 	finish()
 
 
@@ -199,7 +210,7 @@ func _night_one() -> void:
 	check(lineup >= 1 and lineup <= NightController.GUYS_PER_NIGHT,
 			"fielded %d guys" % lineup)
 
-	# The rubber band: whatever power the player asks for, they get the same shot.
+	# The starter rubber band: the desktop/script path uses its middle coarse band.
 	var p := plunger()
 	await wait(0.6)
 	if p != null:
@@ -209,7 +220,7 @@ func _night_one() -> void:
 		var speed := b.speed() if b != null else 0.0
 		check(speed > 0.0, "the ball never left the lane")
 		check(speed < Feel.PLUNGER_MAX_IMPULSE * 0.95,
-				"a full-power plunge got out of a rubber band (%.0f px/s)" % speed)
+				"a full-power plunge got out of a starter band (%.0f px/s)" % speed)
 		await wait(FEED_SECONDS)
 
 	await _serve_and_launch()

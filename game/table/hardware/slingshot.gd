@@ -7,11 +7,15 @@ extends StaticBody2D
 @export var value: int = Feel.SLING_VALUE
 ## Economy group these corner boys pay into (specs/ledger-data.md `value_mult` targets).
 @export var group: StringName = &"slings"
+## Progression-table triangles are physical dead rubber before Corner Boys are hired. M0's
+## feel fixture leaves this false, so its slings retain the original all-or-nothing behavior.
+@export var passive_when_inactive: bool = false
 
 var points: PackedVector2Array = PackedVector2Array()
 var face_normal: Vector2 = Vector2.UP
 
 var _present: bool = true
+var _powered: bool = true
 var _cooldown: float = 0.0
 var _pulse: float = 0.0
 var _band: Area2D = null
@@ -74,6 +78,8 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	if not _powered:
+		return
 	if _inside.is_empty():
 		return
 	for i in range(_inside.size() - 1, -1, -1):
@@ -96,12 +102,16 @@ func _on_ball_entered(body: Node2D) -> void:
 	if not (body is Ball):
 		return
 	_inside.append(body as Ball)
+	if not _powered:
+		return
 	if _cooldown > 0.0:
 		return
 	_kick(body as Ball)
 
 
 func _kick(ball: Ball) -> void:
+	if not _powered:
+		return
 	_cooldown = Feel.SLING_COOLDOWN
 	var dir := (face_normal.rotated(global_rotation)).normalized()
 	ball.kick(dir * Feel.SLING_IMPULSE)
@@ -111,19 +121,30 @@ func _kick(ball: Ball) -> void:
 	TableScore.earn(group, float(value), id, ball, Feel.SLING_IMPULSE)
 
 
-## Corner Boys are an upgrade: until they are hired the kicker triangles are not there.
+## Corner Boys power the progression-table triangles. In that table's passive mode, the
+## physical triangle remains as dead rubber while the face sensor and kicker stay dormant.
 func set_hardware_active(active: bool) -> void:
-	_present = active
-	visible = active
+	_powered = active
+	_present = active or passive_when_inactive
+	visible = _present
 	_inside.clear()
 	_apply_collision()
+	queue_redraw()
+
+
+func is_present() -> bool:
+	return _present
+
+
+func is_powered() -> bool:
+	return _powered
 
 
 func _apply_collision() -> void:
 	collision_layer = Feel.LAYER_HARDWARE if _present else 0
 	if _band != null:
-		_band.collision_layer = Feel.LAYER_ZONES if _present else 0
-		_band.collision_mask = Feel.LAYER_BALL if _present else 0
+		_band.collision_layer = Feel.LAYER_ZONES if _present and _powered else 0
+		_band.collision_mask = Feel.LAYER_BALL if _present and _powered else 0
 
 
 func _draw() -> void:
@@ -132,7 +153,26 @@ func _draw() -> void:
 	draw_colored_polygon(points, Feel.COL_INK)
 	var a := points[1]
 	var b := points[2]
-	var lit := Feel.COL_BRASS.lerp(Color(1.0, 0.95, 0.75), _pulse)
+	var lit := Feel.COL_BRASS.darkened(0.52) if not _powered \
+			else Feel.COL_BRASS.lerp(Color(1.0, 0.95, 0.75), _pulse)
+	var edge := Feel.COL_BRASS.darkened(0.62) if not _powered else Feel.COL_BRASS.darkened(0.35)
 	draw_line(a, b, lit, 9.0 + _pulse * 5.0)
-	draw_line(points[0], points[1], Feel.COL_BRASS.darkened(0.35), 5.0)
-	draw_line(points[2], points[0], Feel.COL_BRASS.darkened(0.35), 5.0)
+	draw_line(points[0], points[1], edge, 5.0)
+	draw_line(points[2], points[0], edge, 5.0)
+
+	if _powered:
+		# The "Corner Boy" is a tiny coat-and-fedora silhouette sitting behind the kicker face.
+		# It is paint only; the triangle remains the exact collision shape.
+		var back := points[0].lerp((a + b) * 0.5, 0.34)
+		var coat := Feel.COL_NEWSPRINT.darkened(0.72)
+		draw_circle(back + Vector2(0.0, -16.0), 9.0, coat)
+		draw_line(back + Vector2(-13.0, -24.0), back + Vector2(13.0, -24.0), coat, 5.0)
+		draw_colored_polygon(PackedVector2Array([
+			back + Vector2(-14.0, -6.0), back + Vector2(14.0, -6.0),
+			back + Vector2(20.0, 22.0), back + Vector2(-20.0, 22.0),
+		]), coat)
+		# folding chair, because these guys have been waiting here all night
+		draw_line(back + Vector2(-19.0, 23.0), back + Vector2(-12.0, 37.0),
+				Feel.COL_BRASS.darkened(0.45), 3.0)
+		draw_line(back + Vector2(19.0, 23.0), back + Vector2(12.0, 37.0),
+				Feel.COL_BRASS.darkened(0.45), 3.0)

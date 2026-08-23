@@ -38,6 +38,8 @@ func _mirrored_constants(t: TestCtx) -> void:
 	t.eq(SimNight.GUYS_PER_NIGHT, NightController.GUYS_PER_NIGHT, "guys per Night mirrors flow")
 	t.near(SimNight.PINCH_BEAT, NightController.PINCH_BEAT, 1e-9, "pinch beat mirrors flow")
 	t.near(SimNight.BALL_SAVE_SECONDS, NightController.BALL_SAVE_SECONDS, 1e-9, "save window mirrors flow")
+	t.near(SimNight.BAD_BREAK_SAVE_SECONDS, NightController.BAD_BREAK_SAVE_SECONDS, 1e-9,
+			"free bad-break window mirrors flow")
 	t.near(SimNight.SURVIVE_SECONDS, NightController.SURVIVE_SECONDS, 1e-9, "survive time mirrors flow")
 	t.near(SimNight.TILT_HEAT, NightController.TILT_HEAT, 1e-9, "tilt heat mirrors flow")
 	t.near(SimNight.RAID_SECONDS, RaidMode.DURATION, 1e-9, "raid duration mirrors flow")

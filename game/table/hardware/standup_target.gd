@@ -164,6 +164,28 @@ func _draw() -> void:
 	face = face.lerp(Feel.COL_NEWSPRINT, _pulse * 0.8)
 	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK, thickness + 6.0)
 	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), face, thickness)
+	var sid := String(id)
+	if sid.begins_with("wire_"):
+		# Three payphones, complete with receiver hooks, instead of three anonymous bars.
+		var booth := Rect2(Vector2(-half * 0.64, -30.0), Vector2(half * 1.28, 27.0))
+		draw_rect(booth, Feel.COL_INK.lightened(0.06))
+		draw_rect(booth, face.darkened(0.15), false, 3.0)
+		draw_arc(Vector2(0.0, -16.0), 9.0, 0.15, PI - 0.15, 10, face, 4.0)
+		draw_line(Vector2(-10.0, -15.0), Vector2(-14.0, -8.0), face, 4.0)
+		draw_line(Vector2(10.0, -15.0), Vector2(14.0, -8.0), face, 4.0)
+	elif sid == "bribe_target":
+		# An envelope tucked under the donut-shop counter.
+		var note := Rect2(Vector2(-22.0, -27.0), Vector2(44.0, 24.0))
+		draw_rect(note, Feel.COL_NEWSPRINT.darkened(0.12))
+		draw_line(note.position, note.get_center() + Vector2(0.0, 4.0), face, 2.0)
+		draw_line(Vector2(note.end.x, note.position.y), note.get_center() + Vector2(0.0, 4.0),
+				face, 2.0)
+	elif sid.begins_with("cop_") or sid.begins_with("boss_goon_"):
+		# Hat-and-shoulders target: enough character to read at speed, still a clean face.
+		var body_col := Feel.COL_INK.lightened(0.16)
+		draw_circle(Vector2(0.0, -19.0), 9.0, body_col)
+		draw_line(Vector2(-15.0, -27.0), Vector2(15.0, -27.0), body_col, 5.0)
+		draw_line(Vector2(-18.0, -7.0), Vector2(18.0, -7.0), body_col, 10.0)
 	if marked:
 		draw_line(Vector2(-half * 0.6, 0.0), Vector2(half * 0.6, 0.0),
 				Feel.COL_NEWSPRINT, 4.0)

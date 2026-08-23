@@ -9,7 +9,7 @@ extends Node2D
 
 var body: StaticBody2D = null
 var walls: WallBuilder = null
-var color: Color = Feel.COL_INK.lightened(0.12)
+var color: Color = Feel.COL_BRASS.darkened(0.42)
 var rim: Color = Feel.COL_INK
 
 var _active: bool = true
