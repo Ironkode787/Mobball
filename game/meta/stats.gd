@@ -11,12 +11,13 @@ extends RefCounted
 ## below is the machine-readable copy of this list, and the Ledger docket reads the same
 ## table to preview a level, so the two can never drift:
 ##   * PRODUCT — value_mult / flipper_power_mult / collect_minutes_mult / heat_decay_mult /
-##     job_respect_mult / serve_speed_mult / kickback_cooldown_mult / all_dirty_mult (which
-##     lands in the `all` value_mult bucket); a per_level effect contributes value^level.
+##     job_respect_mult / serve_speed_mult / kickback_cooldown_mult / launder_cap_mult /
+##     all_dirty_mult (which lands in the `all` value_mult bucket); a per_level effect
+##     contributes value^level.
 ##   * SUM — value_add / idle_rate_add / launder_cap_add / launder_rate_add /
 ##     passive_wash_add / bench_slot_add / tilt_leans_add / ball_save_charges /
 ##     bail_discount / casino_edge_add / casino_pocket_add / job_reroll_add /
-##     auto_launder_per_sec; a per_level effect contributes value × level.
+##     auto_launder_per_sec / clean_share; a per_level effect contributes value × level.
 ##   * MAX — safe_hours_set / pocket_money_set / job_slots_set / aim_line: the highest owned
 ##     wins (they are tiers, not stacks); per_level scales the value by level first.
 ##   * MIN — auto_collect_interval: the shortest owned wins, and 0 means nobody is collecting.
@@ -53,6 +54,13 @@ const CASINO_EDGE_MAX := 0.20
 const CASINO_POCKETS_BASE := 5
 const CASINO_POCKETS_MAX := 5
 
+## The most of every dirty payout that may arrive already clean (`clean_share`). A quarter is
+## the ceiling on purpose: past it the Night stops being "earn dirty, then decide when and how
+## to wash it" and becomes a straight clean faucet, which is the one shape docs/03 §2 refuses.
+## The share is still drawn against the per-Night wash cap, so this is a convenience ceiling
+## on top of a volume ceiling, not a way around it.
+const CLEAN_SHARE_MAX := 0.25
+
 ## Which bucket an effect kind folds into. Public because the Ledger docket previews a level
 ## with `scaled_value` and must use the engine's own shape, not a second copy of it.
 enum Fold { PRODUCT, SUM, MAX, MIN, UNION }
@@ -69,6 +77,7 @@ const FOLD := {
 	&"job_respect_mult": Fold.PRODUCT,
 	&"serve_speed_mult": Fold.PRODUCT,
 	&"kickback_cooldown_mult": Fold.PRODUCT,
+	&"launder_cap_mult": Fold.PRODUCT,
 	&"all_dirty_mult": Fold.PRODUCT,
 	&"value_add": Fold.SUM,
 	&"idle_rate_add": Fold.SUM,
@@ -83,6 +92,7 @@ const FOLD := {
 	&"casino_pocket_add": Fold.SUM,
 	&"job_reroll_add": Fold.SUM,
 	&"auto_launder_per_sec": Fold.SUM,
+	&"clean_share": Fold.SUM,
 	&"pocket_money_set": Fold.MAX,
 	&"safe_hours_set": Fold.MAX,
 	&"job_slots_set": Fold.MAX,
@@ -124,6 +134,8 @@ var _auto_launder: float = 0.0
 var _kickback_cooldown: float = 1.0
 var _job_rerolls: int = 0
 var _aim_line: int = 0
+var _launder_cap_mult: float = 1.0
+var _clean_share: float = 0.0
 
 
 ## owned: node id (String) -> level (int, >= 1). Recompute is a full rebuild, never
@@ -187,8 +199,15 @@ func launder_rate() -> float:
 	return minf(_launder_rate, Rates.LAUNDER_LOOP_FRACTION_MAX)
 
 
+## The per-Night wash cap (docs/03 §2): everything `launder_cap_add` bought, times everything
+## `launder_cap_mult` bought. The multiplier is inside this getter deliberately — every caller
+## that already asks "how much may I wash tonight" gets the whole answer, and nobody has to
+## remember to multiply. `launder_cap_mult()` below exposes the second half on its own, for
+## the docket line and the balance report.
 func launder_cap() -> BigMoney:
-	return _launder_cap.copy()
+	if is_equal_approx(_launder_cap_mult, 1.0):
+		return _launder_cap.copy()
+	return _launder_cap.mul(_launder_cap_mult)
 
 
 func passive_wash_per_sec() -> float:
@@ -308,6 +327,47 @@ func specialists() -> Array[Dictionary]:
 	return _catalog().specialists(_owned)
 
 
+# --- M3 laundering structure (the SIM-2 findings) -----------------------------
+# Appended, never edited, same rule as the M2 block above. Both are identity on a career
+# that has bought neither, so every consumer can apply them unconditionally.
+
+
+## How much the per-Night wash cap has been MULTIPLIED — 1.0 when nothing bought it.
+##
+## `launder_cap()` already includes this; the getter exists so the docket can print the two
+## halves of the cap separately ("$40M base, ×3.4") and so the balance sim can attribute a
+## cap that outgrew its adds. SIM-2 measured the additive cap binding on 107 of 107 late
+## Nights, which is what an additive cap does against multiplicative income.
+func launder_cap_mult() -> float:
+	return _launder_cap_mult
+
+
+## Fraction of every dirty payout that arrives CLEAN instead of dirty, capped at
+## `CLEAN_SHARE_MAX`. 0.0 means every dollar the table pays is dirty, exactly as M1 shipped.
+##
+## INTENDED CONSUMPTION POINT (the flow lane owns this; it is not applied here):
+## inside `Game.earn_switch`, after the payout `v` is final — base × Ledger × Heat band ×
+## mode × combo — and after the wallet, Heat and Jobs have already seen the whole of it:
+##
+##     var share := Game.stats.clean_share()
+##     if share > 0.0:
+##         var slice := BigMoney.min_of(v.mul(share), Game.launder_cap_left())
+##         # move `slice` dirty -> clean, booked as laundered
+##
+## Three properties that make this safe, and that a consumer must not quietly drop:
+##   1. It is drawn AGAINST the per-Night wash cap (`Game.launder_cap_left()`), so it cannot
+##      outrun docs/03 §2 — with the cap spent, the share pays nothing and the money stays
+##      dirty. That is the whole reason it is a share of a payout rather than a second faucet.
+##   2. The switch is still HOT MONEY: Heat sees the full payout, because the shot was dirty
+##      when it landed and the wash happens on the way to the pocket. A clean share that
+##      dodged the Heat meter would be a stealth risk-nerf sold as a convenience.
+##   3. It books as LAUNDERED, not as `earn_clean`: dirty really did become clean, so The
+##      Count's wash line tells the truth and the sims' `night_dirty − night_laundered ==
+##      held dirty` invariant survives.
+func clean_share() -> float:
+	return minf(_clean_share, CLEAN_SHARE_MAX)
+
+
 # --- fold shapes --------------------------------------------------------------
 
 
@@ -374,6 +434,8 @@ func _reset() -> void:
 	_kickback_cooldown = 1.0
 	_job_rerolls = 0
 	_aim_line = 0
+	_launder_cap_mult = 1.0
+	_clean_share = 0.0
 
 
 func _apply(effect: Dictionary, level: int) -> void:
@@ -445,5 +507,9 @@ func _apply(effect: Dictionary, level: int) -> void:
 			_kickback_cooldown *= scaled_value(effect, level)
 		&"aim_line":
 			_aim_line = maxi(_aim_line, int(scaled_value(effect, level)))
+		&"launder_cap_mult":
+			_launder_cap_mult *= scaled_value(effect, level)
+		&"clean_share":
+			_clean_share += scaled_value(effect, level)
 		&"all_dirty_mult":
 			_value_mult[&"all"] = float(_value_mult.get(&"all", 1.0)) * scaled_value(effect, level)

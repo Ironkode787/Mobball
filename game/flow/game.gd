@@ -20,6 +20,11 @@ signal casino_resolved(result: Dictionary)
 signal wire_drawn(result: Dictionary)
 signal meeting_changed(active: bool, lit: bool)
 signal collection_changed(active: bool, collected: int)
+## M3 mode traffic, same rule: the flow lane's own modes announce themselves here.
+## A smuggling run armed, advanced, shipped or lapsed (docs/02 §2 R5).
+signal smuggling_changed(state: Dictionary)
+## A Sit-Down opened or ran out — the sixty seconds the Heat meter does not move.
+signal sitdown_changed(active: bool, time_left: float)
 ## A Commission fight's shape changed (phase, panels, the Butcher's freezer) — HUD fodder.
 signal boss_changed(state: Dictionary)
 ## Manny worked a till without a ball (`auto_collect_interval`). The HUD flashes it, because
@@ -67,6 +72,9 @@ var casino := Casino.new()
 var meeting := FamilyMeeting.new()
 var wire := WireDraws.new()
 var collection := CollectionRound.new()
+## M3 modes (specs/m3-fall-rise.md FLOW-3), same discipline: pure logic on a fed clock.
+var smuggling := SmugglingRun.new()
+var sitdown := SitDown.new()
 ## THE COMMISSION (specs/m2-content.md §5): who is waiting, who has been put away, and which
 ## rank the ladder is not allowed past yet.
 var commission := Commission.new()
@@ -179,7 +187,22 @@ static func _wire(sig: Signal, to: Callable) -> void:
 
 
 func _process(delta: float) -> void:
-	heat.tick(delta)
+	if not heat_frozen():
+		heat.tick(delta)
+
+
+## Is the meter stopped dead right now? The Sit-Down (docs/02 §2 R6) is a real freeze: no
+## decay, no gain, and no earn window filling up to land on you afterwards. Everything that
+## can move the meter asks here first, so there is one answer to "is Heat live".
+func heat_frozen() -> bool:
+	return sitdown.active
+
+
+## Every loud act's flat Heat goes through here rather than at `heat.add_flat` directly, so
+## the freeze covers the smuggling shipment and the High Roller's greed as well as the tick.
+func heat_add_flat(amount: float) -> void:
+	if not heat_frozen():
+		heat.add_flat(amount)
 
 
 # =============================================================== money path =====
@@ -219,7 +242,7 @@ func earn_switch(group: StringName, base_value: BigMoney, meta: Dictionary = {})
 	if not bool(meta.get("no_combo", false)):
 		v = v.mul(combo.on_hit(group))
 	wallet.earn_dirty(v)
-	if not bool(meta.get("no_heat", false)):
+	if not bool(meta.get("no_heat", false)) and not heat_frozen():
 		heat.on_dirty_earned(v, Rates.rank_scale(rank))
 	Events.dirty_earned.emit(v, group)
 	night_dirty = night_dirty.add(v)
@@ -246,7 +269,8 @@ func earn_flat_dirty(amount: BigMoney, group: StringName) -> BigMoney:
 	if armored:
 		return BigMoney.zero()
 	wallet.earn_dirty(amount)
-	heat.on_dirty_earned(amount, Rates.rank_scale(rank))
+	if not heat_frozen():
+		heat.on_dirty_earned(amount, Rates.rank_scale(rank))
 	Events.dirty_earned.emit(amount, group)
 	night_dirty = night_dirty.add(amount)
 	# Flat money is its own base: nothing multiplied it, so both lines move together.
@@ -386,7 +410,7 @@ func casino_roulette(pocket: int, house: bool) -> Dictionary:
 func casino_high_roller(steps: int) -> float:
 	var added := casino.arm(steps)
 	if added > 0.0:
-		heat.add_flat(added)
+		heat_add_flat(added)
 	return added
 
 
@@ -396,7 +420,7 @@ func casino_reels(cleared_columns: Array) -> BigMoney:
 	if not casino.on_reels(cleared_columns):
 		return BigMoney.zero()
 	var paid := _pay_casino(Casino.jackpot_value(stats.idle_rate_total()), true, &"slot_reels")
-	heat.add_flat(Casino.CasinoRules.JACKPOT_HEAT)
+	heat_add_flat(Casino.CasinoRules.JACKPOT_HEAT)
 	if meeting.note_casino_jackpot():
 		meeting_changed.emit(meeting.active, meeting.lit)
 	casino_resolved.emit({"jackpot": true, "paid": paid, "clean": true,
@@ -447,6 +471,45 @@ func collection_completed(id: StringName, base_value: BigMoney) -> BigMoney:
 	if meeting.note_collection_round():
 		meeting_changed.emit(meeting.active, meeting.lit)
 	return bonus
+
+
+# ============================================================== the Docks =====
+
+
+## THE SHIPMENT (docs/02 §2 R5). Three stacks inside the window: the load goes out, and it is
+## paid FLAT — the crates that funded it were already priced when they were broken, exactly
+## as the casino's winnings and the Wire's ticket are. What it IS worth is minutes of the
+## whole empire's idle rate through the Ledger's smuggling line, so a shipment grows with the
+## docks instead of needing a new number at every rank; the truck run doubles it.
+##
+## It is a loud act, so it costs flat Heat on top of the hot money — unless a Sit-Down is
+## running, which is the one thing on this table that makes a shipment quiet.
+func smuggling_shipment(hot: bool) -> BigMoney:
+	var value := ledger_value(&"smuggling", SmugglingRun.base_value(stats.idle_rate_total()))
+	if hot:
+		value = value.mul(SmugglingRun.TRUCK_MULT)
+	var paid := earn_flat_dirty(value, &"smuggling")
+	smuggling.book_payout(paid)
+	heat_add_flat(SmugglingRun.SHIPMENT_HEAT)
+	smuggling_changed.emit({
+		"shipped": true,
+		"hot": hot,
+		"paid": paid,
+		"active": smuggling.active,
+		"cleared": smuggling.cleared_count(),
+		"time_left": smuggling.time_left,
+	})
+	return paid
+
+
+## THE SIT-DOWN (docs/02 §2 R6). The room stops the meter for a minute; the NightController
+## re-arms the block and feeds the clock.
+func sitdown_begin() -> bool:
+	var seconds := SitDown.SECONDS_QUIET_WORD if has_spoil(SitDown.SPOIL_QUIET_WORD) \
+			else SitDown.SECONDS
+	var opened := sitdown.begin(seconds)
+	sitdown_changed.emit(sitdown.active, sitdown.time_left)
+	return opened
 
 
 # ============================================================ the Commission =====
@@ -678,6 +741,8 @@ func new_game(seed_value: int = 0) -> void:
 	meeting = FamilyMeeting.new()
 	wire = WireDraws.new()
 	collection = CollectionRound.new()
+	smuggling = SmugglingRun.new()
+	sitdown = SitDown.new()
 	commission = Commission.new()
 	boss = null
 	_armored.clear()
@@ -707,6 +772,8 @@ func start_night() -> void:
 	casino.begin_night(Casino.comps_for(stats))
 	meeting.begin_night()
 	collection.begin_night()
+	smuggling.begin_night()
+	sitdown.begin_night()
 	wire.begin_night(session_seed, night_no)
 	set_fielded([])
 	_reset_night_tallies()
@@ -746,6 +813,8 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["wire"] = wire.night_summary()
 	s["meeting"] = meeting.night_summary()
 	s["collection"] = collection.night_summary()
+	s["smuggling"] = smuggling.night_summary()
+	s["sitdown"] = sitdown.night_summary()
 	# `boss` comes from the NightController — `commission.last_result` is the CAREER's last
 	# fight and would print a week-old front page on an ordinary Night.
 	s["boss_paid"] = night_boss
@@ -930,6 +999,8 @@ func to_dict() -> Dictionary:
 		"meeting": meeting.to_dict(),
 		"wire": wire.to_dict(),
 		"collection": collection.to_dict(),
+		"smuggling": smuggling.to_dict(),
+		"sitdown": sitdown.to_dict(),
 		"commission": commission.to_dict(),
 		"safe": {
 			"last_seen": last_seen,
@@ -980,6 +1051,10 @@ func from_dict(d: Dictionary) -> void:
 	wire.from_dict(d.get("wire", {}))
 	collection = CollectionRound.new()
 	collection.from_dict(d.get("collection", {}))
+	smuggling = SmugglingRun.new()
+	smuggling.from_dict(d.get("smuggling", {}))
+	sitdown = SitDown.new()
+	sitdown.from_dict(d.get("sitdown", {}))
 	commission = Commission.new()
 	commission.from_dict(d.get("commission", {}))
 	boss = null

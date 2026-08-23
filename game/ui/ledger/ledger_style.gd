@@ -146,6 +146,13 @@ static func effect_line(effect: Dictionary) -> String:
 			return "Case the Joint draws a ghost aim line (strength %d)%s" % [int(roundf(num)), each]
 		&"all_dirty_mult":
 			return "%s on ALL dirty%s" % [percent(num), each]
+		&"launder_cap_mult":
+			return "%s wash cap per Night%s" % [percent(num), each]
+		&"clean_share":
+			# Said as what the player sees happen, not as the accounting: a slice of the
+			# payout is already clean when it lands. The cap it draws against is the
+			# docket's next line down, not this one's job.
+			return "%s of every dirty payout lands clean%s" % [_pct(num), each]
 	return String(kind)
 
 
@@ -169,12 +176,13 @@ static func effect_delta(effect: Dictionary, level: int) -> String:
 	var next := Stats.scaled_value(effect, maxi(level, 1) + 1)
 	match kind:
 		&"value_mult", &"flipper_power_mult", &"collect_minutes_mult", &"heat_decay_mult", \
-		&"job_respect_mult", &"serve_speed_mult", &"kickback_cooldown_mult", &"all_dirty_mult":
+		&"job_respect_mult", &"serve_speed_mult", &"kickback_cooldown_mult", &"all_dirty_mult", \
+		&"launder_cap_mult":
 			# Off the ROUNDED percentages, not the raw floats: the delta has to be the gap
 			# between the two numbers printed above it, or the docket does not add up.
 			return _points(_shown((next - 1.0) * 100.0) - _shown((now - 1.0) * 100.0))
 		&"launder_rate_add", &"passive_wash_add", &"auto_launder_per_sec", &"bail_discount", \
-		&"casino_edge_add":
+		&"casino_edge_add", &"clean_share":
 			return _points(_shown(next * 100.0) - _shown(now * 100.0))
 		&"safe_hours_set":
 			return "%+dh" % int(roundf(next - now))

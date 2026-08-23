@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "perks": [
+    {
+      "id": "blackbook.old_contacts",
+      "name": "Old Contacts",
+      "flavor": "Somebody's cousin always knows somebody. Be somebody's cousin.",
+      "note": "start each city at +1 rank (max R3 start)",
+      "cost": 1, "repeat": {"max": 3, "step": 1}, "requires": [], "deferred": false,
+      "effects": [{"kind": "start_rank", "value": 1, "per_level": true}]
+    },
+    {
+      "id": "blackbook.kept_man",
+      "name": "Kept Man",
+      "flavor": "He gets a window seat and a new name. He keeps the old habits.",
+      "note": "one chosen specialist survives Skip Town (slot per level)",
+      "cost": 1, "repeat": {"max": 3, "step": 1}, "requires": [], "deferred": false,
+      "effects": [{"kind": "kept_specialist", "value": 1, "per_level": true}]
+    },
+    {
+      "id": "blackbook.traveling_light",
+      "name": "Traveling Light",
+      "flavor": "One suitcase. Half of it is singles.",
+      "note": "Pocket Money auto-clean scales with city #",
+      "cost": 2, "repeat": null, "requires": [], "deferred": false,
+      "effects": [{"kind": "pocket_city_scale"}]
+    },
+    {
+      "id": "blackbook.reputation_precedes_you",
+      "name": "Reputation Precedes You",
+      "flavor": "They heard what happened to the last guy. They start the meeting nervous.",
+      "note": "first Commission boss of each city starts at phase 2",
+      "cost": 2, "repeat": null, "requires": [], "deferred": false,
+      "effects": [{"kind": "boss_start_phase", "value": 2}]
+    },
+    {
+      "id": "blackbook.the_stash",
+      "name": "The Stash",
+      "flavor": "A locker at the bus station, under a name the Feds already retired.",
+      "note": "begin each city with 5% of previous city's clean cash (dirty, ha)",
+      "cost": 3, "repeat": null, "requires": [], "deferred": false,
+      "effects": [{"kind": "stash_fraction", "value": 0.05}]
+    },
+    {
+      "id": "blackbook.everybody_knows_somebody",
+      "name": "Everybody Knows Somebody",
+      "flavor": "New town. Same phone book.",
+      "note": "Bench starts with 2 leveled guys",
+      "cost": 3, "repeat": null, "requires": [], "deferred": false,
+      "effects": [{"kind": "bench_starters", "value": 2}]
+    },
+    {
+      "id": "blackbook.double_life",
+      "name": "Double Life",
+      "flavor": "You left town. The rent did not.",
+      "note": "previous city's idle income keeps flowing at 10% (stacking cities = the empire never really resets)",
+      "cost": 5, "repeat": null, "requires": [], "deferred": true,
+      "effects": [{"kind": "idle_carryover", "value": 0.10}]
+    },
+    {
+      "id": "blackbook.the_big_sleep",
+      "name": "The Big Sleep",
+      "flavor": "He goes out on top, in bronze, still watching the ball.",
+      "note": "retire a maxed specialist forever → he becomes a patron-saint statue on all future tables: a small aura zone with his power at half strength, always on",
+      "cost": 5, "repeat": {"max": 3, "step": 5}, "requires": [], "deferred": true,
+      "effects": [{"kind": "saint_statue", "value": 1, "per_level": true}]
+    },
+    {
+      "id": "blackbook.museum_of_crime",
+      "name": "Museum of Crime",
+      "flavor": "Every job leaves one thing you cannot sell. Put it under glass.",
+      "note": "unlocks the relic gallery: heist relics socket into set bonuses (3 Museum pieces = permanent +1 casino edge, etc.)",
+      "cost": 8, "repeat": null, "requires": [], "deferred": true,
+      "effects": [{"kind": "museum"}]
+    },
+    {
+      "id": "blackbook.fast_learner",
+      "name": "Fast Learner",
+      "flavor": "The second time through, you know which doors open inward.",
+      "note": "☆ requirements −20% in cities you've beaten before",
+      "cost": 8, "repeat": null, "requires": [], "deferred": false,
+      "effects": [{"kind": "star_requirement_mult", "value": 0.8}]
+    },
+    {
+      "id": "blackbook.the_golden_era",
+      "name": "The Golden Era",
+      "flavor": "Some decades just shine.",
+      "note": "unlock the Golden Ball tier in every city at T5 instead of T7",
+      "cost": 10, "repeat": null, "requires": [], "deferred": true,
+      "effects": [{"kind": "golden_ball_tier", "value": 5}]
+    },
+    {
+      "id": "blackbook.silent_empire",
+      "name": "Silent Empire",
+      "flavor": "The machine hums while you sleep. It hums in two colors.",
+      "note": "offline Safe cap doubles AND fills with 10% clean directly",
+      "cost": 15, "repeat": null, "requires": [], "deferred": true,
+      "effects": [
+        {"kind": "safe_cap_mult", "value": 2.0},
+        {"kind": "safe_clean_share", "value": 0.10}
+      ]
+    },
+    {
+      "id": "blackbook.the_sixth_family",
+      "name": "The Sixth Family",
+      "flavor": "Five cities sit down at one table. Somebody has to pour.",
+      "note": "New Game++: all five cities' Commissions rolled into one repeatable gauntlet table (post-launch content hook)",
+      "cost": 25, "repeat": null, "requires": [], "deferred": true,
+      "effects": [{"kind": "gauntlet"}]
+    }
+  ]
+}

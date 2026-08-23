@@ -220,9 +220,19 @@ func start() -> void:
 	_connect_table(&"reels_state", _on_reels_state)
 	_connect_table(&"high_roller_held", _on_high_roller_held)
 	_connect_table(&"backroom_entered", _on_backroom_entered)
+	_connect_table(&"deck_returned", _on_deck_returned)
 	# The table's own storefront signal carries the amount; the bus version does not, and the
 	# Collection Round has to pay the last shop its value a second time.
 	_connect_table(&"storefront_collected", _on_table_storefront)
+	# M3 — THE DOCKS and THE PENTHOUSE (specs/m3-fall-rise.md FLOW-3). Same contract as the
+	# Club: the yard and the room report, flow owns the runs and the money.
+	_connect_table(&"docks_entered", _on_docks_entered)
+	_connect_table(&"container_stack_cleared", _on_stack_cleared)
+	_connect_table(&"containers_state", _on_containers_state)
+	_connect_table(&"cargo_shipped", _on_cargo_shipped)
+	_connect_table(&"crane_telegraph", _on_crane_telegraph)
+	_connect_table(&"crane_pulled", _on_crane_pulled)
+	_connect_table(&"sitdown_entered", _on_sitdown_entered)
 
 	_start_boss()
 
@@ -302,6 +312,8 @@ func _physics_process(delta: float) -> void:
 
 	_tick_balls(delta)
 	_tick_deck()
+	_tick_docks(delta)
+	_tick_sitdown(delta)
 	_tick_wire(delta)
 	_tick_collection(delta)
 	_tick_arpeggio(delta)
@@ -541,7 +553,7 @@ func _on_tilted() -> void:
 	if not running or _serve_in > 0.0:
 		return
 	tilts += 1
-	Game.heat.add_flat(TILT_HEAT)
+	Game.heat_add_flat(TILT_HEAT)
 	# The Inspector takes this guy, and no save covers his own fault.
 	var ball := _ball()
 	var guy := _guy_riding(ball)
@@ -580,6 +592,7 @@ func _lose_guy(guy: Dictionary, age: float = 0.0) -> void:
 	Game.combo.reset()
 	Game.set_fielded([])
 	Game.casino.close_visit()
+	Game.smuggling.abort()
 	_close_skill_window()
 	if raid_stretch:
 		raid.on_guy_lost()
@@ -651,6 +664,8 @@ func _release_night() -> void:
 		Balls.last_ball.disconnect(_on_last_ball)
 	Game.meeting.end()
 	Game.casino.close_visit()
+	Game.smuggling.abort()
+	Game.sitdown.abort()
 	Game.set_fielded([])
 	TableAPI.call_if(table, "despawn_ball")
 	for b in Balls.live():
@@ -1010,6 +1025,124 @@ func _meeting_spawn() -> Vector2:
 	if at is Vector2 and (at as Vector2) != Vector2.ZERO:
 		return (at as Vector2) + MEETING_SPAWN_OFFSET
 	return Vector2.ZERO
+
+
+## The ball came home down the Club's return lane. The visit closes on the same test the
+## poll uses, because a second ball may still be upstairs working the reels.
+func _on_deck_returned() -> void:
+	if running:
+		_tick_deck()
+
+
+# ============================================== the Docks / the Penthouse =====
+
+
+## SMUGGLING RUNS (docs/02 §2 R5). The window is the mode; the yard is the table's.
+func _tick_docks(delta: float) -> void:
+	if not Game.smuggling.active:
+		return
+	Game.smuggling.tick(delta)
+	if Game.smuggling.active:
+		return
+	# It ran out with cargo still standing. Nothing is lost but the window.
+	Game.smuggling_changed.emit(_smuggling_state(false, false))
+	AudioDirector.play(&"drop_bank_reset")
+
+
+func _smuggling_state(shipped: bool, hot: bool) -> Dictionary:
+	return {
+		"shipped": shipped,
+		"hot": hot,
+		"active": Game.smuggling.active,
+		"cleared": Game.smuggling.cleared_count(),
+		"time_left": Game.smuggling.time_left,
+		"paid": BigMoney.zero(),
+	}
+
+
+func _on_docks_entered() -> void:
+	if not running:
+		return
+	if not Game.smuggling.on_docks_entered(_stacks_standing()):
+		return
+	AudioDirector.play(&"smuggling_start")
+	AudioDirector.play(&"knocker")
+	Game.smuggling_changed.emit(_smuggling_state(false, false))
+
+
+## How much cargo is still up. A yard that does not report is assumed loaded — a run that
+## arms on an empty quay simply lapses, which is a far better failure than never arming.
+func _stacks_standing() -> int:
+	var yard: Variant = TableAPI.prop(table, "docks", null)
+	var crates: Variant = TableAPI.prop(yard as Object, "containers", null)
+	if crates == null:
+		return SmugglingRun.STACKS
+	var cleared: Variant = TableAPI.call_if(crates as Object, "cleared_stacks", [], null)
+	if not (cleared is Array):
+		return SmugglingRun.STACKS
+	return maxi(SmugglingRun.STACKS - (cleared as Array).size(), 0)
+
+
+func _on_stack_cleared(stack: int) -> void:
+	if running and Game.smuggling.active:
+		_settle_shipment(Game.smuggling.on_stack_cleared(stack))
+
+
+func _on_containers_state(cleared_stacks: Array) -> void:
+	if running and Game.smuggling.active:
+		_settle_shipment(Game.smuggling.on_containers_state(cleared_stacks))
+
+
+## The load is out. `Game` pays it; this is the noise and the light.
+func _settle_shipment(shipped: bool) -> void:
+	if not shipped:
+		Game.smuggling_changed.emit(_smuggling_state(false, Game.smuggling.hot))
+		AudioDirector.play(&"container_break")
+		return
+	var hot := Game.smuggling.hot
+	Game.smuggling_shipment(hot)
+	AudioDirector.play(&"shipment_out")
+	_arpeggio([&"drop_bank_down", &"chime_a", &"chime_c", &"knocker"], 0.1)
+
+
+## The hoist crested onto the main field: the load reached the truck and the shipment doubles.
+func _on_cargo_shipped(_speed: float) -> void:
+	if not running or not Game.smuggling.active:
+		return
+	Game.smuggling.on_cargo_shipped()
+	AudioDirector.play(&"chime_c")
+	Game.smuggling_changed.emit(_smuggling_state(false, true))
+
+
+func _on_crane_telegraph() -> void:
+	if running:
+		AudioDirector.play(&"crane_telegraph")
+
+
+func _on_crane_pulled() -> void:
+	if running:
+		AudioDirector.play(&"crane_pull")
+
+
+## THE SIT-DOWN (docs/02 §2 R6): the meter stops for a minute and the block re-arms.
+func _on_sitdown_entered() -> void:
+	if not running:
+		return
+	if not Game.sitdown_begin():
+		return
+	AudioDirector.play(&"sitdown")
+	AudioDirector.play(&"chime_b")
+	# "Storefronts auto-arm" — the table owns the banks, so this is an ask, not a reach.
+	TableAPI.call_if(table, "arm_storefronts")
+
+
+func _tick_sitdown(delta: float) -> void:
+	if not Game.sitdown.active:
+		return
+	if not Game.sitdown.tick(delta):
+		return
+	Game.sitdown_changed.emit(false, 0.0)
+	AudioDirector.play(&"drop_bank_reset")
 
 
 # ================================================================= the wire =====

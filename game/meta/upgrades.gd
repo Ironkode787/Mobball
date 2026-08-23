@@ -124,6 +124,20 @@ const EFFECT_SPECS := {
 	&"kickback_cooldown_mult": {"value": &"num", "min": 0.000001, "max": 1.0},
 	&"aim_line": {"value": &"int", "min": 1.0, "max": 10.0},
 	&"all_dirty_mult": {"value": &"num", "min": 1.0, "max": 3.0},
+	# --- M3 laundering structure (the SIM-2 findings) ----------------------------
+	# The sim measured the wash cap binding on 107 of 107 late Nights, with 100% of wash
+	# shots then moving nothing: `launder_cap_add` is an ADDITIVE cap chasing MULTIPLICATIVE
+	# income, and additive never catches multiplicative. These two kinds are the answer.
+	#
+	# A cap MULTIPLIER rides the same curve income does, so a T6/T7 line can keep the wash
+	# alive instead of adding a rounding error to it. Band 1.0..3.0, like every other
+	# "helps by going up" multiplier; per_level compounds, so 1.5 over 6 levels is ×11.4.
+	&"launder_cap_mult": {"value": &"num", "min": 1.0, "max": 3.0},
+	# The other half: a fraction of each dirty payout that arrives CLEAN instead, so late
+	# income never has to queue for the loop at all. Capped hard at `Stats.CLEAN_SHARE_MAX`
+	# (0.25); one node may buy at most 10 of those 25 points, so the ceiling is a build
+	# across branches and never a single card.
+	&"clean_share": {"value": &"num", "min": 0.000001, "max": 0.10},
 }
 
 ## Why a node cannot be bought right now. NONE means "take the money".
@@ -617,76 +631,74 @@ func _read_effects(raw: Variant, where: String, repeatable: bool, quiet: bool) -
 
 
 func _read_effect(raw: Variant, where: String, repeatable: bool, quiet: bool) -> Dictionary:
-	if not (raw is Dictionary):
-		_bad("%s: an effect is not an object" % where, quiet)
+	var out := Upgrades.read_effect(raw, where, repeatable)
+	if out.has("error"):
+		_bad(String(out["error"]), quiet)
 		return {}
+	return out
+
+
+## Validates and normalizes ONE effect against `EFFECT_SPECS`, with no instance behind it:
+## returns the normalized effect, or `{"error": "..."}` for the caller to report its own way.
+##
+## Static because the Black Book (`game/meta/blackbook.gd`) lets a prestige perk promise a
+## Ledger effect, and it must be measured against these bands rather than a second copy of
+## them — one vocabulary, one set of numbers, two loaders.
+static func read_effect(raw: Variant, where: String, repeatable: bool) -> Dictionary:
+	if not (raw is Dictionary):
+		return {"error": "%s: an effect is not an object" % where}
 	var d := raw as Dictionary
 	for key: Variant in d:
 		if not EFFECT_KEYS.has(String(key)):
-			_bad("%s: effect has unknown key `%s`" % [where, key], quiet)
-			return {}
+			return {"error": "%s: effect has unknown key `%s`" % [where, key]}
 	var kind := StringName(String(d.get("kind", "")))
 	if not EFFECT_SPECS.has(kind):
-		_bad("%s: unknown effect kind `%s`" % [where, kind], quiet)
-		return {}
+		return {"error": "%s: unknown effect kind `%s`" % [where, kind]}
 	var spec: Dictionary = EFFECT_SPECS[kind]
 
 	var per_level := false
 	if d.has("per_level"):
 		if not (d["per_level"] is bool):
-			_bad("%s: %s per_level must be a bool" % [where, kind], quiet)
-			return {}
+			return {"error": "%s: %s per_level must be a bool" % [where, kind]}
 		per_level = bool(d["per_level"])
 	if per_level and not repeatable:
-		_bad("%s: %s is per_level on a node with no repeat block" % [where, kind], quiet)
-		return {}
+		return {"error": "%s: %s is per_level on a node with no repeat block" % [where, kind]}
 
 	var target := StringName("")
 	if spec.has("target"):
 		if not (d.get("target", null) is String):
-			_bad("%s: %s needs a `target`" % [where, kind], quiet)
-			return {}
+			return {"error": "%s: %s needs a `target`" % [where, kind]}
 		var t := String(d["target"])
 		if not _target_ok(spec["target"], t):
-			_bad("%s: %s target `%s` is not a known %s" % [where, kind, t, spec["target"]], quiet)
-			return {}
+			return {"error": "%s: %s target `%s` is not a known %s" % [where, kind, t, spec["target"]]}
 		target = StringName(t)
 	elif d.has("target"):
-		_bad("%s: %s takes no target" % [where, kind], quiet)
-		return {}
+		return {"error": "%s: %s takes no target" % [where, kind]}
 
 	var num := 0.0
 	var money := BigMoney.zero()
 	var form: StringName = spec.get("value", &"")
 	if form == &"":
 		if d.has("value"):
-			_bad("%s: %s takes no value" % [where, kind], quiet)
-			return {}
+			return {"error": "%s: %s takes no value" % [where, kind]}
 	elif not d.has("value"):
-		_bad("%s: %s needs a `value`" % [where, kind], quiet)
-		return {}
+		return {"error": "%s: %s needs a `value`" % [where, kind]}
 	elif form == &"money":
 		if not (d["value"] is String):
-			_bad("%s: %s value must be a BigMoney string, not a bare number" % [where, kind], quiet)
-			return {}
+			return {"error": "%s: %s value must be a BigMoney string, not a bare number" % [where, kind]}
 		money = BigMoney.parse(String(d["value"]))
 		if not money.is_positive():
-			_bad("%s: %s value `%s` is not a positive amount" % [where, kind, d["value"]], quiet)
-			return {}
+			return {"error": "%s: %s value `%s` is not a positive amount" % [where, kind, d["value"]]}
 	else:
 		if not _is_number(d["value"]):
-			_bad("%s: %s value must be a number" % [where, kind], quiet)
-			return {}
+			return {"error": "%s: %s value must be a number" % [where, kind]}
 		num = float(d["value"])
 		if form == &"int" and not is_equal_approx(num, roundf(num)):
-			_bad("%s: %s value %f must be a whole number" % [where, kind, num], quiet)
-			return {}
+			return {"error": "%s: %s value %f must be a whole number" % [where, kind, num]}
 		if spec.has("min") and num < float(spec["min"]):
-			_bad("%s: %s value %f below minimum %f" % [where, kind, num, spec["min"]], quiet)
-			return {}
+			return {"error": "%s: %s value %f below minimum %f" % [where, kind, num, spec["min"]]}
 		if spec.has("max") and num > float(spec["max"]):
-			_bad("%s: %s value %f above maximum %f" % [where, kind, num, spec["max"]], quiet)
-			return {}
+			return {"error": "%s: %s value %f above maximum %f" % [where, kind, num, spec["max"]]}
 
 	return {
 		"kind": kind,
@@ -697,7 +709,7 @@ func _read_effect(raw: Variant, where: String, repeatable: bool, quiet: bool) ->
 	}
 
 
-func _target_ok(vocab: StringName, value: String) -> bool:
+static func _target_ok(vocab: StringName, value: String) -> bool:
 	match vocab:
 		&"hardware":
 			return HARDWARE_IDS.has(value)
