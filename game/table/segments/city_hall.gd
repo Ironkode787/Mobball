@@ -193,6 +193,12 @@ func bounds() -> Rect2:
 			Vector2((LOOP_RADIUS + 52.0) * 2.0, DRUM_BOTTOM + 40.0 - (FINIAL_TOP - 74.0)))
 
 
+## Where the crew put the scaffolding up (hardware/build_in.gd). Nothing here has a collider
+## for it to measure, so the dome names its own box.
+func build_rect() -> Rect2:
+	return bounds()
+
+
 ## Where the lap closes, as an arc length along the rail. The lap is the circle; the run
 ## home afterwards is delivery, and a player who has come over the top has already made it.
 func close_length() -> float:

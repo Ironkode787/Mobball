@@ -31,6 +31,10 @@ signal chairs_changed(state: Dictionary)
 signal election_changed(state: Dictionary)
 ## A heist's checklist moved, or the crew came out (docs/05 §5).
 signal heist_changed(state: Dictionary)
+## The blue meter moved, or the Feds are at the door (docs/05 §9).
+signal federal_changed(state: Dictionary)
+## The City Hall Circuit moved a leg, or EMPIRE lit / ran out (docs/02 §2 R7).
+signal empire_changed(state: Dictionary)
 ## A Commission fight's shape changed (phase, panels, the Butcher's freezer) — HUD fodder.
 signal boss_changed(state: Dictionary)
 ## Manny worked a till without a ball (`auto_collect_interval`). The HUD flashes it, because
@@ -52,6 +56,12 @@ const SKILL_SHOT_EXP := 2
 const COLD_STORAGE_FRACTION := 0.5
 ## Music stems audible per rank (docs/08 §1) — rank 0 already has a band, R7 has all eight.
 const MUSIC_LEVEL_OFFSET := 1
+## THE RICO RAID (docs/05 §9): surviving it pays twice the held dirty, in clean — the single
+## largest payout in the game, which is what a two-minute federal raid is supposed to be
+## worth. Losing it is the ordinary confiscation, doubled.
+const RICO_CLEAN_PAYOUT := 2.0
+const RICO_CONFISCATE_MULT := 2.0
+const RESPECT_RICO_SURVIVED := 100
 
 var wallet := Wallet.new()
 var heat := HeatMeter.new()
@@ -89,6 +99,10 @@ var elections := Elections.new()
 var heists := Heists.new()
 ## The heist on the table right now, or null (typed loosely — see `boss`).
 var heist: HeistRun = null
+## FEDERAL HEAT (docs/05 §9): the blue stage and the raid waiting at the top of it.
+var federal := FederalHeat.new()
+## EMPIRE MODE (docs/02 §2 R7): the City Hall Circuit and the sixty seconds it lights.
+var empire := EmpireMode.new()
 ## THE COMMISSION (specs/m2-content.md §5): who is waiting, who has been put away, and which
 ## rank the ladder is not allowed past yet.
 var commission := Commission.new()
@@ -308,6 +322,9 @@ func earn_flat_dirty(amount: BigMoney, group: StringName) -> BigMoney:
 
 
 func _book_group(group: StringName, value: BigMoney, base: BigMoney) -> void:
+	# Empire Mode's dividend is a share of what the sixty seconds actually made, so it is
+	# measured here — where every dirty payout, switch or flat, is already passing.
+	empire.book_earned(value)
 	var total: Variant = night_group.get(group, null)
 	night_group[group] = value if not (total is BigMoney) else (total as BigMoney).add(value)
 	var raw: Variant = night_group_base.get(group, null)
@@ -334,7 +351,7 @@ func preview_switch(group: StringName, base_value: BigMoney) -> BigMoney:
 ## which is the point of taking the crew out together.
 func mode_multiplier() -> float:
 	return meeting.dirty_multiplier() * elections.dirty_multiplier() \
-			* GuyTraits.dirty_mult_for(fielded)
+			* empire.dirty_multiplier() * GuyTraits.dirty_mult_for(fielded)
 
 
 ## Dirty booked in one value group tonight, as it landed in the wallet.
@@ -744,6 +761,221 @@ func heist_finished(run: HeistRun) -> Dictionary:
 	return result
 
 
+# ============================================================== federal heat =====
+##
+## docs/03 §4 and docs/05 §9. The second stage of the meter and the raid at the top of it.
+## The red meter under it is the economy core's and is not touched here: `HeatMeter` latches
+## its own raid at 100, and `heat.federal_enabled` only raises that meter's ceiling. What
+## accrues from empire size is `federal.value`, drawn as 100 + itself.
+
+
+## Ledger nodes this career owns. Spoils and relics ride in the same map as pseudo-ids
+## (`spoil.`, `relic.`) and are not empire — the Feds count what you BOUGHT.
+func owned_node_count() -> int:
+	var n := 0
+	for id: Variant in owned:
+		var key := String(id)
+		if key.begins_with(Commission.SPOIL_PREFIX) or key.begins_with("relic."):
+			continue
+		if int(owned[id]) > 0:
+			n += 1
+	return n
+
+
+## Roll call: open the stage at R7 and let the file get thicker.
+func _tick_federal() -> void:
+	federal.enable(rank >= FederalHeat.RANK)
+	heat.federal_enabled = federal.enabled
+	var gained := federal.night_tick(owned_node_count())
+	if gained > 0.0 or federal.rico_pending:
+		federal_changed.emit(federal.night_summary())
+
+
+## Is the next Night the RICO raid? The Count says so, and the NightController builds it.
+func rico_pending() -> bool:
+	return federal.rico_pending
+
+
+## THE VERDICT (docs/05 §9). Survive and it is the single largest payout in the game — twice
+## the held dirty, paid CLEAN, and the whole blue stage comes off. Lose and the confiscation
+## is the ordinary raid's, doubled, and The Count starts suggesting the train.
+func rico_finished(survived: bool, insured: bool = false) -> Dictionary:
+	var result := {
+		"survived": survived,
+		"payout": BigMoney.zero(),
+		"confiscated": BigMoney.zero(),
+		"insured": false,
+		"federal_before": federal.value,
+	}
+	if survived:
+		var payout := wallet.dirty.mul(RICO_CLEAN_PAYOUT)
+		wallet.earn_clean(payout)
+		_book_lifetime_clean(payout)
+		career_raid_survived()
+		result["payout"] = payout
+		add_respect(RESPECT_RICO_SURVIVED, &"rico")
+		mark_reveal_event(&"first_raid_survived")
+	elif insured:
+		# A policy does not cover a federal case; it covers half of one (docs/04 T5).
+		result["insured"] = true
+		result["confiscated"] = wallet.confiscate_dirty(Rates.RAID_CONFISCATE_FRACTION)
+	else:
+		result["confiscated"] = wallet.confiscate_dirty(
+				Rates.RAID_CONFISCATE_FRACTION * RICO_CONFISCATE_MULT)
+	federal.resolve_rico(survived)
+	result["federal"] = federal.value
+	federal_changed.emit(federal.night_summary())
+	save_now()
+	return result
+
+
+# ================================================================ empire mode =====
+##
+## docs/02 §2 R7. The City Hall Circuit lights it; sixty seconds of ×10 and a clean dividend
+## at the end. Re-lightable, because the shot that opens it is the hardest one on the machine
+## and a player who can fly it twice has earned it twice.
+
+
+## Is the crown even reachable? R7 and the dome bought.
+func empire_unlocked() -> bool:
+	return rank >= FederalHeat.RANK or stats.hardware_unlocked(&"city_hall")
+
+
+## One leg of the circuit. Returns true if that closed it and lit the mode.
+func empire_leg(id: StringName) -> bool:
+	if not empire.on_leg(id):
+		empire_changed.emit(empire.state())
+		return false
+	empire.begin()
+	add_respect(EmpireMode.RESPECT_CIRCUIT, &"empire")
+	AudioDirector.play(&"empire_start")
+	AudioDirector.play(&"knocker")
+	AudioDirector.music_set_level(8)
+	empire_changed.emit(empire.state())
+	return true
+
+
+## The sixty seconds are up: the empire pays its dividend, in clean.
+func empire_finished() -> BigMoney:
+	var paid := earn_clean(empire.dividend(), &"empire")
+	empire.book_payout(paid)
+	AudioDirector.play(&"empire_end")
+	AudioDirector.music_set_level(clampi(rank + MUSIC_LEVEL_OFFSET, 0, 8))
+	var state := empire.state()
+	state["paid"] = paid
+	empire_changed.emit(state)
+	return paid
+
+
+## THE FAMILY REUNION (docs/02 §2 R7): at R7, once Empire has been lit tonight, the back room
+## does not send one spare man — it sends everybody.
+func reunion_ready() -> bool:
+	return rank >= FederalHeat.RANK and empire.lit_tonight
+
+
+# ================================================================== SKIP TOWN =====
+##
+## docs/06 §1. The one act in this game that throws a career away on purpose, so it is the
+## one act that has to be exactly what it says: everything below is either kept or lost, and
+## there is no third list.
+
+
+## Offered from R7, and offered early after a RICO raid that did not go your way — never
+## forced (docs/06 §1: "prestige is always the player's choice").
+func skip_town_available() -> bool:
+	return rank >= SkipTown.RANK or federal.raids_lost > 0
+
+
+## What the train is worth and what gets on it, without getting on it. The Count shows this
+## and the player agonizes over the last line, which is the point (docs/06 §1).
+func skip_town_preview() -> Dictionary:
+	var record := career_record()
+	return {
+		"available": skip_town_available(),
+		"juice": SkipTown.juice_for(record),
+		"breakdown": SkipTown.breakdown(record),
+		"city": SkipTown.city_number(),
+		"next_city": SkipTown.city_number() + 1,
+		"keep_candidates": bench.available() if bench != null else [],
+		"start_rank": SkipTown.start_rank(),
+		"stash": wallet.clean.mul(SkipTown.stash_fraction()),
+		"spoils": spoils(),
+		"relics": Array(heists.relics),
+	}
+
+
+## THE ACT. `keep` is the one guy who comes with you; an empty dict means you left alone.
+##
+## Order matters here. The career is SCORED first (the Juice is what the city was worth), the
+## stash is measured off the clean pile before it is burned, and only then is everything torn
+## down — so nothing that pays out is reading a wallet that has already been emptied.
+func skip_town(keep: Dictionary = {}) -> Dictionary:
+	var record := career_record()
+	var result := {
+		"juice": SkipTown.award(record),
+		"breakdown": SkipTown.breakdown(record),
+		"kept": keep.duplicate() if keep != null and not keep.is_empty() else {},
+		"city": SkipTown.city_number(),
+		"farewell": SkipTown.play_farewell(),
+		"stash": wallet.clean.mul(SkipTown.stash_fraction()),
+		"relics": Array(heists.relics),
+	}
+
+	var cities := int(career.get("cities", 0)) + 1
+	var seed_value := session_seed + cities
+	var kept_relics := heists.relics
+	new_game(seed_value)
+	career["cities"] = cities
+
+	# ★ Old Contacts seats the new career; ★ The Stash gives it something to work with. Both
+	# are read once, here, because a Black Book perk is a fact about a city rather than a fold
+	# over one (see game/meta/blackbook.gd).
+	rank = clampi(SkipTown.start_rank(), 0, RANK_RESPECT.size() - 1)
+	if rank > 0:
+		respect = RANK_RESPECT[rank]
+	if (result["stash"] as BigMoney).is_positive():
+		wallet.earn_dirty(result["stash"])
+
+	# The Museum is a shelf, not a racket: relics survive the city that took them.
+	heists.relics = kept_relics
+
+	# `new_game` already filled a bench; this one is dealt at the rank Old Contacts bought,
+	# so the crew in the new city can carry traits from its first Night.
+	bench = Bench.new(seed_value, stats.bench_slots())
+	bench.trait_rank = rank
+	for i in SkipTown.bench_starters():
+		var starter := bench.hire()
+		starter["level"] = maxi(starter.get("level", 0), 1)
+	if not (result["kept"] as Dictionary).is_empty():
+		result["kept"] = _keep_one_guy(result["kept"])
+
+	result["rank"] = rank
+	result["next_city"] = SkipTown.city_number()
+	AudioDirector.music_set_state(&"calm")
+	save_now()
+	return result
+
+
+## He comes with you: same name, same rap sheet, same trait, standing at the front of a bench
+## full of strangers in a city he has never seen. He is dealt a NEW id — the old city's
+## numbering went with the old city, and two guys sharing an id is a bail bug waiting for a
+## Family Meeting.
+func _keep_one_guy(keep: Dictionary) -> Dictionary:
+	var him := bench.hire()
+	for key: String in ["name", "level", "pinches", "nights", "trait"]:
+		if keep.has(key):
+			him[key] = keep[key]
+	him["state"] = Bench.STATE_FREE
+	him["sit_out"] = 0
+	him["from_raid"] = false
+	var roster: Array[Dictionary] = [him]
+	for g in bench.guys:
+		if int(g.get("id", -1)) != int(him.get("id", -2)):
+			roster.append(g)
+	bench.guys = roster
+	return him
+
+
 func _election_state(what: StringName, district: StringName = &"") -> Dictionary:
 	return {
 		"what": String(what),
@@ -993,6 +1225,8 @@ func new_game(seed_value: int = 0) -> void:
 	elections = Elections.new()
 	heists = Heists.new()
 	heist = null
+	federal = FederalHeat.new()
+	empire = EmpireMode.new()
 	career = _blank_career()
 	commission = Commission.new()
 	boss = null
@@ -1029,6 +1263,8 @@ func start_night() -> void:
 	elections.begin_night()
 	elections.night_tick()
 	heist = null
+	empire.begin_night()
+	_tick_federal()
 	wire.begin_night(session_seed, night_no)
 	set_fielded([])
 	_reset_night_tallies()
@@ -1072,6 +1308,8 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["sitdown"] = sitdown.night_summary()
 	s["chairs"] = chairs.night_summary()
 	s["election"] = elections.night_summary()
+	s["federal"] = federal.night_summary()
+	s["empire"] = empire.night_summary()
 	s["heist"] = night_heist.duplicate()
 	# `boss` comes from the NightController — `commission.last_result` is the CAREER's last
 	# fight and would print a week-old front page on an ordinary Night.
@@ -1262,6 +1500,8 @@ func to_dict() -> Dictionary:
 		"chairs": chairs.to_dict(),
 		"elections": elections.to_dict(),
 		"heists": heists.to_dict(),
+		"federal": federal.to_dict(),
+		"empire": empire.to_dict(),
 		"career": _career_to_dict(),
 		"commission": commission.to_dict(),
 		"safe": {
@@ -1324,6 +1564,11 @@ func from_dict(d: Dictionary) -> void:
 	heists = Heists.new()
 	heists.from_dict(d.get("heists", {}))
 	heist = null
+	federal = FederalHeat.new()
+	federal.from_dict(d.get("federal", {}))
+	heat.federal_enabled = federal.enabled
+	empire = EmpireMode.new()
+	empire.from_dict(d.get("empire", {}))
 	_career_from_dict(d.get("career", {}))
 	commission = Commission.new()
 	commission.from_dict(d.get("commission", {}))

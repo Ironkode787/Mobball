@@ -24,6 +24,11 @@ const IMPULSE := 620.0
 var active: bool = false
 var self_driven: bool = false
 var drain_point: Vector2 = Vector2(490.0, 1920.0)
+## How fast the cycle runs. 1.0 is the shipped 6 s beat; the RICO raid's street sweep asks
+## the table for double time (ProgressionTable.set_raid_speed). The *tell* does not shrink
+## with it — see `_telegraph_at()`, because 1.2 s of warning is this piece's whole reason to
+## exist and a raid that reads faster must not also read less.
+var rate: float = 1.0
 
 var _ball: Ball = null
 var _phase: float = 0.0
@@ -54,18 +59,28 @@ func is_telegraphing() -> bool:
 	return _telegraphing
 
 
-## Seconds until the next pull (negative when idle).
+## Seconds until the next pull (negative when idle). Real seconds, whatever `rate` is doing.
 func time_to_pull() -> float:
-	return PERIOD - _phase if active else -1.0
+	return (PERIOD - _phase) / _rate() if active else -1.0
 
 
 ## Push the next pull out to `seconds` from now, cancelling a telegraph that has not earned
 ## its place yet. Two coils under one table must never wind up at once — a player can read
 ## one tell, not two — so the table keeps them apart with this (`set_federal_raid` phase 3).
 func reschedule(seconds: float) -> void:
-	_phase = PERIOD - clampf(seconds, 0.0, PERIOD)
-	_telegraphing = _phase >= PERIOD - TELEGRAPH
+	_phase = PERIOD - clampf(seconds * _rate(), 0.0, PERIOD)
+	_telegraphing = _phase >= _telegraph_at()
 	queue_redraw()
+
+
+func _rate() -> float:
+	return clampf(rate, 0.25, 4.0)
+
+
+## Where in the cycle the warning starts, scaled so the warning itself is always TELEGRAPH
+## *real* seconds long however fast the cycle is running.
+func _telegraph_at() -> float:
+	return maxf(PERIOD - TELEGRAPH * _rate(), PERIOD * 0.2)
 
 
 func pull(b: Ball = null) -> void:
@@ -87,8 +102,8 @@ func _physics_process(delta: float) -> void:
 		queue_redraw()
 	if not active:
 		return
-	_phase += delta
-	if not _telegraphing and _phase >= PERIOD - TELEGRAPH:
+	_phase += delta * _rate()
+	if not _telegraphing and _phase >= _telegraph_at():
 		_telegraphing = true
 		telegraph_started.emit()
 		queue_redraw()
@@ -108,7 +123,8 @@ func _draw() -> void:
 		return
 	var warn := 0.0
 	if _telegraphing:
-		warn = clampf((_phase - (PERIOD - TELEGRAPH)) / TELEGRAPH, 0.0, 1.0)
+		var from := _telegraph_at()
+		warn = clampf((_phase - from) / maxf(PERIOD - from, 0.001), 0.0, 1.0)
 	var glow := maxf(warn, _flash)
 	var col := Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.25 + glow * 0.65)
 	for i in range(3):

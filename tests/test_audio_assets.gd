@@ -129,6 +129,18 @@ const LOOP_FRAMES := 920348
 const LOOP_SECONDS := float(LOOP_FRAMES) / 44100.0
 const LENGTH_TOLERANCE := 0.001     # 1 ms, per spec §6
 
+## docs/08 §7 — city 2, "New Carthage '27": 104 BPM, G minor, its own 8-bar loop, plus
+## the one bed stem a city is allowed. round(44100 * 32 * 60 / 104) frames.
+const CITY2_DIR := "res://assets/audio/music/city2/"
+const CITY2_STEMS: PackedStringArray = [
+	"01_bass", "02_drums", "03_vibes", "04_trumpet",
+	"05_organ", "06_barisax", "07_strings", "08_full",
+	"09_tense", "10_raid_drums", "11_crackle",
+]
+const CITY2_FRAMES := 814154
+const CITY2_SECONDS := float(CITY2_FRAMES) / 44100.0
+const CITY_COUNT := 2
+
 ## The Count's piano is deliberately NOT synced: 55 BPM, 4 bars.
 const COUNT_PIANO := "count_piano"
 const COUNT_FRAMES := 769745
@@ -156,6 +168,8 @@ func run(t: TestCtx) -> void:
 	_test_music_states(t)
 	_test_rico_dropout(t)
 	_test_farewell(t)
+	_test_city2_stems(t)
+	_test_music_set_city(t)
 
 
 ## The 16-bit PCM payload of a committed WAV, read straight off disk.
@@ -1008,4 +1022,123 @@ func _test_farewell(t: TestCtx) -> void:
 	director.music_stop(false)
 	t.ok(not director.is_farewell_playing(), "music_stop() should cancel a running farewell")
 	t.ok(not director.is_music_playing(), "music_stop(false) should still stop immediately")
+	director.stop_all()
+
+
+## docs/08 §7 — the second arrangement. The same eight slots and the same two state
+## layers at a different tempo in a different key, plus the one structural addition a
+## city is allowed: a bed stem. Everything the city-1 stack is held to, city 2 is held
+## to as well, because `music_set_city` swaps one for the other and a stem that is a
+## frame short would drift a beat out of the stack it was swapped into.
+func _test_city2_stems(t: TestCtx) -> void:
+	for stem in CITY2_STEMS:
+		var path := CITY2_DIR + stem + ".ogg"
+		t.ok(ResourceLoader.exists(path), "missing city-2 stem %s" % stem)
+		if not ResourceLoader.exists(path):
+			continue
+		var stream: AudioStream = load(path)
+		t.ok(stream is AudioStreamOggVorbis,
+			"city2/%s did not import as an AudioStreamOggVorbis" % stem)
+		if stream == null:
+			continue
+		t.near(stream.get_length(), CITY2_SECONDS, LENGTH_TOLERANCE,
+			"city2/%s is %.4f s, expected the city's own 8-bar loop at 104 BPM"
+				% [stem, stream.get_length()])
+	# The two cities are different songs: if their loops ever matched, one of them has
+	# been rendered on the other's grid.
+	t.ok(absf(CITY2_SECONDS - LOOP_SECONDS) > 0.5,
+		"city 2 should not share city 1's loop length")
+
+
+## `music_set_city` (docs/08 §7). A city change is a rebuild, not a crossfade — nothing
+## can be sample-locked to a stack it is not part of — so what is worth asserting is that
+## the rebuild happens, that it carries the level and the state across, and that the bed
+## stem behaves like a room rather than like an instrument.
+func _test_music_set_city(t: TestCtx) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var director: Node = tree.root.get_node_or_null("AudioDirector") if tree != null else null
+	if director == null:
+		return
+
+	director.music_stop(false)
+	director.music_start()
+	director.music_set_state(&"calm")
+	director.music_set_level(5)
+	director._process(4.0)
+	t.eq(director.music_city(), 0, "the launch city should be city 0")
+	var first: AudioStreamPlayer = director.get_node_or_null("Music")
+	var first_id := first.get_instance_id()
+	t.eq((first.stream as AudioStreamSynchronized).stream_count, SYNCED_STEMS.size(),
+		"city 1 has no bed stem: ten streams, not eleven")
+
+	director.music_set_city(1)
+	t.eq(director.music_city(), 1, "music_set_city(1) did not take")
+	t.eq(director.music_level(), 5, "the level should survive a city change")
+	t.eq(String(director.music_state()), "calm", "the state should survive a city change")
+	var second: AudioStreamPlayer = director.get_node_or_null("Music")
+	t.ok(second != null, "the new city should have built a Music player")
+	if second == null:
+		return
+	t.ok(second.get_instance_id() != first_id,
+		"a city change must rebuild the player — the two cities are different songs")
+	var sync: AudioStreamSynchronized = second.stream as AudioStreamSynchronized
+	t.eq(sync.stream_count, CITY2_STEMS.size(),
+		"city 2 puts its bed on the same synchronized player: eleven streams")
+
+	# The stack comes up on the level the game asked for, and the bed comes up with it.
+	director._process(4.0)
+	for i in SYNCED_STEMS.size():
+		t.near(sync.get_sync_stream_volume(i), 0.0 if i < 5 else -80.0, 0.01,
+			"city 2 should come up at the level city 1 was on (%s)" % CITY2_STEMS[i])
+	var bed: int = CITY2_STEMS.size() - 1
+	t.near(sync.get_sync_stream_volume(bed), 0.0, 0.01,
+		"the bed plays whenever the band plays")
+
+	# It is the room, not a player: Heat and a raid do not touch it...
+	for state in ["hot", "raid"]:
+		director.music_set_state(StringName(state))
+		director._process(4.0)
+		t.near(sync.get_sync_stream_volume(bed), 0.0, 0.01,
+			"the record keeps turning through %s" % state)
+	# ...but the Count is a different record, and stopping stops it.
+	director.music_set_state(&"count")
+	director._process(4.0)
+	t.near(sync.get_sync_stream_volume(bed), -80.0, 0.01, "the Count is not this record")
+	director.music_set_state(&"calm")
+	director.music_set_level(0)
+	director._process(4.0)
+	t.near(sync.get_sync_stream_volume(bed), -80.0, 0.01,
+		"a band nobody has hired yet has no record either")
+
+	# The wiretap takes it with everything else, and the last cut leaves only the bass.
+	director.music_set_level(5)
+	director._process(4.0)
+	director.rico_dropout(2)
+	t.near(sync.get_sync_stream_volume(bed), 0.0, 0.01,
+		"the second cut takes the comfort stems, not the room")
+	director.rico_dropout(3)
+	t.near(sync.get_sync_stream_volume(bed), -80.0, 0.01,
+		"the last cut leaves the heartbeat and nothing else")
+	director.rico_dropout(0)
+	director._process(4.0)
+
+	# Out of range clamps, and asking for the city you are already in does nothing.
+	var same := (director.get_node_or_null("Music") as AudioStreamPlayer).get_instance_id()
+	director.music_set_city(1)
+	t.eq((director.get_node_or_null("Music") as AudioStreamPlayer).get_instance_id(), same,
+		"re-entering the same city should not rebuild anything")
+	director.music_set_city(99)
+	t.eq(director.music_city(), CITY_COUNT - 1, "a city past the end should clamp")
+	director.music_set_city(-5)
+	t.eq(director.music_city(), 0, "a city below zero should clamp to the launch city")
+
+	# And the farewell owns the stack while it runs: you cannot leave a city in the
+	# middle of the sound of leaving it.
+	director.music_set_level(4)
+	director._process(4.0)
+	director.play_farewell()
+	director.music_set_city(1)
+	t.eq(director.music_city(), 0, "music_set_city should be refused mid-farewell")
+	director.farewell_stop()
+	director.music_stop(false)
 	director.stop_all()

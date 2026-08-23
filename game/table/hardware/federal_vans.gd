@@ -68,9 +68,9 @@ func _draw_beam(from: Vector2, swing: float) -> void:
 	draw_colored_polygon(PackedVector2Array([
 		from - side * 12.0, from + side * 12.0,
 		tip + side * 130.0, tip - side * 130.0,
-	]), Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g, Feel.COL_NEWSPRINT.b, 0.055))
+	]), Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g, Feel.COL_NEWSPRINT.b, 0.09))
 	draw_line(from, from + dir * 120.0,
-			Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g, Feel.COL_NEWSPRINT.b, 0.16), 6.0)
+			Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g, Feel.COL_NEWSPRINT.b, 0.24), 6.0)
 
 
 func _draw_van(at: Vector2) -> void:

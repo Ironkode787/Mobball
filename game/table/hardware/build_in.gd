@@ -113,7 +113,16 @@ func _process(delta: float) -> void:
 ## A rough bounding box for anything with colliders under it, in this node's space. Hardware
 ## draws itself from its own numbers and has no shared "extent" call, so the scaffold is sized
 ## off the physics instead — which is the thing the player is about to start hitting.
+##
+## A piece with no colliders at all (City Hall is a painting and a wireform) has nothing to
+## measure, so it may name its own box with `build_rect()`; without one the fallback would put
+## the crew at the node's origin, which for a piece that draws in table space is the corner of
+## the machine.
 static func approx_rect(node: Node2D) -> Rect2:
+	if node.has_method(&"build_rect"):
+		var named: Variant = node.call(&"build_rect")
+		if named is Rect2 and (named as Rect2).size.x > 0.0:
+			return named
 	var out := Rect2()
 	var any := false
 	for shape: CollisionShape2D in _collision_shapes(node):

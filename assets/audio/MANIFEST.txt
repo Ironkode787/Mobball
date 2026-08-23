@@ -195,6 +195,34 @@ step inside the file, measured on the DECODED Vorbis. Below 1.0 means the join i
 quieter than ordinary programme material, i.e. inaudible. 99_preview_full is the
 calm eight summed, for listening checks only — the game never loads it.
 
+MUSIC — assets/audio/music/city2/*.ogg  (44.1 kHz, Vorbis q0.6, stereo)
+'New Carthage 27' — 104 BPM, G minor, 8-bar loop, 814154 frames (18.4615 s) each.
+Chords: bars 1-2 Gm6 | 3-4 Cm7 | 5 Eb7 | 6 D7 | 7 Gm6 | 8 D7 — city 1's shape
+a fourth up, so the player's ear keeps what it learned (docs/08 §7).
+The same eight slots hold a hot jazz combo: tuba, trap kit with woodblock,
+banjo, plunger cornet, stride piano, clarinet, tailgate trombones, stop-time
+tutti. 11_crackle is the one structural addition and is city-2 only — the
+Victrola itself, a bed the director plays whenever anything plays, because the
+record does not stop turning when the band stops playing. Every stem goes
+through a recording horn (175 Hz - 3.5 kHz plus its own resonances) and carries
+a wow curve locked to a whole number of turntable revolutions per loop.
+There is no city-2 count piano: the Count borrows city 1's rather than counting
+the take in silence.
+------------------------------------------------------------------------------
+file                     frames      dur  peak dB    LUFS  centroid   seam     KiB
+01_bass.ogg              814154  18.462s    -7.17   -20.5      533Hz   0.08   137.9
+02_drums.ogg             814154  18.462s    -3.11   -20.1     1846Hz   0.13   266.6
+03_vibes.ogg             814154  18.462s    -7.67   -25.5     1801Hz   0.01   244.2
+04_trumpet.ogg           814154  18.462s   -14.66   -23.0     1797Hz   0.11   264.2
+05_organ.ogg             814154  18.462s   -15.88   -26.5      949Hz   0.16   191.2
+06_barisax.ogg           814154  18.462s   -14.61   -24.9     1394Hz   0.21   190.5
+07_strings.ogg           814154  18.462s   -14.94   -26.5     1031Hz   0.02   184.8
+08_full.ogg              814154  18.462s   -10.13   -23.0     1146Hz   0.71   239.8
+09_tense.ogg             814154  18.462s    -9.06   -24.0     1100Hz   0.05   246.4
+10_raid_drums.ogg        814154  18.462s    -2.73   -19.0     1114Hz   0.57   238.4
+11_crackle.ogg           814154  18.462s   -21.37   -33.1     5355Hz   0.48   432.0
+subtotal                                                                    2636.1
+
 BASS TUNING — Karplus-Strong loop verified by autocorrelation (worst 0.21 cents, tolerance 5)
 ------------------------------------------------------------------------------
 D2     73.42->   73.42Hz +0.09c  F2     87.31->   87.31Hz +0.13c  A2    110.00->  110.01Hz +0.19c
@@ -214,4 +242,4 @@ skill_shot_ding  1760.00-> 1759.74Hz -0.26c  tilt_warning     1046.50-> 1045.67H
 staircase_crest  2349.32-> 2349.36Hz +0.03c  dome_loop        1174.66-> 1174.59Hz -0.10c
 skip_town         146.83->  146.84Hz +0.08c
 
-TOTAL COMMITTED AUDIO: 13.81 MiB (85 SFX + 27 voice + 12 music files), budget 32 MiB
+TOTAL COMMITTED AUDIO: 16.39 MiB (85 SFX + 27 voice + 23 music files), budget 32 MiB

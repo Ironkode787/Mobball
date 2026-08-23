@@ -206,7 +206,7 @@ const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
 ## How dirty the felt goes. The M1 raid's 0.12 is a shipped, tuned number and stays exactly
 ## what it was; the federal stages are denser passes of the same ink.
 const RAID_TINT := 0.12
-const FEDERAL_TINT: PackedFloat32Array = [0.0, 0.18, 0.23, 0.29]
+const FEDERAL_TINT: PackedFloat32Array = [0.0, 0.16, 0.20, 0.25]
 
 # ---------------------------------------------------------------- the briefcase (M3)
 ## Where a case may be put down. Three spots on the main field, each of them more than a ball
@@ -1081,6 +1081,8 @@ func _apply_raid_hardware() -> void:
 		c.set_hardware_active(on)
 		c.set_marked(false)
 	magnet.set_active(on)
+	if not on:
+		set_raid_speed(1.0)          # a siege does not leave its clock behind
 	queue_redraw()
 
 
@@ -1094,13 +1096,29 @@ func _keep_magnets_apart() -> void:
 	var waiting := director if winding == magnet else magnet
 	if not winding.is_telegraphing():
 		return
-	if waiting.time_to_pull() < winding.time_to_pull() + MAGNET_MIN_GAP:
-		waiting.reschedule(winding.time_to_pull() + MAGNET_MIN_GAP)
+	# Half a cycle apart is the aim; when the raid is running at double time that is more
+	# room than the cycle has, so take what there is — still a clear tell's worth.
+	var gap := minf(MAGNET_MIN_GAP,
+			DrainMagnet.PERIOD / maxf(waiting.rate, 0.25) * 0.45)
+	if waiting.time_to_pull() < winding.time_to_pull() + gap:
+		waiting.reschedule(winding.time_to_pull() + gap)
 
 
 ## Fire the Captain's magnet now (flow drives the schedule; see DrainMagnet.self_driven).
 func magnet_pull() -> void:
 	magnet.pull(ball)
+
+
+## Run the raid's hardware at `scale` times its usual pace — the RICO raid's street sweep
+## asks for double time (game/flow/rico.gd `SWEEP_SPEED`). The cops are furniture and have no
+## clock of their own, so what "faster" means on this table is the coils: the same 1.2 s tell,
+## arriving twice as often. Clamped, and 1.0 puts it back.
+func set_raid_speed(scale: float) -> void:
+	var rate := clampf(scale, 0.25, 4.0)
+	if magnet != null:
+		magnet.rate = rate
+	if director != null:
+		director.rate = rate
 
 
 # ================================================================ the briefcase =====

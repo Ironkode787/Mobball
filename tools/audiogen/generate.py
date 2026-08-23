@@ -22,7 +22,7 @@ if __package__ in (None, ""):                      # allow `python3 tools/audiog
 	sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 	__package__ = "audiogen"
 
-from . import music, sfx, voice  # noqa: E402
+from . import city2, music, sfx, voice  # noqa: E402
 from . import theory as th  # noqa: E402
 from .analysis import (  # noqa: E402
 	describe, loop_report, lufs_integrated, partial_hz, peak_db, pitch_autocorr, sanity,
@@ -309,6 +309,37 @@ def render_music(out_dir: Path) -> tuple[list[dict], np.ndarray]:
 # ---------------------------------------------------------------- verification
 
 
+def render_city2(out_dir: Path) -> list[dict]:
+	"""The second stem set (docs/08 §7) — same 8 slots, its own tempo, key and band.
+
+	Held to exactly the discipline city 1 is held to: every synced stem is the same
+	number of frames as every other, the Vorbis has to decode back to that count, and
+	the loop seam is measured on the decoded audio rather than assumed.
+	"""
+	rows: list[dict] = []
+	for name in city2.SYNCED_STEM_NAMES:
+		stereo = city2.render_stem(name)
+		if stereo.shape[0] != city2.LOOP_FRAMES:
+			raise Failure(f"city2/{name}: {stereo.shape[0]} frames, "
+			              f"expected {city2.LOOP_FRAMES}")
+		issues = sanity(stereo)
+		if issues:
+			raise Failure(f"city2/{name}: {', '.join(issues)}")
+		info, decoded = write_ogg(out_dir / f"{name}.ogg", stereo)
+		if decoded.shape[0] != city2.LOOP_FRAMES:
+			raise Failure(f"city2/{name}: decoded to {decoded.shape[0]} frames, "
+			              f"expected {city2.LOOP_FRAMES} — Vorbis padding broke the loop")
+		_check_seam(f"city2/{name}", info)
+		rows.append(info)
+		print(f"  c2   {name:<14} {info['seconds']:6.3f}s  peak {info['peak_db']:6.2f} dB  "
+		      f"LUFS {info['lufs']:6.1f}  centroid {info['centroid_hz']:6.0f} Hz  "
+		      f"seam {info['wrap_ratio']:4.2f}x  {info['bytes'] / 1024:6.1f} KiB")
+	lengths = {r["name"]: r["frames"] for r in rows}
+	if len(set(lengths.values())) != 1:
+		raise Failure(f"city2 stems differ in length: {lengths}")
+	return rows
+
+
 def verify_bass_tuning() -> list[tuple[str, float, float, float]]:
 	"""Every note of the walking line, synthesised in isolation and pitch-measured.
 
@@ -418,7 +449,8 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
                    tuning: list[tuple[str, float, float, float]],
                    sfx_tuning: list[tuple[str, float, float, float]],
                    voice_rows: list[dict],
-                   layers: list[tuple[str, tuple[float, float, float]]]) -> None:
+                   layers: list[tuple[str, tuple[float, float, float]]],
+                   city2_rows: list[dict]) -> None:
 	lines: list[str] = []
 	add = lines.append
 	add("KINGPIN — generated audio manifest")
@@ -528,6 +560,32 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 		add("calm eight summed, for listening checks only — the game never loads it.")
 		add("")
 
+	if city2_rows:
+		add(f"MUSIC — assets/audio/music/city2/*.ogg  (44.1 kHz, Vorbis q{1.0 - VORBIS_COMPRESSION:.1f}, stereo)")
+		add(f"'New Carthage 27' — {city2.BPM:.0f} BPM, G minor, 8-bar loop, "
+		    f"{city2.LOOP_FRAMES} frames ({city2.LOOP_SECONDS:.4f} s) each.")
+		add("Chords: bars 1-2 Gm6 | 3-4 Cm7 | 5 Eb7 | 6 D7 | 7 Gm6 | 8 D7 — city 1's shape")
+		add("a fourth up, so the player's ear keeps what it learned (docs/08 §7).")
+		add("The same eight slots hold a hot jazz combo: tuba, trap kit with woodblock,")
+		add("banjo, plunger cornet, stride piano, clarinet, tailgate trombones, stop-time")
+		add("tutti. 11_crackle is the one structural addition and is city-2 only — the")
+		add("Victrola itself, a bed the director plays whenever anything plays, because the")
+		add("record does not stop turning when the band stops playing. Every stem goes")
+		add("through a recording horn (175 Hz - 3.5 kHz plus its own resonances) and carries")
+		add("a wow curve locked to a whole number of turntable revolutions per loop.")
+		add("There is no city-2 count piano: the Count borrows city 1's rather than counting")
+		add("the take in silence.")
+		add("-" * 78)
+		add(f"{'file':<22}{'frames':>9}{'dur':>9}{'peak dB':>9}{'LUFS':>8}"
+		    f"{'centroid':>10}{'seam':>7}{'KiB':>8}")
+		for r in city2_rows:
+			add(f"{r['name']:<22}{r['frames']:9d}{r['seconds']:8.3f}s{r['peak_db']:9.2f}"
+			    f"{r['lufs']:8.1f}{r['centroid_hz']:9.0f}Hz{r['wrap_ratio']:7.2f}"
+			    f"{r['bytes'] / 1024:8.1f}")
+		total = sum(r["bytes"] for r in city2_rows)
+		add(f"{'subtotal':<22}{'':>9}{'':>9}{'':>9}{'':>8}{'':>10}{'':>7}{total / 1024:8.1f}")
+		add("")
+
 	if tuning:
 		worst = max(abs(c) for _, _, _, c in tuning)
 		add(f"BASS TUNING — Karplus-Strong loop verified by autocorrelation "
@@ -560,9 +618,10 @@ def write_manifest(path: Path, sfx_rows: list[dict], music_rows: list[dict],
 			add("  ".join(row))
 		add("")
 
-	grand = sum(r["bytes"] for r in sfx_rows + voice_rows + music_rows)
+	grand = sum(r["bytes"] for r in sfx_rows + voice_rows + music_rows + city2_rows)
 	add(f"TOTAL COMMITTED AUDIO: {grand / 1024 / 1024:.2f} MiB "
-	    f"({len(sfx_rows)} SFX + {len(voice_rows)} voice + {len(music_rows)} music files), "
+	    f"({len(sfx_rows)} SFX + {len(voice_rows)} voice + "
+	    f"{len(music_rows) + len(city2_rows)} music files), "
 	    f"budget {SIZE_BUDGET_MB:.0f} MiB")
 	path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -583,6 +642,7 @@ def main(argv: list[str] | None = None) -> int:
 	sfx_rows: list[dict] = []
 	voice_rows: list[dict] = []
 	music_rows: list[dict] = []
+	city2_rows: list[dict] = []
 	tuning: list[tuple[str, float, float, float]] = []
 	sfx_tuning: list[tuple[str, float, float, float]] = []
 	layers: list[tuple[str, tuple[float, float, float]]] = []
@@ -625,6 +685,11 @@ def main(argv: list[str] | None = None) -> int:
 			verify_stem_lengths(out / "music" / "city1")
 			print(f"  combined mix: {lufs_integrated(mix, SR):.1f} LUFS "
 			      f"(pre-limiter), peak {peak_db(mix):.2f} dB")
+
+			print(f"city 2 -> {out / 'music' / 'city2'}  "
+			      f"({city2.LOOP_FRAMES} frames / {city2.LOOP_SECONDS:.4f} s per stem, "
+			      f"{city2.BPM:.0f} BPM)")
+			city2_rows = render_city2(out / "music" / "city2")
 	except Failure as exc:
 		print(f"\nFAILED: {exc}", file=sys.stderr)
 		return 1
@@ -632,9 +697,10 @@ def main(argv: list[str] | None = None) -> int:
 	elapsed = time.time() - started
 	manifest = out / "MANIFEST.txt"
 	if args.only is None:
-		write_manifest(manifest, sfx_rows, music_rows, tuning, sfx_tuning, voice_rows, layers)
+		write_manifest(manifest, sfx_rows, music_rows, tuning, sfx_tuning, voice_rows,
+		               layers, city2_rows)
 		print(f"\nmanifest -> {manifest}")
-	total = sum(r["bytes"] for r in sfx_rows + voice_rows + music_rows)
+	total = sum(r["bytes"] for r in sfx_rows + voice_rows + music_rows + city2_rows)
 	print(f"total committed audio: {total / 1024 / 1024:.2f} MiB in {elapsed:.1f} s")
 	if total > SIZE_BUDGET_MB * 1024 * 1024:
 		print(f"FAILED: over the {SIZE_BUDGET_MB:.0f} MiB budget", file=sys.stderr)

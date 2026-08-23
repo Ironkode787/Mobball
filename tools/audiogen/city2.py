@@ -38,6 +38,10 @@ the seam — so instead the speed variation is baked into each note at synthesis
 one global curve with a whole number of cycles per loop. A note that rings past the last
 bar reads the curve past the loop end, where it is exactly the curve at the head: the
 fold is still exact, and the whole band wows together the way one turntable makes it.
+The voices written here take the curve *inside* the note and wobble; the cornet borrows
+city 1's muted-trumpet voice, which is built around a fixed frequency, so it takes the
+curve's average over the note instead — which is most of what wow does to a melody
+anyway: every note lands a few cents from where it was played.
 """
 
 from __future__ import annotations
@@ -48,10 +52,9 @@ from . import music
 from . import theory as th
 from .music import _level_to, _place, piano_note
 from .synth import (
-	SR, add_at, asr_env, bandpass, bl_pulse, bl_saw, blend, circular_bandpass, comb_ff,
-	db2lin, dc_remove, exp_decay, expline, fold_tail, formants, highpass, karplus_strong,
-	lowpass, modal, n_of, noise, perc_env, phase_of, rng, stereo_room, sweep_filter,
-	t_axis, unit, widen,
+	SR, add_at, asr_env, bandpass, bl_pulse, bl_saw, blend, circular_bandpass, dc_remove,
+	exp_decay, expline, fold_tail, formants, highpass, karplus_strong, lowpass, modal,
+	n_of, noise, perc_env, phase_of, rng, stereo_room, t_axis, unit, widen,
 )
 
 # ------------------------------------------------------------------------- grid
@@ -160,13 +163,18 @@ def wow(start: int, n: int) -> np.ndarray:
 	return 2.0 ** ((WOW_CENTS / 1200.0) * curve)
 
 
-def horn(x: np.ndarray, presence: float = 1.0) -> np.ndarray:
+def horn(x: np.ndarray, presence: float = 1.0, low_hz: float = 175.0) -> np.ndarray:
 	"""The recording horn: a band, three resonances and a little wax compression.
 
 	Linear and time-invariant apart from the tanh, which is memoryless — so both are
 	safe on either side of the loop fold.
+
+	`low_hz` is 175 for everything except the two stems that carry the bottom of the mix
+	(the tuba and the raid kit), which get 120. A wax side really did stop at about 175 Hz
+	and a literal corner there leaves a phone speaker with nothing at all to move: this is
+	the one place in the city where the device wins over the era.
 	"""
-	y = highpass(x, 175.0, order=2)
+	y = highpass(x, low_hz, order=2)
 	y = lowpass(y, 3500.0, order=4)
 	y = y + presence * 0.55 * formants(y, [(680.0, 3.0, 1.00), (1850.0, 4.0, 0.70),
 	                                       (2800.0, 5.0, 0.40)])
@@ -176,11 +184,12 @@ def horn(x: np.ndarray, presence: float = 1.0) -> np.ndarray:
 
 def _finish_stem(left: np.ndarray, right: np.ndarray, presence: float = 1.0,
                  wet: float = 0.14, rt60: float = 0.85, predelay: float = 0.014,
-                 damp_hz: float = 4200.0) -> tuple[np.ndarray, np.ndarray]:
-	"""Room, then the horn, then the DC trap. Every stem in the city ends here."""
+                 damp_hz: float = 4200.0,
+                 low_hz: float = 175.0) -> tuple[np.ndarray, np.ndarray]:
+	"""Room, then the horn. Every stem in the city ends here."""
 	left, right = stereo_room(left, right, wet=wet, rt60=rt60, predelay=predelay,
 	                          damp_hz=damp_hz)
-	return horn(left, presence), horn(right, presence)
+	return horn(left, presence, low_hz), horn(right, presence, low_hz)
 
 
 # ------------------------------------------------------------------ instruments
@@ -376,7 +385,8 @@ def stem_tuba() -> tuple[np.ndarray, np.ndarray]:
 		f = th.freq(name, _detune(gen, 2.5))
 		at = start + int(gen.integers(-70, 70))
 		place(left, right, tuba_note(f, n, vel, gen, at), at, 1.0, -0.04)
-	return _finish_stem(left, right, presence=0.7, wet=0.10, rt60=0.70, damp_hz=3000.0)
+	return _finish_stem(left, right, presence=0.7, wet=0.10, rt60=0.70, damp_hz=3000.0,
+	                    low_hz=120.0)
 
 
 def stem_kit() -> tuple[np.ndarray, np.ndarray]:
@@ -411,9 +421,16 @@ def stem_banjo() -> tuple[np.ndarray, np.ndarray]:
 	ring = n_of(0.52)
 	for bar in range(1, BARS + 1):
 		voicing = voicing_of_bar(bar)
-		for beat, vel in ((1.0, 0.92), (2.0, 1.00), (3.0, 0.88), (4.0, 1.00)):
+		# Four to the bar, plus a lift on the "and" of 4 every other bar. The lift is
+		# what a banjo player does to push into the next bar, and it is also what keeps
+		# the loop point ringing: bar 8's lands a swung eighth before the seam, so the
+		# head of the loop opens on a chord that is already sounding.
+		chunks = [(1.0, 0.92), (2.0, 1.00), (3.0, 0.88), (4.0, 1.00)]
+		if bar % 2 == 0:
+			chunks.append((4.5, 0.68))
+		for beat, vel in chunks:
 			base = beat_sample(bar_beat(bar, beat)) + int(gen.integers(-60, 60))
-			up = beat in (2.0, 4.0)
+			up = beat in (2.0, 4.0, 4.5)
 			for i, name in enumerate(voicing):
 				# down-strokes run low to high, up-strokes high to low: that alternation
 				# is the whole rhythmic engine of a four-string banjo.
@@ -581,7 +598,8 @@ def stem_raid_kit() -> tuple[np.ndarray, np.ndarray]:
 			place(left, right, music._tom(music.TOM_HZ[voice], tom_n, gen, vel), at,
 			      0.46, music.TOM_PAN[voice])
 	left, right = widen(left, right, 0.18)
-	return _finish_stem(left, right, presence=1.0, wet=0.15, rt60=1.05, damp_hz=6000.0)
+	return _finish_stem(left, right, presence=1.0, wet=0.15, rt60=1.05, damp_hz=6000.0,
+	                    low_hz=120.0)
 
 
 def stem_crackle() -> tuple[np.ndarray, np.ndarray]:

@@ -39,6 +39,11 @@ var _collect: Label = null
 var _meeting: Label = null
 var _casino: Label = null
 var _boss: Label = null
+var _federal: Label = null
+var _empire: Label = null
+var _heist: Label = null
+var _docks: Label = null
+var _city: Label = null
 ## Manny's collect, flashed for a beat so an off-screen earner is still visible.
 var _flash: String = ""
 var _flash_left: float = 0.0
@@ -126,7 +131,7 @@ func _build_modes() -> void:
 	_modes.offset_left = 26.0
 	_modes.offset_right = -26.0
 	_modes.offset_top = MODES_TOP
-	_modes.offset_bottom = MODES_TOP + MODE_H * 5.0
+	_modes.offset_bottom = MODES_TOP + MODE_H * 10.0
 	_modes.add_theme_constant_override("separation", 2)
 	_modes.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_modes)
@@ -137,6 +142,13 @@ func _build_modes() -> void:
 	_collect = _add_mode(Feel.COL_CLEAN)
 	_wire = _add_mode(Feel.COL_NEWSPRINT.darkened(0.2))
 	_casino = _add_mode(Color("FF2E63"))
+	# M3. The endgame lines sit under the M2 ones, in the order they matter when several are
+	# live at once: the Feds first (they are the whole Night), then the crown, then the job.
+	_federal = _add_mode(Color("6EA8FF"))
+	_empire = _add_mode(Color("FFD166"))
+	_heist = _add_mode(Color("9BE7A0"))
+	_docks = _add_mode(Color("C98A5E"))
+	_city = _add_mode(Color("E0C36B"))
 
 
 func _add_mode(color: Color) -> Label:
@@ -202,6 +214,11 @@ func _update_modes() -> void:
 	_set_mode(_collect, _collection_text())
 	_set_mode(_wire, _wire_text())
 	_set_mode(_casino, _casino_text())
+	_set_mode(_federal, _federal_text())
+	_set_mode(_empire, _empire_text())
+	_set_mode(_heist, _heist_text())
+	_set_mode(_docks, _docks_text())
+	_set_mode(_city, _city_text())
 
 
 ## The fight, when there is one: who, which phase, and what he is doing to you right now.
@@ -219,8 +236,9 @@ func _boss_text() -> String:
 
 func _meeting_text() -> String:
 	if Game.meeting.active:
-		return "FAMILY MEETING   ·   ALL DIRTY x%d   ·   BACK ROOM %s" \
-				% [int(FamilyMeeting.DIRTY_MULT),
+		return "%s   ·   ALL DIRTY x%d   ·   BACK ROOM %s" \
+				% ["FAMILY REUNION" if Game.meeting.is_reunion() else "FAMILY MEETING",
+					int(Game.meeting.dirty_multiplier()),
 					Game.meeting.jackpot_value(Game.stats.idle_rate_total()).text()]
 	if Game.meeting.lit:
 		return "BACK ROOM LIT   ·   FAMILY MEETING READY"
@@ -263,6 +281,85 @@ func _casino_text() -> String:
 		return "HIGH ROLLER   ·   NEXT BET x%d" % int(armed)
 	if Game.casino.loss_streak >= Casino.CasinoRules.COOLER_STREAK:
 		return "THE COOLER GOT FIRED   ·   NEXT WIN PAYS MORE"
+	return ""
+
+
+# --- the endgame lines (M3) ---------------------------------------------------
+
+
+## THE RICO RAID and the blue meter (docs/05 §9). During the wiretap phase this line is one
+## of the redundancy channels the audio is deliberately not: it says the phase in words while
+## the mix is being taken apart (docs/08 §6).
+func _federal_text() -> String:
+	var live := Game.night as NightController
+	var raid: RicoRaid = null
+	if live != null and is_instance_valid(live):
+		raid = live.rico
+	if raid != null and is_instance_valid(raid) and raid.active:
+		var wire := "" if raid.wiretap_step <= 0 \
+				else "   ·   WIRES CUT %d/%d" % [raid.wiretap_step, AudioDirector.RICO_STEPS]
+		return "R I C O   ·   PHASE %d/%d %s   ·   %ds%s" % [raid.phase, RicoRaid.PHASES,
+				raid.phase_line(), int(ceilf(maxf(raid.time_left, 0.0))), wire]
+	if not Game.federal.enabled:
+		return ""
+	if Game.federal.rico_pending:
+		return "FEDERAL %d   ·   THEY ARE AT THE DOOR" % int(round(Game.federal.meter_value()))
+	if Game.federal.value <= 0.0:
+		return ""
+	var nights := Game.federal.nights_to_rico(Game.owned_node_count())
+	var eta := "" if nights < 0 else "   ·   %d NIGHT%s" % [nights, "" if nights == 1 else "S"]
+	return "FEDERAL %d/200%s" % [int(round(Game.federal.meter_value())), eta]
+
+
+## EMPIRE MODE and the circuit that lights it (docs/02 §2 R7).
+func _empire_text() -> String:
+	if Game.empire.active:
+		return "E M P I R E   ·   EVERYTHING x%d   ·   %ds" \
+				% [int(EmpireMode.DIRTY_MULT), int(ceilf(maxf(Game.empire.time_left, 0.0)))]
+	if Game.empire.leg <= 0:
+		return ""
+	return "CITY HALL CIRCUIT   ·   %d/%d   ·   NEXT: %s" % [Game.empire.leg,
+			EmpireMode.LEGS.size(), String(Game.empire.next_leg()).to_upper()]
+
+
+## The heist checklist: one beat at a time, which is how the crew is reading it too.
+func _heist_text() -> String:
+	var job := Game.heist
+	if job == null or not job.active:
+		return ""
+	var blown := "" if job.blown <= 0 else "   ·   %d BLOWN" % job.blown
+	return "%s   ·   %d/%d %s %d/%d   ·   %ds%s" % [job.target_name, job.beat_index + 1,
+			job.beats().size(), String(job.beat().get("line", "")), job.beat_hits,
+			int(job.beat().get("count", 1)), int(ceilf(maxf(job.time_left, 0.0))), blown]
+
+
+## The smuggling window and the Sit-Down's freeze — the two things the Docks and the
+## Penthouse do to a Night.
+func _docks_text() -> String:
+	if Game.sitdown.active:
+		return "SIT-DOWN   ·   HEAT FROZEN   ·   %ds" \
+				% int(ceilf(maxf(Game.sitdown.time_left, 0.0)))
+	if not Game.smuggling.active:
+		return ""
+	var truck := "   ·   ON THE TRUCK x2" if Game.smuggling.hot else ""
+	return "SHIPMENT   ·   %d/%d STACKS   ·   %ds%s" % [Game.smuggling.cleared_count(),
+			SmugglingRun.STACKS, int(ceilf(maxf(Game.smuggling.time_left, 0.0))), truck]
+
+
+## The campaign, the ballot and the term (docs/05 §8), plus the room that unlocks them.
+func _city_text() -> String:
+	if Game.elections.active:
+		return "ELECTION NIGHT   ·   %d/%d VOTES   ·   %ds" % [Game.elections.votes,
+				Elections.VOTES_TO_WIN, int(ceilf(maxf(Game.elections.time_left, 0.0)))]
+	if Game.elections.in_office():
+		return "CITY HALL   ·   %d NIGHT%s LEFT" % [Game.elections.term_left,
+				"" if Game.elections.term_left == 1 else "S"]
+	if Game.elections.unlocked:
+		return "THE CAMPAIGN   ·   %d/%d DISTRICTS" \
+				% [Game.elections.lit_count(), Elections.DISTRICTS.size()]
+	if Game.chairs.claimed_count() > 0 and not Game.chairs.all_claimed():
+		return "THE COMMISSION   ·   %d/%d CHAIRS" \
+				% [Game.chairs.claimed_count(), CommissionChairs.CHAIRS]
 	return ""
 
 

@@ -10,6 +10,13 @@ extends RefCounted
 
 ## ALL dirty doubles while two guys are working (spec §4).
 const DIRTY_MULT := 2.0
+## THE FAMILY REUNION (docs/02 §2 R7): at R7, with Empire lit once tonight, the back room
+## puts the whole crew on the table instead of one spare man. Every Meeting rule scales with
+## the count — five guys working is ×5 on all dirty, because five guys working IS the mode.
+const REUNION_GUYS := 5
+## Graces are staggered so five balls do not all come off the save window on the same frame,
+## which is how a Reunion turns into an empty table in one second.
+const REUNION_SAVE_STAGGER := 1.6
 ## Grace after the second ball joins. Spec §4 gives it to BOTH balls: the player did not ask
 ## for the extra ball to arrive mid-shot.
 const BALL_SAVE_SECONDS := 8.0
@@ -26,6 +33,13 @@ var lit: bool = false
 var active: bool = false
 ## The second guy, while the Meeting runs.
 var guy: Dictionary = {}
+## Everybody out there for this Meeting, the guy on the primary ball included. One entry for
+## an ordinary two-ball Meeting (the spare man); four for a Reunion.
+var extra_guys: Array[Dictionary] = []
+## How many guys the Meeting was called for: 2 normally, REUNION_GUYS for a Reunion.
+var size: int = 2
+var reunions_total: int = 0
+var night_reunions: int = 0
 ## Casino Jackpots so far tonight (the lighting condition re-arms every Night).
 var jackpots_tonight: int = 0
 ## Back-room jackpots paid inside the CURRENT meeting — the growth exponent.
@@ -42,10 +56,13 @@ var night_paid: BigMoney = BigMoney.zero()
 func begin_night() -> void:
 	active = false
 	guy = {}
+	extra_guys = []
+	size = 2
 	payouts = 0
 	jackpots_tonight = 0
 	night_meetings = 0
 	night_jackpots = 0
+	night_reunions = 0
 	night_paid = BigMoney.zero()
 
 
@@ -79,24 +96,46 @@ func can_start(club_owned: bool) -> bool:
 
 
 func start(second_guy: Dictionary) -> void:
+	start_with([second_guy])
+
+
+## The general form: every guy who joins the table for this Meeting. One of them is an
+## ordinary Family Meeting; four of them is the Reunion (docs/02 §2 R7).
+func start_with(guys: Array) -> void:
 	active = true
 	lit = false
 	payouts = 0
-	guy = second_guy.duplicate() if second_guy != null and not second_guy.is_empty() else {}
+	extra_guys = []
+	for g: Variant in guys:
+		if g is Dictionary and not (g as Dictionary).is_empty():
+			extra_guys.append((g as Dictionary).duplicate())
+	guy = extra_guys[0] if not extra_guys.is_empty() else {}
+	# The man already on the table is working too, so the crew is one more than the joiners.
+	size = maxi(extra_guys.size() + 1, 2)
 	meetings_total += 1
 	night_meetings += 1
+	if size >= REUNION_GUYS:
+		reunions_total += 1
+		night_reunions += 1
+
+
+func is_reunion() -> bool:
+	return active and size >= REUNION_GUYS
 
 
 ## One ball left: the crew is not out together any more.
 func end() -> void:
 	active = false
 	guy = {}
+	extra_guys = []
+	size = 2
 	payouts = 0
 
 
-## The multiplier `Game.earn_switch` folds into every dirty payout.
+## The multiplier `Game.earn_switch` folds into every dirty payout. Two guys is the shipped
+## ×2; a Reunion is worth exactly as many guys as are out there.
 func dirty_multiplier() -> float:
-	return DIRTY_MULT if active else 1.0
+	return maxf(float(size), DIRTY_MULT) if active else 1.0
 
 
 ## What the next back-room re-entry is worth, without taking it.
@@ -126,6 +165,7 @@ func night_summary() -> Dictionary:
 		"jackpots": night_jackpots,
 		"paid": night_paid.copy(),
 		"casino_jackpots": jackpots_tonight,
+		"reunions": night_reunions,
 	}
 
 
@@ -138,6 +178,7 @@ func to_dict() -> Dictionary:
 		"meetings": meetings_total,
 		"jackpots": jackpots_total,
 		"paid": jackpot_paid_total.to_dict(),
+		"reunions": reunions_total,
 	}
 
 
@@ -148,4 +189,5 @@ func from_dict(d: Dictionary) -> void:
 	meetings_total = maxi(int(d.get("meetings", 0)), 0)
 	jackpots_total = maxi(int(d.get("jackpots", 0)), 0)
 	jackpot_paid_total = BigMoney.from_dict(d.get("paid", {}))
+	reunions_total = maxi(int(d.get("reunions", 0)), 0)
 	begin_night()

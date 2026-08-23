@@ -32,7 +32,19 @@ extends Node
 # --- assets ---------------------------------------------------------------------
 const SFX_DIR := "res://assets/audio/sfx/"
 const VOICE_DIR := "res://assets/audio/voice/"
-const MUSIC_DIR := "res://assets/audio/music/city1/"
+const MUSIC_ROOT := "res://assets/audio/music/"
+## City 1's folder, kept as a name because it is the default and half the codebase says it.
+const MUSIC_DIR := MUSIC_ROOT + "city1/"
+
+## docs/08 §7 — one arrangement per city, same slots, its own tempo and key. Swapped by
+## `music_set_city`; index order is the prestige order from docs/06 §4.
+const CITY_DIRS: PackedStringArray = ["city1", "city2"]
+## Each city's tempo, because the Skip Town sequence is written in beats, not seconds.
+const CITY_BPM: PackedFloat32Array = [92.0, 104.0]
+## A city may add ONE bed stem: something that is the room rather than the band, and so
+## plays whenever anything plays. City 2 is a 1927 record and its bed is the record.
+## Empty means the city has no bed.
+const CITY_BEDS: PackedStringArray = ["", "11_crackle"]
 
 ## City-1 stem stack, in the order they fade in as the empire grows (docs/08 §1).
 ## These eight are what `music_set_level` moves; index order is load-bearing below.
@@ -252,9 +264,6 @@ const RICO_STEPS := 3
 const RICO_HEARTBEAT := IDX_BASS
 
 # --- Skip Town (docs/08 §1) -------------------------------------------------------
-## The score's tempo, so the sequence below can be written in beats.
-const MUSIC_BPM := 92.0
-
 ## When each player packs up, in beats from the start of the sequence. Bar-aware in the
 ## only way that is cheap and honest: the interval asked for is ~1.6 s, one beat here is
 ## 0.652 s, and 1.6 s is not a whole number of beats — so the sheds are quantised to the
@@ -297,6 +306,9 @@ var _piano_player: AudioStreamPlayer
 var _piano_db := SILENT_DB
 var _piano_target_db := SILENT_DB
 var _initialised := false
+
+var _city := 0
+var _bed_index := -1                            # the city's bed stem, or -1 if it has none
 
 var _rico_step := 0
 
@@ -533,6 +545,39 @@ func music_stop(fade: bool = true) -> void:
 	_fade_seconds = MUSIC_FADE_SECONDS
 	_recompute_targets()
 	set_process(true)
+
+
+## docs/08 §7 — swap the whole arrangement for another city's.
+##
+## A city is a different song at a different tempo in a different key, so this is a
+## rebuild and not a crossfade: nothing can be sample-locked to a stack it is not part
+## of. The requested level and state survive, so the new city comes up playing whatever
+## the game had asked for — a prestige into New Carthage at level 1 hears one tuba.
+##
+## Idempotent, clamped, and refused during `play_farewell()`: the farewell is the sound
+## of THIS city ending and the next one starts after it, not underneath it. Safe with no
+## assets — a city whose folder is empty is silent rather than broken.
+func music_set_city(index: int) -> void:
+	_ensure_init()
+	if _farewell_active:
+		return
+	var want: int = clampi(index, 0, CITY_DIRS.size() - 1)
+	if want == _city:
+		return
+	# "Had a stack" rather than "was playing": a stopped stack is still the arrangement
+	# the game is holding, and `is_music_playing()` is false in a headless run even when
+	# the player has been told to play. Rebuilding is cheap and a silent rebuilt stack
+	# costs nothing; not rebuilding costs the next music_set_level() its music.
+	var had_stack := _music_sync != null
+	_teardown_music()
+	_city = want
+	if had_stack:
+		music_start()
+
+
+## Which city's arrangement is loaded (0 = the launch city).
+func music_city() -> int:
+	return _city
 
 
 ## docs/05 §9 — the RICO wiretap phase. The Feds are cutting wires.
@@ -825,20 +870,56 @@ func _pitch_for(event: StringName, opts: Dictionary) -> float:
 	return clampf(pow(2.0, _rng.randf_range(-jitter, jitter)), PITCH_MIN, PITCH_MAX)
 
 
+func _music_dir() -> String:
+	return MUSIC_ROOT + CITY_DIRS[_city] + "/"
+
+
+## Everything the current city puts on the synchronized player, in slot order: the level
+## stack, the two state layers, and the city's bed if it has one.
+func _city_stems() -> PackedStringArray:
+	var names := PackedStringArray()
+	names.append_array(STEMS)
+	names.append_array(STATE_STEMS)
+	if not CITY_BEDS[_city].is_empty():
+		names.append(CITY_BEDS[_city])
+	return names
+
+
+## Drop the current city's players so another city's can be built. Detached before being
+## freed so `get_node("Music")` cannot hand out a corpse in the frame after the swap.
+func _teardown_music() -> void:
+	for player in [_music_player, _piano_player]:
+		if player == null:
+			continue
+		player.stop()
+		remove_child(player)
+		player.queue_free()
+	_music_player = null
+	_piano_player = null
+	_music_sync = null
+	_all_stems = PackedStringArray()
+	_stem_slot = PackedInt32Array()
+	_stem_db = PackedFloat32Array()
+	_stem_target_db = PackedFloat32Array()
+	_bed_index = -1
+	_piano_db = SILENT_DB
+	_piano_target_db = SILENT_DB
+	set_process(false)
+
+
 func _build_music() -> bool:
 	if _music_sync != null:
 		return true
 
-	_all_stems = PackedStringArray()
-	_all_stems.append_array(STEMS)
-	_all_stems.append_array(STATE_STEMS)
+	_all_stems = _city_stems()
+	_bed_index = (_all_stems.size() - 1 if not CITY_BEDS[_city].is_empty() else -1)
 
 	# A stem that is missing gets slot -1 and is simply skipped; the rest still play,
 	# so a half-built assets/ folder costs you instruments, not the score.
 	var slots: PackedInt32Array = []
 	var streams: Array[AudioStream] = []
 	for stem in _all_stems:
-		var path := MUSIC_DIR + stem + ".ogg"
+		var path := _music_dir() + stem + ".ogg"
 		var stream: AudioStream = load(path) if ResourceLoader.exists(path) else null
 		if stream == null:
 			slots.append(-1)
@@ -851,9 +932,10 @@ func _build_music() -> bool:
 		streams.append(stream)
 
 	if streams.is_empty():
-		if not _missing_logged.has(&"__music"):
-			_missing_logged[&"__music"] = true
-			print("[audio] no music stems yet in ", MUSIC_DIR)
+		var key := StringName("__music_" + CITY_DIRS[_city])
+		if not _missing_logged.has(key):
+			_missing_logged[key] = true
+			print("[audio] no music stems yet in ", _music_dir())
 		return false
 
 	var sync := AudioStreamSynchronized.new()
@@ -881,10 +963,15 @@ func _build_music() -> bool:
 
 ## The Count's piano gets its own player: different length, different tempo, and it has
 ## to keep running while the synchronized stack sits at -80 dB underneath it.
+##
+## A city that never wrote its own piano borrows the launch city's rather than counting
+## the take in silence: the Count screen is a ritual, not part of the city's arrangement.
 func _build_piano() -> bool:
 	if _piano_player != null:
 		return true
-	var path := MUSIC_DIR + COUNT_PIANO + ".ogg"
+	var path := _music_dir() + COUNT_PIANO + ".ogg"
+	if not ResourceLoader.exists(path):
+		path = MUSIC_DIR + COUNT_PIANO + ".ogg"
 	var stream: AudioStream = load(path) if ResourceLoader.exists(path) else null
 	if stream == null:
 		if not _missing_logged.has(&"__piano"):
@@ -932,7 +1019,13 @@ func _rico_stem_db(index: int, db: float) -> float:
 ## otherwise shed an ostinato and a halftime kit, and the moment being paid off here is
 ## the empire's growth run backwards — which is what `music_set_level` measures.
 func _farewell_stem_db(index: int) -> float:
-	if _farewell_bass_gone or index >= STEMS.size():
+	if _farewell_bass_gone:
+		return SILENT_DB
+	if index == _bed_index:
+		# The players leave; the record keeps turning until the last note is over. It is
+		# the only thing in the mix that is not a person.
+		return AUDIBLE_DB if _music_level > 0 else SILENT_DB
+	if index >= STEMS.size():
 		return SILENT_DB
 	if index >= STEMS.size() - _farewell_shed or index >= _music_level:
 		return SILENT_DB
@@ -942,6 +1035,12 @@ func _farewell_stem_db(index: int) -> float:
 func _mix_stem_db(index: int) -> float:
 	if _music_stopping:
 		return SILENT_DB
+	if index == _bed_index:
+		# The bed is the room, not a player: it is up whenever the band is up at all,
+		# through Heat and through a raid, and it goes when the music goes. The Count is
+		# the exception — that screen is a different record.
+		return (AUDIBLE_DB if _music_level > 0 and _music_state != STATE_COUNT
+			else SILENT_DB)
 	match _music_state:
 		STATE_COUNT:
 			return SILENT_DB
@@ -1030,7 +1129,7 @@ func _set_bus_mute(bus: StringName, muted: bool) -> void:
 
 
 func _sec_per_beat() -> float:
-	return 60.0 / MUSIC_BPM
+	return 60.0 / CITY_BPM[_city]
 
 
 ## How long until the stack's next beat line, so the first player packs up ON one.

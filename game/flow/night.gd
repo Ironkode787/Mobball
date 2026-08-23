@@ -58,6 +58,8 @@ const DECK_LINE := 0.0
 ## on the deck, below the back room, above the mini bats. Derived from the table's geometry
 ## rather than restated, so the deck can move without this following it.
 const MEETING_SPAWN_OFFSET := Vector2(270.0, -260.0)
+## Reunion joiners are dealt along the deck from that socket, alternating sides.
+const MEETING_SPREAD := Vector2(-90.0, -36.0)
 ## Outer band of the playfield width, each side, that counts as an outlane for the Slippery
 ## trait. Read against the table's own bounds so flow never hard-codes this table's posts.
 const OUTLANE_BAND := 0.25
@@ -76,6 +78,14 @@ var table: Node2D = null
 var nudge: NudgeController = null
 var input: InputController = null
 var raid: RaidMode = null
+## THE RICO RAID (docs/05 §9). When the Feds are at the door this Night IS the raid: the
+## guys are fielded as usual and the economy stays on, but it is two minutes and it ends
+## when the last man is inside.
+var rico: RicoRaid = null
+## Sim hook, same as `raid_duration`: shorten the two minutes for a headless run.
+var rico_duration: float = 0.0
+var _rico_result: String = ""
+var _rico_payout: BigMoney = BigMoney.zero()
 ## The Commission fight this Night IS, when The Count sent us to one (specs/m2-content.md §5).
 ## While it is live the economy is off, raids are off, and the table is wearing his hardware.
 var boss: BossFight = null
@@ -128,6 +138,8 @@ var _plunger: Plunger = null
 ## What happens when the between-balls beat runs out: &"same" (ball save), &"next", &"end".
 var _after_beat: StringName = &""
 var _wire_enabled: bool = false
+## The table reports its own dome lap; without it the chairs stand in as the final leg.
+var _dome_from_signal: bool = false
 var _collect_poll: float = 0.0
 ## Guys whose ball was saved and is waiting to be put back on the table next tick.
 var _reserve_queue: Array[Dictionary] = []
@@ -170,6 +182,8 @@ func start() -> void:
 	_raid_result = ""
 	_raid_payout = BigMoney.zero()
 	_raid_confiscated = BigMoney.zero()
+	_rico_result = ""
+	_rico_payout = BigMoney.zero()
 	saves_left = Game.stats.ball_saves()
 	_bridge_scored = _needs_score_bridge()
 	_wire_enabled = Game.stats.hardware_unlocked(&"wire_bank")
@@ -233,9 +247,16 @@ func start() -> void:
 	_connect_table(&"sitdown_entered", _on_sitdown_entered)
 	_connect_table(&"chair_taken", _on_chair_taken)
 	_connect_table(&"chairs_completed", _on_chairs_completed)
+	_connect_table(&"penthouse_entered", _on_penthouse_entered)
+	_connect_table(&"orbit_completed", _on_orbit_completed)
+	# THE CITY HALL CIRCUIT (docs/02 §2 R7). The dome is TABLE-4's; until a table grows it,
+	# the Penthouse's own bank is the last leg, so the crown is reachable on the table that
+	# exists rather than unreachable on the one that does not.
+	_dome_from_signal = _connect_table(&"dome_loop_completed", _on_dome_loop)
 
 	_start_boss()
 	_start_heist()
+	_start_rico()
 
 	# Nights do not always open cold — coming off a survived raid the meter is still at 30.
 	if Game.administration_active():
@@ -283,6 +304,8 @@ func stop() -> void:
 	_set_raid_visual(false)
 	if raid != null and is_instance_valid(raid):
 		raid.abort()
+	if rico != null and is_instance_valid(rico):
+		rico.abort()
 	if boss != null and is_instance_valid(boss):
 		boss.abort()
 		Game.boss = null
@@ -319,6 +342,7 @@ func _physics_process(delta: float) -> void:
 	_tick_docks(delta)
 	_tick_sitdown(delta)
 	_tick_election(delta)
+	_tick_empire(delta)
 	_tick_heist(delta)
 	_tick_raid_hold()
 	_tick_wire(delta)
@@ -651,6 +675,8 @@ func _finish() -> void:
 		"tilts": tilts,
 		"raid": _raid_result,
 		"raid_payout": _raid_payout,
+		"rico": _rico_result,
+		"rico_payout": _rico_payout,
 		"confiscated": _raid_confiscated,
 		"rank_before": _rank_before,
 		"rank_up": Game.rank > _rank_before,
@@ -919,8 +945,10 @@ func _light_lane(index: int) -> void:
 ## A completed climb opens a deck visit: the window the slots Jackpot has to be finished
 ## inside (specs/m2-content.md §1).
 func _on_staircase_climbed(_speed: float) -> void:
-	if running:
-		Game.casino.open_visit()
+	if not running:
+		return
+	Game.casino.open_visit()
+	Game.empire_leg(&"staircase")
 
 
 ## The visit closes as soon as nothing is upstairs any more — the return lane took it home,
@@ -981,23 +1009,40 @@ func _on_backroom_entered() -> void:
 
 ## FAMILY MEETING (specs/m2-content.md §4): a second named guy joins the table, both balls
 ## get a grace, all dirty doubles, and the back room starts paying.
+##
+## THE FAMILY REUNION (docs/02 §2 R7): at R7, once Empire has been lit tonight, the back room
+## does not send one man — it sends four, and every Meeting rule scales with the crew. The
+## graces are staggered so five balls do not all come off their save window on one frame.
 func _start_meeting() -> void:
-	var spare := _spare_guy()
-	if spare.is_empty():
-		return
-	var extra: Variant = TableAPI.call_if(table, "spawn_extra_ball", [_meeting_spawn()], null)
-	if not (extra is Ball):
+	var reunion := Game.reunion_ready()
+	var want := (FamilyMeeting.REUNION_GUYS - 1) if reunion else 1
+	var joined: Array[Dictionary] = []
+	var balls: Array[Ball] = []
+	for i in want:
+		var spare := _spare_guy(joined)
+		if spare.is_empty():
+			break
+		var extra: Variant = TableAPI.call_if(table, "spawn_extra_ball",
+				[_meeting_spawn(i)], null)
+		if not (extra is Ball):
+			break
+		joined.append(spare)
+		balls.append(extra as Ball)
+	if joined.is_empty():
 		# A table that cannot serve a second ball simply has no Meeting; the light stays on.
 		return
-	Game.meeting.start(spare)
-	extras.append(spare)
+
+	Game.meeting.start_with(joined)
 	_bind_guy(_ball(), current_guy())
-	_bind_guy(extra as Ball, spare)
 	_arm_save(_ball(), FamilyMeeting.BALL_SAVE_SECONDS, true)
-	_arm_save(extra as Ball, FamilyMeeting.BALL_SAVE_SECONDS, true)
+	for i in joined.size():
+		extras.append(joined[i])
+		_bind_guy(balls[i], joined[i])
+		_arm_save(balls[i], FamilyMeeting.BALL_SAVE_SECONDS
+				+ float(i) * FamilyMeeting.REUNION_SAVE_STAGGER, true)
 	Game.set_fielded(_live_guys())
 	Game.meeting_changed.emit(true, Game.meeting.lit)
-	AudioDirector.play(&"meeting_start")
+	AudioDirector.play(&"reunion_start" if Game.meeting.is_reunion() else &"meeting_start")
 	_arpeggio([&"drop_bank_down", &"chime_c", &"knocker"], 0.09)
 
 
@@ -1027,11 +1072,13 @@ func _settle_meeting() -> void:
 
 ## The next man up who is not already out tonight. Nobody free? Hire one — the Bench never
 ## hard-locks (docs/01 §8).
-func _spare_guy() -> Dictionary:
+func _spare_guy(also_taken: Array[Dictionary] = []) -> Dictionary:
 	var taken := {}
 	for g in lineup:
 		taken[int(g["id"])] = true
 	for g in extras:
+		taken[int(g["id"])] = true
+	for g in also_taken:
 		taken[int(g["id"])] = true
 	for g in Game.bench.available():
 		if not taken.has(int(g["id"])):
@@ -1039,11 +1086,15 @@ func _spare_guy() -> Dictionary:
 	return Game.bench.hire()
 
 
-func _meeting_spawn() -> Vector2:
+## Where the nth joiner comes in. They are spread along the deck rather than stacked, because
+## five balls born on one pixel is one ball with a physics problem.
+func _meeting_spawn(index: int = 0) -> Vector2:
+	var spread := Vector2(float(index % 2) * MEETING_SPREAD.x,
+			float(index) * MEETING_SPREAD.y)
 	var at: Variant = TableAPI.call_if(table, "socket", [&"club_deck"], null)
 	if at is Vector2 and (at as Vector2) != Vector2.ZERO:
-		return (at as Vector2) + MEETING_SPAWN_OFFSET
-	return Vector2.ZERO
+		return (at as Vector2) + MEETING_SPAWN_OFFSET + spread
+	return spread
 
 
 ## The ball came home down the Club's return lane. The visit closes on the same test the
@@ -1168,6 +1219,11 @@ func _on_chairs_completed() -> void:
 		return
 	if Game.chairs_completed():
 		_arpeggio([&"chime_a", &"chime_b", &"chime_c", &"headline_sting"], 0.12)
+	# Without a dome overhead the room itself is the top of the table, so the Commission bank
+	# closes the City Hall Circuit instead. TABLE-4's `dome_loop_completed` takes over the
+	# moment a table has one.
+	if not _dome_from_signal:
+		Game.empire_leg(&"dome")
 
 
 # ================================================================= elections =====
@@ -1205,6 +1261,36 @@ func _tick_election(delta: float) -> void:
 ## is an ask that a table without the API simply ignores.
 func _open_the_block() -> void:
 	TableAPI.call_if(table, "arm_storefronts")
+
+
+# ============================================================== the City Hall Circuit =====
+##
+## docs/02 §2 R7: the full-table orbit, the staircase, the Penthouse gate and the dome loop,
+## chained. Four legs, four signals the table already emits, and one mode at the end of it.
+
+
+## The getaway loop closed. It is the first leg of the circuit and it is also just an orbit —
+## the table pays it either way.
+func _on_orbit_completed() -> void:
+	if running:
+		Game.empire_leg(&"orbit")
+
+
+func _on_penthouse_entered(_speed: float) -> void:
+	if running:
+		Game.empire_leg(&"penthouse")
+
+
+func _on_dome_loop(_speed: float) -> void:
+	if running:
+		Game.empire_leg(&"dome")
+
+
+func _tick_empire(delta: float) -> void:
+	if not Game.empire.tick(delta):
+		return
+	Game.empire_finished()
+	AudioDirector.music_set_state(_music_state())
 
 
 # =================================================================== the heist =====
@@ -1363,8 +1449,11 @@ func on_raid_called() -> void:
 	if not running or (raid != null and is_instance_valid(raid) and raid.active):
 		return
 	# The Commission does not share a Night with the Inspector: a boss fight is pure skill
-	# (docs/05 §6), and the meter is not even earning while one runs.
+	# (docs/05 §6), and the meter is not even earning while one runs. Neither does the RICO
+	# raid — the Feds do not queue behind a squad car.
 	if boss != null and is_instance_valid(boss) and boss.active:
+		return
+	if rico != null and is_instance_valid(rico) and rico.active:
 		return
 	# City Hall holds him at the door until the meter clears the Administration's own bar.
 	if Game.heat.value < Game.elections.raid_threshold():
@@ -1413,6 +1502,61 @@ func _rain_insured() -> bool:
 	return Game.stats.flag(&"rain_insurance") and not Game.night_insured
 
 
+# ============================================================== the RICO raid =====
+##
+## docs/05 §9. The blue meter topped out, so this Night is the federal raid: two minutes,
+## three phases, and it is over when the last guy is inside. Everything else about the Night
+## is normal — the economy runs, the modes run, the guys are the guys.
+
+
+func _start_rico() -> void:
+	if not Game.rico_pending():
+		return
+	rico = RicoRaid.new()
+	rico.name = "Rico"
+	if rico_duration > 0.0:
+		rico.duration = rico_duration
+	add_child(rico)
+	rico.finished.connect(_on_rico_finished)
+	rico.changed.connect(_on_rico_changed)
+	_set_raid_visual(true)
+	rico.begin(table)
+	AudioDirector.music_set_state(&"raid")
+
+
+## Every phase change is republished as Game traffic: the wiretap phase takes the audio away
+## on purpose (docs/08 §6), so the HUD has to be able to say what is happening without it.
+func _on_rico_changed(state: Dictionary) -> void:
+	Game.federal_changed.emit({"rico_state": state, "enabled": Game.federal.enabled,
+			"value": Game.federal.value, "meter": Game.federal.meter_value(),
+			"rico": true})
+
+
+func _on_rico_finished(survived: bool) -> void:
+	_set_raid_visual(false)
+	var result := Game.rico_finished(survived, _rain_insured())
+	if bool(result.get("insured", false)):
+		Game.night_insured = true
+	_rico_result = "survived" if survived else "lost"
+	_rico_payout = result["payout"]
+	_raid_confiscated = _raid_confiscated.add(result["confiscated"])
+	# The red meter is reset by the federal raid exactly as it is by an ordinary one: the
+	# Inspector's file and the Bureau's are the same night's work.
+	Game.heat.reset_after_raid(survived)
+	AudioDirector.play(&"rico_survived" if survived else &"rico_lost")
+	AudioDirector.play(&"raid_win" if survived else &"raid_lose")
+	AudioDirector.play(&"headline_sting")
+	Events.raid_ended.emit(survived)
+	AudioDirector.music_set_state(_music_state())
+	if rico != null and is_instance_valid(rico):
+		rico.queue_free()
+		rico = null
+	# Two minutes of federal raid IS the Night (docs/05 §9): there is nothing after it.
+	if running and not _ending:
+		_close_skill_window()
+		_beat(&"end", BOSS_CEREMONY)
+
+
 ## THE ADMINISTRATION'S DOOR (docs/05 §8). The meter latches its raid at 100 — that is the
 ## economy core's and it is frozen — so a term in office does not lower the latch, it refuses
 ## to open the door until the number is genuinely embarrassing. The latch stays pending in the
@@ -1439,6 +1583,8 @@ func _on_band_changed(_band: int) -> void:
 
 func _music_state() -> StringName:
 	if raid != null and is_instance_valid(raid) and raid.active:
+		return &"raid"
+	if rico != null and is_instance_valid(rico) and rico.active:
 		return &"raid"
 	# A fight earns nothing, so the Heat band drifts down through it — the band must not be
 	# allowed to take the room back to `calm` while a Commission boss is on the table.

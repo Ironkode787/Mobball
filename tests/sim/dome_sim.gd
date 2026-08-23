@@ -795,10 +795,43 @@ func _s10_magnets() -> void:
 			% [dir_tells, DrainMagnet.PERIOD * 3.5])
 	check(gap > DrainMagnet.TELEGRAPH,
 			"two tells came %.2fs apart — closer than one telegraph is one blur" % gap)
+
+	# ...and the same at the RICO street sweep's double time (game/flow/rico.gd SWEEP_SPEED):
+	# twice as many pulls, the same 1.2 s of warning before each one, still never together.
+	table.set_raid_speed(2.0)
+	await step(2)
+	var fast_both := 0
+	var fast_tells := 0
+	var was := false
+	var tell_ticks := 0
+	var tell_max := 0
+	for t in range(ticks(DrainMagnet.PERIOD * 2.0)):
+		await step(1)
+		var cap := table.magnet.is_telegraphing()
+		var dir := table.director.is_telegraphing()
+		if cap and dir:
+			fast_both += 1
+		if cap or dir:
+			tell_ticks += 1
+			tell_max = maxi(tell_max, tell_ticks)
+		else:
+			tell_ticks = 0
+		if (cap or dir) and not was:
+			fast_tells += 1
+		was = cap or dir
+	var tell_seconds := float(tell_max) / float(Engine.physics_ticks_per_second)
+	check(fast_both == 0, "double time put both coils on the same tick %d times" % fast_both)
+	check(fast_tells >= cap_tells + dir_tells,
+			"double time produced %d tells where one time produced %d"
+			% [fast_tells, cap_tells + dir_tells])
+	near(tell_seconds, DrainMagnet.TELEGRAPH, 0.12,
+			"a faster raid must not also be a shorter warning")
+
 	table.set_federal_raid(0)
 	await step(2)
-	print("        %d + %d tells, never together, closest %.2fs apart"
-			% [cap_tells, dir_tells, gap])
+	near(table.magnet.rate, 1.0, 0.001, "the siege left its clock behind")
+	print("        %d + %d tells, never together, closest %.2fs apart | ×2: %d tells, %.2fs each"
+			% [cap_tells, dir_tells, gap, fast_tells, tell_seconds])
 	finish()
 
 
