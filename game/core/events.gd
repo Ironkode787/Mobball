@@ -40,3 +40,8 @@ signal guy_pinched(guy: Dictionary)
 signal guy_bailed(guy: Dictionary)
 signal dirty_earned(amount: BigMoney, group: StringName)
 signal storefront_collected(id: StringName)
+## Game.boot() finished restoring a career (fresh or from a save). Anything that mirrors
+## Stats into the world — the table's hardware above all — re-reads on this. Purchases
+## fire upgrade_purchased; a RESTORED save fires only this (first device save bug: the
+## table refreshed on purchases and at its own _ready, which runs before the load).
+signal session_booted

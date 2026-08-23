@@ -1377,6 +1377,9 @@ func boot(save_path: String = SaveGame.DEFAULT_PATH) -> void:
 	state = &"attract"
 	AudioDirector.music_set_level(clampi(rank + MUSIC_LEVEL_OFFSET, 0, 8))
 	AudioDirector.music_set_state(&"calm")
+	# The table (and anything else mirroring Stats into the world) re-reads on this —
+	# its _ready ran before this load, so without it a restored career boots bare.
+	Events.session_booted.emit()
 
 
 func is_booted() -> bool:

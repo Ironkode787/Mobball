@@ -441,6 +441,9 @@ func _ready() -> void:
 	_build_plunger()
 	_build_construction()
 	Events.upgrade_purchased.connect(_on_upgrade_purchased)
+	# A restored save recomputes Stats AFTER this _ready has already run — the boot signal
+	# is what puts a returning player's bought hardware back on the field.
+	Events.session_booted.connect(refresh_hardware)
 	refresh_hardware()
 	queue_redraw()
 

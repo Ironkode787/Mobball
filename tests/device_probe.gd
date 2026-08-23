@@ -69,6 +69,25 @@ func _run() -> void:
 		_check(Game.state == &"count", "CLOSE returns to The Count (state=%s)" % Game.state)
 	await _shot("5_back")
 
+	# RESTART REGRESSION (second device save bug): buy hardware, kill the app, reopen —
+	# the bought piece must be STANDING on the fresh table with no purchase event fired.
+	var mint: GDScript = load("res://game/meta/ledger_state.gd")
+	mint.add_level("rackets.trash_2")
+	Events.upgrade_purchased.emit("rackets.trash_2", 1)
+	await _frames(10)
+	var table: Node2D = main.get("table")
+	_check(bool(table.call("hardware_present", &"bumper_2")),
+			"bought bumper stands on the field")
+	main.queue_free()
+	await _frames(5)
+	main = (load("res://game/main.tscn") as PackedScene).instantiate()
+	add_child(main)
+	await _frames(40)
+	var table2: Node2D = main.get("table")
+	_check(bool(table2.call("hardware_present", &"bumper_2")),
+			"RESTART: the bought bumper is back on the fresh table")
+	await _shot("6_restart")
+
 	print("DEVICE PROBE: %s" % ("OK" if failures == 0 else "%d FAILURES" % failures))
 	get_tree().quit(0 if failures == 0 else 1)
 
