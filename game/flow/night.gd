@@ -107,6 +107,8 @@ var running: bool = false
 
 var _rank_before: int = 0
 var _raid_result: String = ""
+## The raid on the table was called by the rat, not by the meter (docs/05 §7).
+var _raid_from_rat: bool = false
 var _raid_payout: BigMoney = BigMoney.zero()
 var _raid_confiscated: BigMoney = BigMoney.zero()
 var _serve_in: float = -1.0
@@ -180,6 +182,7 @@ func start() -> void:
 	guys_lost = 0
 	tilts = 0
 	_raid_result = ""
+	_raid_from_rat = false
 	_raid_payout = BigMoney.zero()
 	_raid_confiscated = BigMoney.zero()
 	_rico_result = ""
@@ -265,6 +268,10 @@ func start() -> void:
 	# Nights do not always open cold — coming off a survived raid the meter is still at 30.
 	if Game.administration_active():
 		_open_the_block()
+	# THE RAT (docs/05 §7). Three names in the backglass, and nothing else about the Night
+	# changes — which is what makes it a whodunit rather than a mode.
+	if Game.rat_night():
+		_arpeggio([&"radio_squelch", &"chime_b"], 0.12)
 
 	AudioDirector.music_set_state(_music_state())
 	guy_index = -1
@@ -865,6 +872,7 @@ func _on_storefront_collected(id: StringName) -> void:
 		return
 	AudioDirector.play(&"storefront_collect")
 	Game.jobs.on_storefront(id)
+	Game.rat_clue(TheRat.CLUE_COLLECTION)
 	# Lucky's door doubles as the wash pass — unless the table says so itself.
 	if not _wash_from_signal and String(id).findn("laundromat") >= 0:
 		_wash_pass()
@@ -887,6 +895,7 @@ func _wash_pass() -> void:
 	var moved := Game.launder(rate, Game.launder_cap_left())
 	if moved.is_positive():
 		AudioDirector.play(&"laundromat_wash")
+		Game.rat_clue(TheRat.CLUE_LAUNDROMAT)
 
 
 # ============================================================= skill shot =====
@@ -920,6 +929,8 @@ func _on_rollover_rolled(index: int, was_lit: bool) -> void:
 	# fight's worth of top-lane traffic, not one skill shot.
 	if boss != null and is_instance_valid(boss) and boss.active:
 		boss.on_rollover(index, was_lit)
+	if _rat_accusation(index):
+		return
 	if not _skill_open:
 		return
 	_close_skill_window()
@@ -929,6 +940,9 @@ func _on_rollover_rolled(index: int, was_lit: bool) -> void:
 
 ## Fallback for a table that only emits `switch_hit`: work the lane out of the switch id.
 func _check_skill_shot(id: StringName) -> void:
+	var lane_index := Switches.index_of(id)
+	if _rat_accusation(lane_index if _lanes_zero_based else lane_index - 1):
+		return
 	if not _skill_open:
 		return
 	var idx := Switches.index_of(id)
@@ -1433,6 +1447,7 @@ func _tick_phone(delta: float) -> void:
 	if Game.phone.tick(delta):
 		AudioDirector.play(&"radio_squelch")
 		Game.phone_changed.emit({"ringing": true, "caller": ""})
+		Game.rat_clue(TheRat.CLUE_PAYPHONE)
 		return
 	if was and not Game.phone.ringing:
 		Game.phone_rang_out()
@@ -1522,7 +1537,9 @@ func _on_table_storefront(id: StringName, amount: BigMoney) -> void:
 ## The Inspector is at the door. Called by `Game._on_raid_triggered` when the meter latches
 ## during this Night, and by `start()` when it latched before this Night opened. Idempotent:
 ## a raid already on the table swallows the call, so a pending latch fires exactly one raid.
-func on_raid_called() -> void:
+## `scale` shortens the mode (The Rat's phone call is half a raid, docs/05 §7) and `from_rat`
+## says the Inspector did not send it — so it neither reads nor resets his file.
+func on_raid_called(scale: float = 1.0, from_rat: bool = false) -> void:
 	if not running or (raid != null and is_instance_valid(raid) and raid.active):
 		return
 	# The Commission does not share a Night with the Inspector: a boss fight is pure skill
@@ -1533,12 +1550,15 @@ func on_raid_called() -> void:
 	if rico != null and is_instance_valid(rico) and rico.active:
 		return
 	# City Hall holds him at the door until the meter clears the Administration's own bar.
-	if Game.heat.value < Game.elections.raid_threshold():
+	# A rat's phone call is not the Inspector's raid and is not held by anybody's term.
+	if not from_rat and Game.heat.value < Game.elections.raid_threshold():
 		return
+	_raid_from_rat = from_rat
 	raid = RaidMode.new()
 	raid.name = "Raid"
 	if raid_duration > 0.0:
 		raid.duration = raid_duration
+	raid.duration *= clampf(scale, 0.1, 1.0)
 	add_child(raid)
 	raid.finished.connect(_on_raid_finished)
 	_set_raid_visual(true)
@@ -1566,7 +1586,11 @@ func _on_raid_finished(survived: bool) -> void:
 		else:
 			_raid_confiscated = Game.wallet.confiscate_dirty(Rates.RAID_CONFISCATE_FRACTION)
 		AudioDirector.play(&"raid_lose")
-	Game.heat.reset_after_raid(survived)
+	# A raid the rat called is not the Inspector's, so his file is exactly where it was: a
+	# wrong name must not be a way to launder a hot meter.
+	if not _raid_from_rat:
+		Game.heat.reset_after_raid(survived)
+	_raid_from_rat = false
 	Events.raid_ended.emit(survived)
 	AudioDirector.music_set_state(_music_state())
 	if raid != null and is_instance_valid(raid):
@@ -1749,6 +1773,27 @@ func _free_lean() -> void:
 		nudge.meter.warnings -= 1
 	else:
 		nudge.meter.max_warnings += 1
+
+
+## THE ACCUSATION (docs/05 §7). With the clues in hand the three top lanes are the three
+## names: rolling one points at a man. There is no menu — the accusation costs a real shot,
+## and it can be made by mistake, which is exactly the weight it is supposed to carry.
+## Returns true if the lane was spent naming somebody.
+func _rat_accusation(lane: int) -> bool:
+	if not Game.rat.can_accuse() or lane < 0 or lane >= TheRat.SUSPECTS:
+		return false
+	var result := Game.rat_accuse(lane)
+	if not bool(result["made"]):
+		return false
+	_close_skill_window()
+	if bool(result["right"]):
+		_arpeggio([&"chime_a", &"chime_b", &"chime_c", &"headline_sting"], 0.12)
+		return true
+	# He makes one phone call. Half a raid, right now, and no reprieve on the meter — this
+	# one is not the Inspector's, so it does not reset his file when it is over.
+	AudioDirector.play(&"headline_sting")
+	on_raid_called(TheRat.RAID_STRENGTH, true)
+	return true
 
 
 # ================================================================ helpers =====

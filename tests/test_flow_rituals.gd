@@ -11,12 +11,14 @@ func run(t: TestCtx) -> void:
 	_never_twice(t)
 	_boons(t)
 	_phone_clock(t)
+	_the_rat(t)
 
 	var real_save := Game.save
 	Game.save = SaveGame.new(SAVE_PATH)
 	Game.save.erase()
 	_briefcase_money(t)
 	_phone_offers(t)
+	_rat_in_the_session(t)
 	_save_round_trip(t)
 	Game.save.erase()
 	Game.save = real_save
@@ -122,6 +124,107 @@ static func CALLERS_HAS(who: StringName) -> bool:
 	return ThePhone.CALLERS.has(who)
 
 
+# --- the rat ------------------------------------------------------------------
+
+
+func _the_rat(t: TestCtx) -> void:
+	var roster: Array = []
+	for i in 5:
+		roster.append({"id": i + 1, "name": "Guy %d" % i})
+
+	var rat := TheRat.new()
+	t.ok(not rat.begin_night(1, 0, roster, 1), "a nobody has nobody to inform on him")
+	t.ok(not rat.armed, "the arc is shut")
+
+	t.ok(not rat.begin_night(2, TheRat.ARC_RANK, roster, 1),
+			"reaching R6 starts the arc, it does not open the backglass the same Night")
+	t.ok(rat.armed, "but he is out there now")
+	t.near(rat.skim_fraction(), TheRat.SKIM, 1e-9, "and he is taking his cut off the wash")
+
+	t.ok(rat.begin_night(3, TheRat.ARC_RANK, roster, 1), "the next Night is a clue Night")
+	t.ok(rat.active, "three names in the backglass")
+	t.eq(rat.suspects.size(), TheRat.SUSPECTS, "three of them")
+	var names := {}
+	for i in rat.suspects.size():
+		names[rat.suspect_name(i)] = true
+	t.eq(names.size(), TheRat.SUSPECTS, "and they are three different men")
+	t.ok(rat.culprit >= 0 and rat.culprit < TheRat.SUSPECTS, "one of them is talking")
+
+	# Clues are ordinary play, once each, and each rules out an innocent name.
+	t.ok(not rat.can_accuse(), "no clues, no accusation")
+	t.ok(rat.accuse(0)["made"] == false, "and naming somebody early does nothing")
+	t.ok(rat.note_clue(TheRat.CLUE_LAUNDROMAT), "the short total is a clue")
+	t.ok(not rat.note_clue(TheRat.CLUE_LAUNDROMAT), "the same clue twice is one clue")
+	t.ok(not rat.can_accuse(), "one clue is not enough")
+	t.ok(rat.note_clue(TheRat.CLUE_COLLECTION), "the collection is the second")
+	t.ok(rat.can_accuse(), "two clues and you may name him")
+	t.eq(rat.cleared.size(), 2, "and two innocent men have been ruled out")
+	t.ok(not rat.is_cleared(rat.culprit), "never the one who is actually talking")
+	t.ok(not rat.note_clue(&"a_hunch"), "a clue that is not a clue is not a clue")
+
+	# Wrong: the real rat makes a phone call and the backglass goes dark for three Nights.
+	var innocent := (rat.culprit + 1) % TheRat.SUSPECTS
+	var wrong := rat.accuse(innocent)
+	t.ok(bool(wrong["made"]) and not bool(wrong["right"]), "that was the wrong man")
+	t.ok(not rat.active, "the Night's accusation is spent")
+	t.ok(not rat.caught, "and he is still out there")
+	rat.stand_down(3)
+	t.ok(not rat.begin_night(4, TheRat.ARC_RANK, roster, 1), "no backglass the next Night")
+	t.ok(not rat.begin_night(3 + TheRat.RETRY_NIGHTS - 1, TheRat.ARC_RANK, roster, 1),
+			"nor the one after that")
+	t.ok(rat.begin_night(3 + TheRat.RETRY_NIGHTS, TheRat.ARC_RANK, roster, 1),
+			"three Nights later the names are back")
+
+	# Right: he is flipped, the skim stops, and the arc is over for this career.
+	rat.note_clue(TheRat.CLUE_LAUNDROMAT)
+	rat.note_clue(TheRat.CLUE_PAYPHONE)
+	var right := rat.accuse(rat.culprit)
+	t.ok(bool(right["right"]), "that was the man")
+	t.ok(rat.caught, "and he is flipped")
+	t.near(rat.skim_fraction(), 0.0, 1e-9, "the wash comes in whole again")
+	t.ok(not rat.begin_night(20, TheRat.ARC_RANK, roster, 1), "and the arc does not re-open")
+
+
+func _rat_in_the_session(t: TestCtx) -> void:
+	Game.new_game(44)
+	Game.owned["fronts.coin_op"] = 1
+	Game._recompute_stats()
+	Game.rank = TheRat.ARC_RANK
+	Game.start_night()
+	Game.rat_night()
+	Game.rat.armed = true
+	Game.rat.caught = false
+
+	# The cost is real and it lands in the wrong place: the wash is short, the pile is not.
+	# Earned down the money path, so `night_dirty` is the whole of the pile and the invariant
+	# below is the invariant the sims actually read.
+	Game.earn_flat_dirty(BigMoney.of(1.0, 6), &"briefcase")
+	var dirty_before := Game.wallet.dirty
+	var clean_before := Game.wallet.clean
+	var moved := Game.launder(0.5, Game.launder_cap_left())
+	t.ok(moved.is_positive(), "the laundromat washed nothing")
+	t.ok(dirty_before.sub_clamped(Game.wallet.dirty).equals_approx(moved, 1e-6),
+			"the dirty side of the move is untouched — the invariant the sims read")
+	t.ok(Game.wallet.clean.sub_clamped(clean_before).cmp(moved) < 0,
+			"and what reached the pocket is short, which IS the clue")
+	t.ok(Game.rat.skimmed.is_positive(), "he took his cut")
+	t.ok(Game.night_dirty.sub_clamped(Game.night_laundered)
+			.equals_approx(Game.wallet.dirty, 1e-6),
+			"night_dirty − night_laundered == held dirty still holds")
+
+	# Naming him right is worth ☆50 and stops the skim.
+	var roster: Array = Game.bench.available()
+	if roster.size() >= TheRat.SUSPECTS:
+		Game.rat.begin_night(Game.night_no + 1, Game.rank, roster, Game.session_seed)
+		Game.rat_clue(TheRat.CLUE_LAUNDROMAT)
+		Game.rat_clue(TheRat.CLUE_COLLECTION)
+		var stars := Game.respect
+		var caught := Game.rat_accuse(Game.rat.culprit)
+		t.ok(bool(caught["right"]), "the right name")
+		t.eq(Game.respect, stars + TheRat.RESPECT_CAUGHT, "is worth ☆50")
+		t.near(Game.rat.skim_fraction(), 0.0, 1e-9, "and the skim stops")
+
+
 # --- against the real session -------------------------------------------------
 
 
@@ -217,3 +320,15 @@ func _save_round_trip(t: TestCtx) -> void:
 	t.eq(Game.briefcases.missed_total, 1, "so do the ones that walked away")
 	t.eq(Game.phone.answered_total, answered, "and the calls you took")
 	t.ok(not Game.phone.ringing, "nothing is ringing on a fresh load")
+
+	# The Rat's arc is a career-long thing and travels with the file.
+	Game.rat.armed = true
+	Game.rat.next_night = 9
+	Game.rat.book_skim(BigMoney.of(3.0, 5))
+	Game.save_now()
+	Game.new_game(0)
+	Game.from_dict(Game.save.read())
+	t.ok(Game.rat.armed, "he is still out there after a reload")
+	t.eq(Game.rat.next_night, 9, "and the backglass keeps its clock")
+	t.ok(Game.rat.skimmed.is_positive(), "what he took is on the rap sheet")
+	t.ok(not Game.rat.active, "but no Night is flagged until roll call says so")

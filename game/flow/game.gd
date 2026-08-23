@@ -39,6 +39,8 @@ signal empire_changed(state: Dictionary)
 signal briefcase_opened(result: Dictionary)
 ## The backbox phone rang, was answered, or rang out (docs/05 §10).
 signal phone_changed(state: Dictionary)
+## The Rat arc moved: a clue Night opened, a clue landed, a name was called (docs/05 §7).
+signal rat_changed(state: Dictionary)
 ## A Commission fight's shape changed (phase, panels, the Butcher's freezer) — HUD fodder.
 signal boss_changed(state: Dictionary)
 ## Manny worked a till without a ball (`auto_collect_interval`). The HUD flashes it, because
@@ -110,6 +112,8 @@ var empire := EmpireMode.new()
 ## The small rituals (docs/05 §10): the man in the trench coat, and the phone.
 var briefcases := Briefcases.new()
 var phone := ThePhone.new()
+## THE RAT (docs/05 §7): who is talking, what it is costing, and the three names.
+var rat := TheRat.new()
 ## THE COMMISSION (specs/m2-content.md §5): who is waiting, who has been put away, and which
 ## rank the ladder is not allowed past yet.
 var commission := Commission.new()
@@ -502,6 +506,14 @@ func earn_idle(amount: BigMoney) -> void:
 func launder(fraction: float, cap: BigMoney = null) -> BigMoney:
 	var moved := wallet.launder_fraction(fraction, cap)
 	if moved.is_positive():
+		# THE RAT's cut (docs/05 §7). The dirty side of the move is untouched — the money
+		# really did leave the pile — so `night_dirty − night_laundered == held dirty` still
+		# holds; what is short is what reaches the pocket, which is the clue.
+		var cut := rat.skim_fraction()
+		if cut > 0.0:
+			var taken := moved.mul(cut)
+			if wallet.spend_clean(taken):
+				rat.book_skim(taken)
 		night_laundered = night_laundered.add(moved)
 		_book_lifetime_clean(moved)
 		jobs.on_launder(moved)
@@ -1095,6 +1107,55 @@ func phone_rang_out() -> void:
 	phone_changed.emit({"caller": "", "answered": false, "missed": true})
 
 
+# ==================================================================== THE RAT =====
+##
+## docs/05 §7. Roll call decides whether tonight is a clue Night; play surfaces the clues; the
+## top lanes are the three names. `Game` owns the ☆, the flip and the skim.
+
+
+## Roll call. True if tonight is flagged "Something's Off".
+func rat_night() -> bool:
+	var roster: Array = bench.available() if bench != null else []
+	var opened := rat.begin_night(night_no, rank, roster, session_seed)
+	if opened:
+		AudioDirector.play(&"headline_sting")
+		rat_changed.emit(rat.state())
+	return opened
+
+
+## A clue surfaced. True the first time this one lands tonight.
+func rat_clue(id: StringName) -> bool:
+	if not rat.note_clue(id):
+		return false
+	AudioDirector.play(&"radio_squelch")
+	var state := rat.state()
+	state["clue"] = String(id)
+	state["line"] = TheRat.clue_line(id)
+	rat_changed.emit(state)
+	return true
+
+
+## Name him (docs/05 §7). Right and he is flipped — the skim stops and it is worth ☆50. Wrong
+## and the real rat makes one phone call; the caller runs the raid, and the backglass is dark
+## for three Nights.
+func rat_accuse(index: int) -> Dictionary:
+	var result := rat.accuse(index)
+	if not bool(result["made"]):
+		return result
+	if bool(result["right"]):
+		add_respect(TheRat.RESPECT_CAUGHT, &"rat")
+		AudioDirector.play(&"rankup_fanfare")
+		AudioDirector.play(&"knocker")
+	else:
+		rat.stand_down(night_no)
+		AudioDirector.play(&"drop_clack")
+	var state := rat.state()
+	state["result"] = result
+	rat_changed.emit(state)
+	save_now()
+	return result
+
+
 func _election_state(what: StringName, district: StringName = &"") -> Dictionary:
 	return {
 		"what": String(what),
@@ -1353,6 +1414,7 @@ func new_game(seed_value: int = 0) -> void:
 	empire = EmpireMode.new()
 	briefcases = Briefcases.new()
 	phone = ThePhone.new()
+	rat = TheRat.new()
 	career = _blank_career()
 	commission = Commission.new()
 	boss = null
@@ -1388,7 +1450,6 @@ func start_night() -> void:
 	sitdown.begin_night()
 	chairs.begin_night()
 	elections.begin_night()
-	elections.night_tick()
 	heist = null
 	empire.begin_night()
 	briefcases.begin_night(session_seed, night_no)
@@ -1436,11 +1497,15 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["smuggling"] = smuggling.night_summary()
 	s["sitdown"] = sitdown.night_summary()
 	s["chairs"] = chairs.night_summary()
+	# A Night in office is spent here rather than at roll call, so the Night the ballot was
+	# won still counts as one of yours (docs/05 §8).
+	elections.night_tick()
 	s["election"] = elections.night_summary()
 	s["federal"] = federal.night_summary()
 	s["empire"] = empire.night_summary()
 	s["briefcases"] = briefcases.night_summary()
 	s["phone"] = phone.night_summary()
+	s["rat"] = rat.night_summary()
 	s["heist"] = night_heist.duplicate()
 	# `boss` comes from the NightController — `commission.last_result` is the CAREER's last
 	# fight and would print a week-old front page on an ordinary Night.
@@ -1639,6 +1704,7 @@ func to_dict() -> Dictionary:
 		"empire": empire.to_dict(),
 		"briefcases": briefcases.to_dict(),
 		"phone": phone.to_dict(),
+		"rat": rat.to_dict(),
 		"career": _career_to_dict(),
 		"commission": commission.to_dict(),
 		"safe": {
@@ -1713,6 +1779,8 @@ func from_dict(d: Dictionary) -> void:
 	briefcases.from_dict(d.get("briefcases", {}))
 	phone = ThePhone.new()
 	phone.from_dict(d.get("phone", {}))
+	rat = TheRat.new()
+	rat.from_dict(d.get("rat", {}))
 	_career_from_dict(d.get("career", {}))
 	commission = Commission.new()
 	commission.from_dict(d.get("commission", {}))

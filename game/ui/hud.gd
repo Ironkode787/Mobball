@@ -44,6 +44,7 @@ var _empire: Label = null
 var _heist: Label = null
 var _docks: Label = null
 var _city: Label = null
+var _ritual: Label = null
 ## Manny's collect, flashed for a beat so an off-screen earner is still visible.
 var _flash: String = ""
 var _flash_left: float = 0.0
@@ -149,6 +150,7 @@ func _build_modes() -> void:
 	_heist = _add_mode(Color("9BE7A0"))
 	_docks = _add_mode(Color("C98A5E"))
 	_city = _add_mode(Color("E0C36B"))
+	_ritual = _add_mode(Feel.COL_BRASS.lightened(0.15))
 
 
 func _add_mode(color: Color) -> Label:
@@ -219,6 +221,7 @@ func _update_modes() -> void:
 	_set_mode(_heist, _heist_text())
 	_set_mode(_docks, _docks_text())
 	_set_mode(_city, _city_text())
+	_set_mode(_ritual, _ritual_text())
 
 
 ## The fight, when there is one: who, which phase, and what he is doing to you right now.
@@ -360,6 +363,32 @@ func _city_text() -> String:
 	if Game.chairs.claimed_count() > 0 and not Game.chairs.all_claimed():
 		return "THE COMMISSION   ·   %d/%d CHAIRS" \
 				% [Game.chairs.claimed_count(), CommissionChairs.CHAIRS]
+	return ""
+
+
+## The phone and the case (docs/05 §10). The phone wins the line while it is ringing, because
+## it is the one with a clock on it — and it never says who is calling, which is the decision.
+func _ritual_text() -> String:
+	# THE RAT wins the line on a clue Night: three names, which of them are out, and whether
+	# the top lanes are live as an accusation (docs/05 §7).
+	if Game.rat.active:
+		var frame := PackedStringArray()
+		for i in Game.rat.suspects.size():
+			var who := Game.rat.suspect_name(i)
+			frame.append("[%s]" % who if Game.rat.is_cleared(i) else who.to_upper())
+		var how := "NAME HIM ON THE TOP LANES" if Game.rat.can_accuse() \
+				else "%d/%d CLUES" % [Game.rat.clues.size(), TheRat.CLUES_TO_ACCUSE]
+		return "SOMETHING'S OFF   ·   %s   ·   %s" % [" ".join(frame), how]
+	if Game.phone.ringing:
+		return "THE PHONE   ·   ANSWER IT ON THE PAYPHONES   ·   %ds" \
+				% int(ceilf(maxf(Game.phone.time_left, 0.0)))
+	if Game.briefcases.boon_left > 0.0:
+		return "THE CASE   ·   ALL DIRTY x%d   ·   %ds" % [
+				int(Briefcases.BOON_DOUBLE_MULT), int(ceilf(Game.briefcases.boon_left))]
+	var live := Game.night as NightController
+	if live != null and is_instance_valid(live) \
+			and bool(TableAPI.call_if(live.table, "briefcase_live", [], false)):
+		return "A MAN WITH A BRIEFCASE IS WAITING"
 	return ""
 
 

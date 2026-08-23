@@ -177,8 +177,10 @@ func settle(keep: StringName = &"") -> Dictionary:
 	}
 	if carried:
 		terms_won += 1
-		term_left = TERM_NIGHTS
-		result["term"] = term_left
+		# The ballot is always counted DURING a Night, and the term is spent at the end of
+		# one — so the Night you won it does not count against the five you bought.
+		term_left = TERM_NIGHTS + 1
+		result["term"] = TERM_NIGHTS
 		lit.clear()
 	else:
 		terms_lost += 1
@@ -212,7 +214,9 @@ func in_office() -> bool:
 	return term_left > 0
 
 
-## Roll call: a Night in office is a Night off the term. True on the Night the term runs out.
+## The Count: a Night in office is a Night off the term. Spent at the END of a Night rather
+## than at roll call, so the Night the election was won is not one of the five it bought.
+## True on the Night the term runs out.
 func night_tick() -> bool:
 	if term_left <= 0:
 		return false

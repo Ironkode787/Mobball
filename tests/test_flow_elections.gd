@@ -100,6 +100,8 @@ func _election_night(t: TestCtx) -> void:
 	var result := city.settle()
 	t.ok(bool(result["won"]), "so the city is bought")
 	t.eq(int(result["term"]), Elections.TERM_NIGHTS, "for five Nights")
+	t.eq(city.term_left, Elections.TERM_NIGHTS + 1,
+			"and the Night it was won on is not one of them")
 	t.ok(city.in_office(), "you are the administration")
 	t.eq(city.lit_count(), 0, "and the board is clear for the next campaign")
 
@@ -197,10 +199,13 @@ func _save_round_trip(t: TestCtx) -> void:
 	t.eq(Game.elections.term_left, 3, "and the term still running")
 	t.ok(Game.administration_active(), "so City Hall is still ours on load")
 
-	# Roll call spends a Night of the term, and tonight's canvassing starts clean.
+	# A Night in office costs a Night, and it is spent at The Count; tonight's canvassing
+	# starts clean at roll call.
 	Game.start_night()
-	t.eq(Game.elections.term_left, 2, "a Night in office costs a Night")
-	t.eq(Game.elections.progress_in(&"alley"), 0, "and the campaign's clock is per Night")
+	t.eq(Game.elections.term_left, 3, "roll call does not spend the term")
+	t.eq(Game.elections.progress_in(&"alley"), 0, "but the campaign's clock is per Night")
+	Game.end_night({})
+	t.eq(Game.elections.term_left, 2, "The Count does")
 
 
 func _lit_city() -> Elections:

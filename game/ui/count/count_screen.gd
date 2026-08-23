@@ -391,6 +391,27 @@ func _build_endgame_lines() -> void:
 	elif String(summary.get("rico", "")) == "lost":
 		_body.add_child(PaperKit.label("THE CASE STICKS", PaperKit.FONT_BODY, Feel.COL_DIRTY))
 
+	var cases: Dictionary = summary.get("briefcases", {})
+	if int(cases.get("opened", 0)) > 0:
+		_add_money_row("BRIEFCASES   ·   %d" % int(cases["opened"]), cases.get("paid", null),
+				Feel.COL_DIRTY)
+		if int(cases.get("setups", 0)) > 0:
+			_body.add_child(PaperKit.label("   %d of them were a setup"
+					% int(cases["setups"]), PaperKit.FONT_SMALL, Feel.COL_INK.lightened(0.35)))
+	if int(cases.get("missed", 0)) > 0:
+		_body.add_child(PaperKit.label("HE LEFT WITH IT", PaperKit.FONT_SMALL,
+				Feel.COL_INK.lightened(0.35)))
+
+	var calls: Dictionary = summary.get("phone", {})
+	if int(calls.get("answered", 0)) > 0:
+		_add_int_row("CALLS TAKEN", int(calls["answered"]), Feel.COL_INK)
+
+	var rat: Dictionary = summary.get("rat", {})
+	if bool(rat.get("caught", false)):
+		_body.add_child(PaperKit.label("THE RAT IS FLIPPED", PaperKit.FONT_BODY, Feel.COL_CLEAN))
+	elif _money(rat.get("skimmed", null)).is_positive():
+		_add_money_row("SOMEBODY IS SKIMMING", rat.get("skimmed", null), Feel.COL_DIRTY)
+
 	var fbi: Dictionary = summary.get("federal", {})
 	if bool(fbi.get("enabled", false)) and float(fbi.get("value", 0.0)) > 0.0:
 		_add_int_row("FEDERAL HEAT   ·   of 200", int(round(float(fbi.get("meter", 100.0)))),

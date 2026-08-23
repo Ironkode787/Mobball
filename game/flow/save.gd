@@ -7,7 +7,12 @@ extends RefCounted
 ## Load salvages: the newest file that parses wins, so a truncated `save1.json` falls back
 ## to `bak1` rather than to a new game. `version` + `migrate()` carry old saves forward.
 
-const VERSION := 1
+## v2 (M3): the endgame's sections were added — `smuggling` `sitdown` `chairs` `elections`
+## `heists` `federal` `empire` `briefcases` `phone` `rat` `career`, and `prestige` (the meta
+## lane's Black Book, which outlives a career). Every one of them defaults to empty, so a v1
+## file loads as a career that simply has not reached the endgame yet — which is exactly what
+## it is. Nothing had to move, so `migrate` only stamps the version forward.
+const VERSION := 2
 const DEFAULT_PATH := "user://save1.json"
 
 var path: String = DEFAULT_PATH
@@ -90,8 +95,9 @@ func read() -> Dictionary:
 	return {}
 
 
-## Version hook. v1 is the first shipped format, so there is nothing to move yet — the
-## branch exists so the next format change is a data edit, not a redesign.
+## Version hook. v1 → v2 added sections and moved nothing (see VERSION), so the migration is
+## the version stamp itself: every M3 reader defaults its own section to empty. The branch
+## stays here so the next format change that DOES move a field is a data edit, not a redesign.
 func migrate(d: Dictionary) -> Dictionary:
 	var v := int(d.get("version", 0))
 	if v == VERSION:

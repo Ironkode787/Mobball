@@ -172,7 +172,9 @@ func _run() -> void:
 	await _s5_city_hall_circuit()
 	await _s6_family_reunion()
 	await _s7_rico_night()
-	await _s8_skip_town()
+	await _s8_briefcase_and_phone()
+	await _s9_the_rat()
+	await _s10_skip_town()
 
 	var failed := 0
 	for r: Dictionary in _results:
@@ -482,9 +484,98 @@ func _s7_rico_night() -> void:
 	finish()
 
 
-## 8 — the train. Skip Town ends a career and starts a city: the Juice is banked, one guy
+## 8 — the man in the trench coat and the phone. The table owns the token and the payphones;
+## what is in the case and who is on the line are flow's.
+func _s8_briefcase_and_phone() -> void:
+	begin("rituals: a briefcase is opened and the phone is answered")
+	await fresh_night()
+	check(table.has_method("spawn_briefcase"), "the table has no briefcase hardware")
+
+	table.call("spawn_briefcase", Vector2(490.0, 1100.0))
+	await step(2)
+	check(bool(table.call("briefcase_live")), "the bagman did not put a case down")
+
+	var opened := Game.briefcases.night_opened
+	var heat_before := Game.heat.value
+	var dirty_before := Game.wallet.dirty
+	table.emit_signal(&"briefcase_collected")
+	await step(2)
+	check(Game.briefcases.night_opened == opened + 1, "the case was not opened")
+	var moved := Game.wallet.dirty.cmp(dirty_before) > 0
+	var stung := Game.heat.value > heat_before + 1.0
+	var booned := Game.briefcases.boon_left > 0.0 or Game.heat.value < heat_before
+	check(moved or stung or booned, "the case was empty")
+
+	# He leaves with it if it is ignored, and that costs nothing but the case (P5).
+	var missed := Game.briefcases.night_missed
+	table.emit_signal(&"briefcase_expired")
+	await step(2)
+	check(Game.briefcases.night_missed == missed + 1, "the walk-off was not recorded")
+
+	# The phone: the payphones answer it, which costs a real shot under a real clock.
+	Game.phone.ringing = true
+	Game.phone.caller = ThePhone.JOB
+	var stars := Game.respect
+	await hit(&"wire_bank_1", 0.6)
+	check(not Game.phone.ringing, "hitting a payphone did not answer the phone")
+	check(Game.respect > stars, "picking up was worth nothing")
+	print("        cases %d | missed %d | calls %d" % [Game.briefcases.night_opened,
+			Game.briefcases.night_missed, Game.phone.night_answered])
+	finish()
+
+
+## 9 — the whodunit. A clue Night flags itself at roll call, ordinary play surfaces the clues,
+## and the three top lanes are the three names.
+func _s9_the_rat() -> void:
+	begin("the rat: clues surface from ordinary play, the lanes name him")
+	Game.rat.caught = false
+	Game.rat.armed = true
+	Game.rat.next_night = 0
+	await fresh_night()
+	check(Game.rat.active, "roll call did not flag the clue Night")
+	if not Game.rat.active:
+		finish()
+		return
+	check(Game.rat.suspects.size() == TheRat.SUSPECTS, "the backglass is not three names")
+
+	# The wash is short while he is loose, and that IS the first clue.
+	Game.wallet.earn_dirty(BigMoney.of(1.0, 7))
+	var clean_before := Game.wallet.clean
+	var washed := Game.launder(0.25, Game.launder_cap_left())
+	await step(2)
+	if washed.is_positive():
+		check(Game.wallet.clean.sub_clamped(clean_before).cmp(washed) < 0,
+				"the laundromat total came in whole with a rat on the crew")
+		check(Game.rat.skimmed.is_positive(), "nobody took a cut")
+
+	Game.rat_clue(TheRat.CLUE_LAUNDROMAT)
+	Game.rat_clue(TheRat.CLUE_COLLECTION)
+	check(Game.rat.can_accuse(), "two clues did not open the accusation")
+
+	# Name the wrong man: he makes one phone call, and it does not launder the meter.
+	Game.heat.value = 70.0
+	var heat_before := Game.heat.value
+	var innocent := (Game.rat.culprit + 1) % TheRat.SUSPECTS
+	if main.night != null:
+		main.night.raid_duration = 1.0
+	# The top lanes report themselves (`rollover_rolled`), which is the surface flow binds to.
+	table.emit_signal(&"rollover_rolled", innocent, false)
+	await step(4)
+	check(Game.rat.accusations == 1, "the lane did not name anybody")
+	check(not Game.rat.caught, "the wrong man was flipped")
+	check(main.night != null and main.night.raid != null, "he made no phone call")
+	await wait(1.6)
+	check(Game.heat.value >= heat_before - 5.0,
+			"a rat's raid reset the Inspector's file — that would launder a hot meter")
+	check(Game.rat.next_night > Game.night_no, "the backglass did not go dark")
+	print("        clues %d | accusations %d | skimmed %s" % [Game.rat.clues.size(),
+			Game.rat.accusations, Game.rat.skimmed.text()])
+	finish()
+
+
+## 10 — the train. Skip Town ends a career and starts a city: the Juice is banked, one guy
 ## comes along, and everything else is gone.
-func _s8_skip_town() -> void:
+func _s10_skip_town() -> void:
 	begin("skip town: the career ends and a city begins")
 	await end_the_night()
 	Game.respect = 9_000
