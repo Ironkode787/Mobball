@@ -233,15 +233,60 @@ func _draw() -> void:
 	var w := half_span()
 	var lit := _state == State.OPEN
 	var frame := Feel.COL_INK.lightened(0.18)
+	# A complete little building gives the bank a silhouette: cornice, sign box, shop window,
+	# striped awning and the working doorway. Each racket is now a place on the Block.
+	var facade := Rect2(Vector2(-w - 10.0, -DOOR_DEPTH - 82.0),
+			Vector2(w * 2.0 + 20.0, DOOR_DEPTH + 78.0))
+	draw_rect(Rect2(facade.position + Vector2(7.0, 9.0), facade.size),
+			Color(0.0, 0.0, 0.0, 0.34))
+	draw_rect(facade, Feel.COL_INK.lightened(0.08))
+	draw_rect(facade, Feel.COL_BRASS.darkened(0.58), false, 3.0)
+	draw_line(Vector2(facade.position.x - 5.0, facade.position.y),
+			Vector2(facade.end.x + 5.0, facade.position.y), Feel.COL_BRASS.darkened(0.25), 7.0)
+
+	var sign_box := Rect2(Vector2(-w + 4.0, -DOOR_DEPTH - 70.0),
+			Vector2(w * 2.0 - 8.0, 34.0))
+	var sign_col := Feel.COL_CLEAN if wash_enabled else Feel.COL_BRASS
+	if String(id).contains("pizzeria"):
+		sign_col = Feel.COL_DIRTY.darkened(0.10)
+	elif String(id).contains("pawn"):
+		sign_col = Feel.COL_BRASS.lightened(0.10)
+	if _state == State.COOLDOWN:
+		sign_col = sign_col.darkened(0.6)
+	draw_rect(sign_box, sign_col.darkened(0.66))
+	draw_rect(sign_box, sign_col, false, 3.0)
+	var font := ThemeDB.fallback_font
+	if font != null:
+		draw_string(font, sign_box.position + Vector2(0.0, 25.0), String(sign_text),
+				HORIZONTAL_ALIGNMENT_CENTER, sign_box.size.x, 18, sign_col.lightened(0.32))
+
 	# the shopfront behind the bank: a dark doorway that lights up when it is open
-	var door_rect := Rect2(Vector2(-w, -DOOR_DEPTH - 16.0), Vector2(w * 2.0, DOOR_DEPTH + 4.0))
+	var door_rect := Rect2(Vector2(-w, -DOOR_DEPTH - 31.0), Vector2(w * 2.0, DOOR_DEPTH + 19.0))
 	draw_rect(door_rect, Feel.COL_INK.darkened(0.35))
 	if lit:
 		var glow := Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, 0.25 + _glow * 0.4)
 		draw_rect(door_rect.grow(-6.0), Color(glow.r, glow.g, glow.b, 0.30))
 	draw_rect(door_rect, frame, false, 4.0)
-	var sign_col := Feel.COL_CLEAN if wash_enabled else Feel.COL_BRASS
-	if _state == State.COOLDOWN:
-		sign_col = sign_col.darkened(0.6)
-	draw_line(Vector2(-w + 8.0, -DOOR_DEPTH - 8.0), Vector2(w - 8.0, -DOOR_DEPTH - 8.0),
-			sign_col, 7.0)
+
+	# Canvas awning; the bank targets sit directly along its lower edge.
+	var awning_y := -DOOR_DEPTH - 27.0
+	draw_line(Vector2(-w + 2.0, awning_y), Vector2(w - 2.0, awning_y), sign_col, 10.0)
+	for i in range(7):
+		var x := lerpf(-w + 8.0, w - 8.0, float(i) / 6.0)
+		draw_line(Vector2(x, awning_y - 4.0), Vector2(x - 4.0, awning_y + 7.0),
+				Feel.COL_NEWSPRINT.darkened(0.20), 3.0)
+
+	# Shop-specific window marks stay small and readable even with the bank raised.
+	if String(id).contains("laundromat"):
+		for side in [-1.0, 1.0]:
+			draw_arc(Vector2(side * 39.0, -47.0), 18.0, 0.0, TAU, 20,
+					sign_col.darkened(0.18), 4.0)
+	elif String(id).contains("pizzeria"):
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(-22.0, -61.0), Vector2(24.0, -61.0), Vector2(2.0, -26.0),
+		]), sign_col.darkened(0.22))
+		draw_circle(Vector2(0.0, -51.0), 3.0, Feel.COL_NEWSPRINT)
+	else:
+		for side in [-1.0, 1.0]:
+			draw_circle(Vector2(side * 17.0, -48.0), 11.0, sign_col.darkened(0.08), false, 4.0)
+		draw_circle(Vector2(0.0, -32.0), 11.0, sign_col.darkened(0.08), false, 4.0)

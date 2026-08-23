@@ -9,6 +9,9 @@ extends StaticBody2D
 @export var value: int = Feel.BUMPER_VALUE
 ## Economy group this can pays into (specs/ledger-data.md `value_mult` targets).
 @export var group: StringName = &"bumpers"
+## The progression table uses three mismatched cans: one broad anchor and two quicker
+## satellites. Authored geometry is scaled directly so the skirt and visible lid agree.
+@export var size_scale: float = 1.0
 
 var _present: bool = true
 var _cooldown: float = 0.0
@@ -24,7 +27,7 @@ func _ready() -> void:
 
 	var body := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
-	circle.radius = Feel.BUMPER_RADIUS
+	circle.radius = Feel.BUMPER_RADIUS * size_scale
 	body.shape = circle
 	body.name = "Body"
 	add_child(body)
@@ -36,7 +39,7 @@ func _ready() -> void:
 	ring.monitorable = false
 	var rs := CollisionShape2D.new()
 	var rc := CircleShape2D.new()
-	rc.radius = Feel.BUMPER_RADIUS + Feel.BALL_RADIUS
+	rc.radius = Feel.BUMPER_RADIUS * size_scale + Feel.BALL_RADIUS
 	rs.shape = rc
 	ring.add_child(rs)
 	add_child(ring)
@@ -112,9 +115,25 @@ func _apply_collision() -> void:
 
 
 func _draw() -> void:
-	var r := Feel.BUMPER_RADIUS * (1.0 + _pulse * 0.14)
-	draw_circle(Vector2(0.0, 3.0), r, Color(0.0, 0.0, 0.0, 0.3))
-	draw_circle(Vector2.ZERO, r, Feel.COL_INK)
-	draw_arc(Vector2.ZERO, r - 4.0, 0.0, TAU, 40, Feel.COL_BRASS, 7.0)
-	var cap := Feel.COL_FELT.lerp(Feel.COL_BRASS, 0.25 + _pulse * 0.6)
-	draw_circle(Vector2.ZERO, r * 0.44, cap)
+	var r := Feel.BUMPER_RADIUS * size_scale * (1.0 + _pulse * 0.14)
+	# A battered trash-can lid, not a generic pinball disc. The nested steel ribs make the
+	# pulse read like the lid physically jumping when the skirt fires.
+	draw_circle(Vector2(0.0, 7.0), r + 4.0, Color(0.0, 0.0, 0.0, 0.38))
+	if _pulse > 0.0:
+		draw_circle(Vector2.ZERO, r + 15.0,
+				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, _pulse * 0.12))
+	draw_circle(Vector2.ZERO, r, Feel.COL_INK.lightened(0.05))
+	draw_arc(Vector2.ZERO, r - 3.0, 0.0, TAU, 40,
+			Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _pulse * 0.62), 7.0)
+	var steel := Feel.COL_NEWSPRINT.darkened(0.62).lerp(Feel.COL_BRASS, 0.20 + _pulse * 0.42)
+	draw_circle(Vector2.ZERO, r * 0.68, steel.darkened(0.26))
+	draw_arc(Vector2.ZERO, r * 0.62, 0.0, TAU, 32, steel, 4.0)
+	draw_arc(Vector2.ZERO, r * 0.43, 0.0, TAU, 28, steel.darkened(0.12), 3.0)
+	draw_circle(Vector2(-r * 0.12, -r * 0.10), r * 0.25, steel.darkened(0.18))
+	# Each can has a different old dent, so three bought bumpers feel like three objects.
+	var dent_sign := -1.0 if String(id).ends_with("2") else 1.0
+	draw_arc(Vector2(dent_sign * r * 0.22, r * 0.08), r * 0.21,
+			0.2, PI * 1.18, 10, Feel.COL_INK.lightened(0.17), 3.0)
+	draw_line(Vector2(-r * 0.22, r * 0.35), Vector2(r * 0.30, r * 0.28),
+			Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
+			Feel.COL_NEWSPRINT.b, 0.13), 2.0)

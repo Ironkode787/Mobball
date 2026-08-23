@@ -36,10 +36,12 @@ docs/04 + specs/ledger-data.md (upgrades), docs/05 §1–2 (jobs, raids).
   (`bumper_2`, `bumper_3`, `slingshots`, `inlane_guides`, `rollovers`, `spinner_numbers`,
   `wire_bank`, `laundromat_loop`, `storefront_laundromat/pizzeria/pawn`, `orbit_left`,
   `kickback_left`, `bribe_target`; `kickback_unlock`/`bribe_unlock` effects bridge to the
-  `kickback_left`/`bribe_target` hardware ids inside Stats) and shows/enables itself iff
+  `kickback_left`/`bribe_target` hardware ids inside Stats) and normally shows/enables itself iff
   `Game.stats.hardware_unlocked(id)`
-  (re-checked on `Events.upgrade_purchased`). The M0 debug table + feel sims keep working
-  via a `debug_all_hardware` flag that bypasses the check.
+  (re-checked on `Events.upgrade_purchased`). The starter `slingshots` id is queryable as
+  absent/unpowered at R0 even though its dead rubber triangle remains visible and solid;
+  only its powered face sensor, kick, score and figures follow the unlock. The M0 debug table
+  + feel sims keep working via a `debug_all_hardware` flag that bypasses the check.
 
 ## Lane 1 — FLOW (`game/flow/`, `game/ui/count/`, `game/ui/hud`, flow tests/sims)
 
@@ -133,9 +135,9 @@ docs/04 + specs/ledger-data.md (upgrades), docs/05 §1–2 (jobs, raids).
 ## Lane 3 — TABLE (`game/table/`, table tests/sims)
 
 - Convert the M0 layout into the progression table `game/table/table_main.tscn`: base =
-  walls, flippers, drain, ONE bumper, plunger (fixed **0.92** power until `plunger_bands`
-  flag — measured: 0.75 never clears the shooter lane on the shipped geometry; ≥0.90 clears
-  the arch. The pre-upgrade plunger must be reliable-but-uncontrollable, not broken).
+  walls, flippers, drain, ONE bumper, plunger (three coarse starter pulls at **0.90 / 0.95 /
+  1.00** until the `plunger_bands` flag — measured: below 0.90 never clears the shooter lane
+  on the shipped geometry; the pre-upgrade plunger must be reliable-but-coarse, not broken).
   All other hardware present-but-dormant behind `hardware_unlocked` (hidden, collision off).
 - New hardware (all emit via `Game.earn_switch` groups, values from specs/ledger-data.md
   economics: bumper 10, sling 5 base, spinner 25/spin-segment, rollover 25, wire target 150,

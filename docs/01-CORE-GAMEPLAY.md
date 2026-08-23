@@ -13,16 +13,18 @@ better than a lucky one.**
 
 | Input | Action | Notes |
 |-------|--------|-------|
-| Touch left / right half (bottom ~70% of screen) | Left / right flipper(s) | Multi-touch; hold to trap. Upper mini-flippers ride the same sides — one thumb per side, always |
-| Short swipe up on launch lane | Plunger ("The Drop-Off") | Pull-back drag sets power with a haptic detent per power band |
-| Flick anywhere / tap top corners | **Lean** (nudge) L/R/up | Also accelerometer option. Costs Inspector patience (see §5) |
+| Touch left / right half (bottom ~70% of screen) | Left / right flipper(s) | Multi-touch; hold to trap. A quick horizontal drag begun in a flipper zone adds one L/R nudge without consuming the hold or release. Upper mini-flippers ride the same sides — one thumb per side, always |
+| Short swipe up on launch lane | Plunger ("The Drop-Off") | Starter hardware offers three coarse pull bands; Real Plunger keeps continuous charge/detents |
+| Flick upper field / tap top corners | **Lean** (nudge) L/R/up | Quick horizontal/upward flicks classify once per touch; corner taps fire immediately. Also accelerometer option. Costs Inspector patience (see §5) |
 | Hold both flippers 1.5s while ball is trapped | **Case the Joint** (aim mode) | Slows time slightly, shows a faint chalk trajectory line if The Planner is hired ([04](04-UPGRADE-TREE.md)) |
 | Two-finger tap | **Union Break** (bullet time, if unlocked) | 3s slow-mo, long cooldown — late-game skill tool |
 | Tap HUD elements | Collect ready bonuses, answer The Phone | Non-critical taps only; nothing twitchy lives in the HUD |
 
-Design rules: **no gesture ever overlaps flipper zones** during live play; everything critical
-is reachable without re-gripping; every input has haptic + audio confirmation (cheap Android
-haptics considered — patterns, not just buzzes).
+Design rules: **flipper zones stay authoritative for hold and release** during live play. A
+quick horizontal drag that begins in a flipper zone may add one nudge, but it is additive and
+never consumes or cancels the critical flip input; the shooter lane keeps plunger precedence.
+Everything critical is reachable without re-gripping; every input has haptic + audio
+confirmation (cheap Android haptics considered — patterns, not just buzzes).
 
 ## 2. Ball feel (the non-negotiables)
 

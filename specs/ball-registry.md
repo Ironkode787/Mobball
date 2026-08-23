@@ -35,7 +35,9 @@ core autoload, minimal diffs elsewhere.
   only when the LAST live ball drains with no guys left to serve; ball-save windows are
   per-ball (spawn time stamped per instance). Guy binding also calls `ball.apply_guy_design(guy)`
   so the persistent guy ID selects the same deterministic `BallDesign` face used by Roll Call's
-  `BallPreview`; empty/anonymous bindings retain the plain steel debug face.
+  `BallPreview`; empty/anonymous bindings retain the plain steel debug face. A shooter-lane
+  launch also arms one free six-second bad-break return for that guy, consumed at most once per
+  Night and separate from paid Second Wind charges; tilt bypasses both.
 
 ## Timing contracts (learned in M2 integration — binding)
 

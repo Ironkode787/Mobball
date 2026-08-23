@@ -138,7 +138,13 @@ func _build_walls() -> void:
 			Vector2(LANE_RIGHT + off, LANE_FLOOR_Y), OUTER_THICK)
 
 	# lane / playfield divider
-	_walls.bar(Vector2(DIVIDER_X, DIVIDER_TOP), Vector2(DIVIDER_X, DIVIDER_BOTTOM), DIVIDER_THICK)
+	# A short raked lead-in keeps the rounded divider cap from becoming a shelf beneath the
+	# one-way gate. The old square cap could catch a 56 px ball at the lane mouth after a nudge.
+	_walls.chain(PackedVector2Array([
+		Vector2(DIVIDER_X - 40.0, DIVIDER_TOP - 32.0),
+		Vector2(DIVIDER_X, DIVIDER_TOP),
+		Vector2(DIVIDER_X, DIVIDER_BOTTOM),
+	]), DIVIDER_THICK)
 
 	# in/out lane guides, both sides
 	for s in [1.0, -1.0]:

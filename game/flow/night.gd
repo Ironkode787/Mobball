@@ -30,13 +30,18 @@ signal night_finished(summary: Dictionary)
 const GUYS_PER_NIGHT := 3
 ## Seconds of mugshot beat between guys — "a pinched guy is a beat, not a punishment".
 const PINCH_BEAT := 1.2
-## Ball-save window after a launch, per charge from `stats.ball_saves()`.
+## Paid ball-save window after a launch, per charge from `stats.ball_saves()`.
 const BALL_SAVE_SECONDS := 8.0
+## Free bad-break protection after a shooter-lane launch. It is one use per guy per Night,
+## separate from Second Wind, and therefore never consumes a paid save charge.
+const BAD_BREAK_SAVE_SECONDS := 6.0
+const BAD_BREAK_SAVE_KIND := &"bad_break"
 ## Grace on a ball that was put back into play mid-multiball: it did not come up the shooter
 ## lane, so it never got the launch window everything else gets.
 const RESERVE_SAVE_SECONDS := 2.0
-## The rubber-band plunger fires at a fixed power until `plunger_bands` is bought.
-const FIXED_PLUNGER_POWER := 0.75
+## Fallback for an old/plain Plunger node: match the middle starter band, which is safely
+## above the geometry's approximately 0.90 feed floor.
+const STARTER_PLUNGER_POWER := 0.95
 ## A ball left sitting in the lane launches itself, so a Night can never stall.
 const AUTO_LAUNCH_SECONDS := 12.0
 ## Skill-shot lane cycle and how long after the launch the window stays open.
@@ -112,8 +117,9 @@ var _raid_from_rat: bool = false
 var _raid_payout: BigMoney = BigMoney.zero()
 var _raid_confiscated: BigMoney = BigMoney.zero()
 var _serve_in: float = -1.0
-## Per-ball save windows, keyed by instance id: `{"left": float, "free": bool}`. A free one
-## is a grace (the Meeting's 8 s) and costs no charge; the rest spend `saves_left`.
+## Per-ball save windows, keyed by instance id. Each value is an Array of
+## `{"left": float, "free": bool, "kind": StringName}` rows so bad-break grace and a paid
+## Second Wind window can coexist on the same shooter-lane ball.
 var _saves: Dictionary = {}
 ## The Bench guy riding each live ball. `Balls` keeps the same map, but it erases its entry
 ## BEFORE it emits — by the time `ball_lost` reaches us the registry has already forgotten
@@ -124,6 +130,9 @@ var _ball_guys: Dictionary = {}
 var _ball_age: Dictionary = {}
 ## Guy id -> his one Slippery escape is spent.
 var _slippery_used: Dictionary = {}
+## Guy id -> the launch grace was actually consumed. Arming a window is not consumption;
+## this distinction lets an expired six-second grace behave like an ordinary paid save.
+var _bad_break_used: Dictionary = {}
 var _idle_accum: float = 0.0
 var _wash_cooldown: float = 0.0
 var _lane_idle: float = 0.0
@@ -194,6 +203,7 @@ func start() -> void:
 	_ball_guys.clear()
 	_ball_age.clear()
 	_slippery_used.clear()
+	_bad_break_used.clear()
 	_arp.clear()
 	_reserve_queue.clear()
 	_meeting_end_pending = false
@@ -444,10 +454,20 @@ func _tick_balls(delta: float) -> void:
 		var id := b.get_instance_id()
 		_ball_age[id] = float(_ball_age.get(id, 0.0)) + delta
 	for key: Variant in _saves.keys():
-		var row: Dictionary = _saves[key]
-		row["left"] = maxf(float(row["left"]) - delta, 0.0)
-		if float(row["left"]) <= 0.0:
+		var raw: Variant = _saves[key]
+		var rows: Array = raw if raw is Array else [raw]
+		var live_rows: Array = []
+		for entry: Variant in rows:
+			if not (entry is Dictionary):
+				continue
+			var row: Dictionary = entry
+			row["left"] = maxf(float(row.get("left", 0.0)) - delta, 0.0)
+			if float(row["left"]) > 0.0:
+				live_rows.append(row)
+		if live_rows.is_empty():
 			_saves.erase(key)
+		else:
+			_saves[key] = live_rows
 	var primary := _ball()
 	guy_alive = _age_of(primary) if primary != null else guy_alive
 
@@ -471,8 +491,10 @@ func _lane_count() -> int:
 	return maxi(int(TableAPI.call_if(table, "rollover_count", [], SKILL_LANES)), 1)
 
 
-## Fixed-power plunger until `plunger_bands` is owned: the charge is pinned rather than the
-## plunger disabled, so touch, keys and scripted launches all still work.
+## Starter plunger fallback until `plunger_bands` is owned: a plain legacy node uses the
+## safe middle coarse band, while a BandedPlunger exposes three touch-selected bands.
+## Real-plunger hardware keeps its continuous charge path, so touch, keys and scripted
+## launches all still work.
 func _tick_plunger(delta: float) -> void:
 	if _plunger == null or not is_instance_valid(_plunger):
 		return
@@ -480,7 +502,7 @@ func _tick_plunger(delta: float) -> void:
 	# whose plunger does not know about `plunger_bands` yet.
 	if not (_plunger is BandedPlunger) and not Game.stats.flag(&"plunger_bands") \
 			and _plunger.charging:
-		_plunger.power = FIXED_PLUNGER_POWER
+		_plunger.power = STARTER_PLUNGER_POWER
 	if _plunger.ball_ready():
 		_lane_idle += delta
 		if _lane_idle >= AUTO_LAUNCH_SECONDS:
@@ -551,11 +573,12 @@ func _serve() -> void:
 ## `body_entered`, which fires while the physics server is flushing its queries, and adding a
 ## body then is an error. It is queued for the top of the next tick, the same way the table
 ## defers its own auto-respawn.
-func _reserve(guy: Dictionary) -> void:
+func _reserve(guy: Dictionary, reserve_grace: bool = true,
+		carry_paid: Dictionary = {}) -> void:
 	if Balls.count() <= 0:
 		_beat(&"same", 0.4)
 		return
-	_reserve_queue.append(guy)
+	_reserve_queue.append({"guy": guy, "grace": reserve_grace, "paid": carry_paid})
 
 
 func _tick_reserves() -> void:
@@ -563,16 +586,21 @@ func _tick_reserves() -> void:
 		return
 	var queued := _reserve_queue.duplicate()
 	_reserve_queue.clear()
-	for guy: Dictionary in queued:
+	for row: Dictionary in queued:
 		if Balls.count() <= 0:
 			_beat(&"same", 0.4)
 			continue
+		var guy: Dictionary = row.get("guy", {})
 		var b: Variant = TableAPI.call_if(table, "spawn_extra_ball", [_reserve_point()], null)
 		if not (b is Ball):
 			_beat(&"same", 0.4)
 			continue
 		_bind_guy(b as Ball, guy)
-		_arm_save(b as Ball, RESERVE_SAVE_SECONDS, true)
+		var paid: Variant = row.get("paid", {})
+		if paid is Dictionary and not (paid as Dictionary).is_empty():
+			_arm_save(b as Ball, float((paid as Dictionary).get("left", 0.0)), false)
+		elif bool(row.get("grace", true)):
+			_arm_save(b as Ball, RESERVE_SAVE_SECONDS, true, &"reserve")
 	Game.set_fielded(_live_guys())
 
 
@@ -590,12 +618,22 @@ func _on_ball_lost(ball_node: Node = null) -> void:
 	var age := _age_of(ball)
 	var save: Dictionary = _take_save(ball)
 	var slipped := save.is_empty() and _try_slippery(guy, ball)
+	var carry_paid: Dictionary = {}
+	if not save.is_empty() and bool(save.get("free", false)) \
+			and StringName(save.get("kind", &"")) == BAD_BREAK_SAVE_KIND:
+		carry_paid = _take_paid_save(ball)
 	_forget_ball(ball)
 	if not save.is_empty():
+		if StringName(save.get("kind", &"")) == BAD_BREAK_SAVE_KIND:
+			_mark_bad_break_used(guy)
 		if not bool(save["free"]):
 			saves_left -= 1
 		AudioDirector.play(&"kickback")
-		_reserve(guy)
+		var kind := StringName(save.get("kind", &""))
+		# A bad-break return carries the still-live paid window, but never gets another
+		# free reserve grace. A reserve grace itself is one-shot too, preventing a drain
+		# loop from manufacturing an infinite chain of free balls.
+		_reserve(guy, kind != BAD_BREAK_SAVE_KIND and kind != &"reserve", carry_paid)
 		return
 	if slipped:
 		AudioDirector.play(&"kickback")
@@ -739,6 +777,7 @@ func _release_night() -> void:
 	_saves.clear()
 	_ball_guys.clear()
 	_ball_age.clear()
+	_bad_break_used.clear()
 	_arp.clear()
 	_reserve_queue.clear()
 	_meeting_end_pending = false
@@ -798,10 +837,14 @@ func _age_of(ball: Ball) -> float:
 	return float(_ball_age.get(ball.get_instance_id(), 0.0))
 
 
-func _arm_save(ball: Ball, seconds: float, free: bool) -> void:
+func _arm_save(ball: Ball, seconds: float, free: bool, kind: StringName = &"") -> void:
 	if ball == null or not is_instance_valid(ball) or seconds <= 0.0:
 		return
-	_saves[ball.get_instance_id()] = {"left": seconds, "free": free}
+	var id := ball.get_instance_id()
+	var raw: Variant = _saves.get(id, [])
+	var rows: Array = raw if raw is Array else [raw]
+	rows.append({"left": seconds, "free": free, "kind": kind})
+	_saves[id] = rows
 
 
 ## Spend this ball's window if it has one and it can be honoured. Returns the window (with
@@ -810,14 +853,66 @@ func _take_save(ball: Ball) -> Dictionary:
 	if ball == null:
 		return {}
 	var id := ball.get_instance_id()
-	var row: Variant = _saves.get(id, null)
-	if not (row is Dictionary):
+	var raw: Variant = _saves.get(id, null)
+	if raw == null:
 		return {}
-	var window: Dictionary = row
-	_saves.erase(id)
-	if not bool(window["free"]) and saves_left <= 0:
+	var rows: Array = raw if raw is Array else [raw]
+	var pick := -1
+	# Free grace wins over paid Second Wind when both are armed on the same shooter ball.
+	for i in rows.size():
+		var entry: Variant = rows[i]
+		if entry is Dictionary and bool((entry as Dictionary).get("free", false)):
+			pick = i
+			break
+	if pick < 0:
+		for i in rows.size():
+			var entry: Variant = rows[i]
+			if entry is Dictionary:
+				pick = i
+				break
+	if pick < 0:
+		_saves.erase(id)
+		return {}
+	var window: Dictionary = rows[pick]
+	rows.remove_at(pick)
+	if rows.is_empty():
+		_saves.erase(id)
+	else:
+		_saves[id] = rows
+	if not bool(window.get("free", false)) and saves_left <= 0:
 		return {}
 	return window
+
+
+## Carry an unspent paid window onto the fresh ball returned by a free bad-break save. This
+## keeps the first drain free while allowing the normal Second Wind charge to catch a second
+## early drain, without arming a new paid charge.
+func _take_paid_save(ball: Ball) -> Dictionary:
+	if ball == null:
+		return {}
+	var id := ball.get_instance_id()
+	var raw: Variant = _saves.get(id, null)
+	if raw == null:
+		return {}
+	var rows: Array = raw if raw is Array else [raw]
+	for i in rows.size():
+		var entry: Variant = rows[i]
+		if not (entry is Dictionary) or bool((entry as Dictionary).get("free", false)):
+			continue
+		var paid: Dictionary = entry
+		rows.remove_at(i)
+		if rows.is_empty():
+			_saves.erase(id)
+		else:
+			_saves[id] = rows
+		return paid
+	return {}
+
+
+func _mark_bad_break_used(guy: Dictionary) -> void:
+	var id := int(guy.get("id", -1))
+	if id >= 0:
+		_bad_break_used[id] = true
 
 
 ## "One free outlane escape per Night" (docs/01 §4). Spent before any ball-save charge, and
@@ -923,8 +1018,13 @@ func _open_skill_window() -> void:
 func _on_ball_launched(ball_node: Node2D, _power: float) -> void:
 	if not running:
 		return
+	var ball := ball_node as Ball
+	var guy := _guy_riding(ball)
+	var guy_id := int(guy.get("id", -1))
+	if ball != null and not guy.is_empty() and guy_id >= 0 and not _bad_break_used.has(guy_id):
+		_arm_save(ball, BAD_BREAK_SAVE_SECONDS, true, BAD_BREAK_SAVE_KIND)
 	if saves_left > 0:
-		_arm_save(ball_node as Ball, BALL_SAVE_SECONDS, false)
+		_arm_save(ball, BALL_SAVE_SECONDS, false)
 	_lane_idle = 0.0
 	if _skill_open:
 		_skill_timer = minf(_skill_timer, SKILL_WINDOW)

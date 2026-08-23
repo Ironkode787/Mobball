@@ -439,7 +439,16 @@ func _draw() -> void:
 	draw_arc(Vector2(l, 0.0), rt, 0.0, TAU, 20, Feel.COL_INK, 3.0)
 	draw_line(Vector2(0.0, -rp), Vector2(l, -rt), Feel.COL_INK, 3.0)
 	draw_line(Vector2(0.0, rp), Vector2(l, rt), Feel.COL_INK, 3.0)
+	# Ivory grip and a walnut pinstripe make the bats feel like bespoke machine parts. The
+	# inlay follows the real taper, so it still reads correctly on the Club's smaller pair.
+	var ivory := Feel.COL_NEWSPRINT.darkened(0.10)
+	var in_rp := rp * 0.34
+	var in_rt := rt * 0.30
+	draw_line(Vector2(rp * 0.72, 0.0), Vector2(l - rt * 0.62, 0.0),
+			ivory.lerp(brass, 0.28), maxf(4.0, in_rp * 0.42))
+	draw_circle(Vector2(l * 0.68, 0.0), maxf(3.0, in_rt * 0.60), Feel.COL_INK)
 	draw_circle(Vector2.ZERO, rp * 0.32, Feel.COL_INK)
+	draw_circle(Vector2.ZERO, rp * 0.13, Feel.COL_BRASS.lightened(0.28))
 	if _jam > 0.0:
 		# the wrench itself, laid across the linkage
 		var mid := Vector2(l * 0.42, 0.0)

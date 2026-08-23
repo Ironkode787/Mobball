@@ -41,10 +41,12 @@ extends RefCounted
 ## in the constants right below.
 
 ## Mirrors `NightController.GUYS_PER_NIGHT` / `PINCH_BEAT` / `BALL_SAVE_SECONDS` /
-## `SURVIVE_SECONDS` / `TILT_HEAT` / `WASH_COOLDOWN`.
+## `BAD_BREAK_SAVE_SECONDS` / `SURVIVE_SECONDS` / `TILT_HEAT` / `WASH_COOLDOWN`.
 const GUYS_PER_NIGHT := 3
 const PINCH_BEAT := 1.2
 const BALL_SAVE_SECONDS := 8.0
+## Free shooter-lane bad-break return: one six-second grace per guy per Night.
+const BAD_BREAK_SAVE_SECONDS := 6.0
 const BALL_SAVE_BEAT := 0.4
 const SURVIVE_SECONDS := 60.0
 const TILT_HEAT := 5.0
@@ -149,6 +151,8 @@ var by_group: Dictionary = {}
 
 var _rng: RandomNumberGenerator
 var _saves_left: int = 0
+## Guy id -> the one free shooter-lane bad-break return was consumed this Night.
+var _bad_break_used: Dictionary = {}
 var _idle_accum: float = 0.0
 var _wash_cool: float = 0.0
 var _next_shot: float = 0.0
@@ -203,6 +207,7 @@ func _run_night() -> Dictionary:
 	state.start_night()
 	table = SimTable.build(state.stats, profile, state.catalog)
 	_saves_left = state.stats.ball_saves()
+	_bad_break_used.clear()
 	_shot_rate = table.shot_rate(profile, state.stats)
 	_spin_kick = minf(profile.spinner_kick_speed * state.stats.flipper_power(),
 			SimTable.SPIN_MAX_SPEED)
@@ -352,6 +357,7 @@ func _run_boss_night(fight_id: StringName) -> Dictionary:
 func _serve() -> float:
 	var alive := 0.0
 	var segment := 0
+	var shooter_launch := true
 	while segment < MAX_BALL_SEGMENTS:
 		segment += 1
 		if state.stats.hardware_unlocked(&"rollovers") and _rng.randf() < _skill_chance():
@@ -376,18 +382,35 @@ func _serve() -> float:
 			_limp_used = true
 			_limp_left = INSURANCE_LIMP_SECONDS
 			limps += 1
+			shooter_launch = false
 			continue
-		# The ball is down. During a Family Meeting that is not the end of the guy — the OTHER
-		# man is still working, so one of them is pinched and play carries on (SimClub).
-		if club != null and club.meeting_active():
-			club.end_meeting(true)
-			_take_promotion()
+		# The live table arms this only on a shooter-lane launch, and marks it used only
+		# when the free return actually catches a drain. A tilt reaches this branch first,
+		# so tilt still bypasses every save.
+		var guy_id := int(_guy.get("id", -1))
+		if shooter_launch and guy_id >= 0 and ran <= BAD_BREAK_SAVE_SECONDS \
+				and not _bad_break_used.has(guy_id):
+			_bad_break_used[guy_id] = true
+			_advance(_beat(BALL_SAVE_BEAT))
+			# `_reserve` puts a fresh single ball back and `_on_ball_launched` re-arms its
+			# launch windows. Keep the sim's shooter marker in sync with that next serve.
+			shooter_launch = true
 			continue
 		if ran <= BALL_SAVE_SECONDS and _saves_left > 0:
 			# Drained inside the save window: the charge buys the same guy another ball.
 			_saves_left -= 1
 			_advance(_beat(BALL_SAVE_BEAT))
+			shooter_launch = true
 			continue
+		# The ball is down. During a Family Meeting that is not the end of the guy — the OTHER
+		# man is still working, so one of them is pinched and play carries on (SimClub). Save
+		# windows deliberately ran first, matching NightController's per-ball live ordering.
+		if club != null and club.meeting_active():
+			club.end_meeting(true)
+			_take_promotion()
+			shooter_launch = false
+			continue
+		shooter_launch = false
 		break
 	return alive
 

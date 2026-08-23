@@ -81,7 +81,22 @@ func _apply_collision() -> void:
 func _draw() -> void:
 	var col := Feel.COL_BRASS if lit else Feel.COL_BRASS.darkened(0.62)
 	col = col.lerp(Feel.COL_NEWSPRINT, _flash * 0.9)
-	draw_arc(Vector2.ZERO, RADIUS, 0.0, TAU, 28, col, 5.0)
+	# A long deco lane insert points up-table; circles made the three skill lanes look like
+	# another bumper bank in screenshots.
+	var insert := PackedVector2Array([
+		Vector2(0.0, -RADIUS), Vector2(RADIUS * 0.72, -6.0),
+		Vector2(RADIUS * 0.48, RADIUS), Vector2(-RADIUS * 0.48, RADIUS),
+		Vector2(-RADIUS * 0.72, -6.0),
+	])
+	draw_colored_polygon(insert, Color(col.r, col.g, col.b, 0.16 if lit else 0.05))
+	draw_polyline(PackedVector2Array([
+		insert[0], insert[1], insert[2], insert[3], insert[4], insert[0],
+	]), col, 4.0)
 	if lit:
-		draw_circle(Vector2.ZERO, RADIUS * 0.5, col.darkened(0.2))
-	draw_line(Vector2(-RADIUS * 0.55, 0.0), Vector2(RADIUS * 0.55, 0.0), col, 4.0)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(0.0, -15.0), Vector2(12.0, 2.0), Vector2(5.0, 2.0),
+			Vector2(5.0, 16.0), Vector2(-5.0, 16.0), Vector2(-5.0, 2.0),
+			Vector2(-12.0, 2.0),
+		]), col)
+	draw_line(Vector2(-RADIUS * 0.45, RADIUS * 0.52),
+			Vector2(RADIUS * 0.45, RADIUS * 0.52), col, 3.0)

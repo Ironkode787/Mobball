@@ -11,7 +11,7 @@ extends Node2D
 ##   2. a scripted ball on each live piece produces the right switch and the right amount
 ##      through `Game.earn_switch`, including the Ledger's multipliers and flat adds;
 ##   3. the pieces with state — storefront collect/re-arm, the orbit's gate sequence, the
-##      raid hardware, the plunger's rubber band — run their cycles.
+##      raid hardware, the plunger's three coarse starter bands — run their cycles.
 ##
 ## Everything is counted in physics ticks, never wall time, and the chaos soak is seeded.
 
@@ -281,6 +281,7 @@ func _run() -> void:
 
 	await _s1_fixtures()
 	await _s2_dormant_is_absent()
+	await _s2_starter_sling_state()
 	await _s3_switch_values()
 	await _s4_multipliers()
 	await _s5_storefront_cycle()
@@ -378,6 +379,16 @@ func _s2_dormant_is_absent() -> void:
 				if table.hardware_unlocked(id):
 					should_be_live = true
 					break
+			var passive_sling: bool = not should_be_live and piece["ids"].has(&"slingshots")
+			if passive_sling:
+				# This is the one intentional visible/colliding dormant exception: the triangle is
+				# starter geometry, while Corner Boys only power its face sensor and scoring.
+				check(node.visible, "%s passive triangle is hidden" % node.name)
+				check((node as Slingshot).is_present(),
+						"%s passive triangle is not physically present" % node.name)
+				check(not (node as Slingshot).is_powered(),
+						"%s passive triangle is powered" % node.name)
+				continue
 			check(node.visible == should_be_live,
 					"%s visible=%s but unlocked=%s" % [node.name, node.visible, should_be_live])
 			if not should_be_live:
@@ -390,6 +401,56 @@ func _s2_dormant_is_absent() -> void:
 					"cop target %s is on the table outside a raid" % c.name)
 		print("        %s: %d dormant pieces, all cold" % [name, checked])
 		finish()
+
+
+## The progression table's Corner Boys are a power upgrade, not a geometry upgrade: their
+## triangles are visible dead rubber on a bare table. Keep the generic dormancy invariant
+## above strict for every other piece, and assert this one intentional exception explicitly.
+func _s2_starter_sling_state() -> void:
+	begin("bare table: passive slings are solid but unpowered")
+	use("bare")
+	check(not table.hardware_present(&"slingshots"),
+			"the Corner Boys upgrade is not present before purchase")
+	for sling: Slingshot in table._slings:
+		check(sling.visible, "%s passive triangle is invisible" % sling.name)
+		check(sling.is_present(), "%s passive triangle is not physically present" % sling.name)
+		check(not sling.is_powered(), "%s passive triangle is powered" % sling.name)
+		check(sling.collision_layer == Feel.LAYER_HARDWARE,
+				"%s passive triangle lost its solid body" % sling.name)
+		var face := sling.get_node_or_null("Face") as Area2D
+		check(face != null and face.collision_layer == 0 and face.collision_mask == 0,
+				"%s passive face sensor can still trigger a kick" % sling.name)
+	var passive := table._slings[0]
+	var passive_face := passive.to_global((passive.points[1] + passive.points[2]) * 0.5
+			+ passive.face_normal * (Feel.BALL_RADIUS * 0.75))
+	await drop_at(passive_face, Vector2.ZERO, 8)
+	check(not hit_switch("sling_l"), "a passive sling face emitted a switch")
+	check(last_earn_in(&"slings").is_empty(), "a passive sling face paid dirty cash")
+	table.despawn_ball()
+	var returns := table.get_node_or_null("InlaneReturns") as WallPiece
+	var guards := table.hardware_node(&"inlane_guides") as WallPiece
+	check(returns != null and returns.visible and not Dormant.is_collision_off(returns),
+			"the bare table is missing its short inlane return guides")
+	check(returns != null and returns.body.get_child_count() == 2,
+			"the starter returns should have one short sweep per side")
+	check(guards != null and not guards.visible and Dormant.is_collision_off(guards),
+			"the bare table has powered vertical guard rails")
+
+	# The purchase powers the same bodies in place; collision and the face sensor both return.
+	var stats := use("T1")
+	check(stats.hardware_unlocked(&"slingshots"), "T1 fixture did not own Corner Boys")
+	for sling: Slingshot in table._slings:
+		check(sling.visible and sling.is_present() and sling.is_powered(),
+				"%s did not power up with Corner Boys" % sling.name)
+		var face := sling.get_node_or_null("Face") as Area2D
+		check(face != null and face.collision_layer == Feel.LAYER_ZONES
+				and face.collision_mask == Feel.LAYER_BALL,
+				"%s powered face sensor is not live" % sling.name)
+	check(guards != null and guards.visible and not Dormant.is_collision_off(guards),
+			"Guard Rails did not add the vertical inlane guards")
+	check(returns != null and returns.visible and not Dormant.is_collision_off(returns),
+			"Guard Rails incorrectly replaced the starter return sweeps")
+	finish()
 
 
 ## 3 — every live switch pays the number specs/m1-hook.md says it pays.
@@ -641,38 +702,68 @@ func _orbit_run() -> void:
 	table.despawn_ball()
 
 
-## 8 — the rubber band, and the spring that replaces it.
+## 8 — three coarse starter pulls, and the continuous spring that replaces them.
 func _s8_plunger_bands() -> void:
-	begin("plunger: rubber band until the real one is bought")
+	begin("plunger: three starter bands feed; the real one is continuous")
 	use("bare")
-	check(not table.plunger.bands_enabled, "a bare table has charge bands")
-	var bare_speed := await _launch_speed(1.0)
+	check(not table.plunger.bands_enabled, "a bare table has no continuous charge")
+	var low := await _launch_probe(0)
+	var middle := await _launch_probe(1)
+	var high := await _launch_probe(2)
+	var low_launch := float(low.get("launch_speed", 0.0))
+	var middle_launch := float(middle.get("launch_speed", 0.0))
+	var high_launch := float(high.get("launch_speed", 0.0))
+	check(bool(low.get("reached", false)), "starter band 0 never reached the playfield")
+	check(bool(middle.get("reached", false)), "starter band 1 never reached the playfield")
+	check(bool(high.get("reached", false)), "starter band 2 never reached the playfield")
+	check(low_launch > 0.0 and low_launch < middle_launch and middle_launch < high_launch,
+			"starter launch speeds are not three monotonic bands (%.0f, %.0f, %.0f)"
+			% [low_launch, middle_launch, high_launch])
 	use("T1")
 	check(table.plunger.bands_enabled, "muscle.real_plunger did not fit the spring")
-	var full_speed := await _launch_speed(1.0)
-	var soft_speed := await _launch_speed(0.5)
-	check(bare_speed > 0.0 and full_speed > 0.0, "the plunger did not launch")
-	near(bare_speed / maxf(full_speed, 1.0), ProgressionTable.PLUNGER_FIXED_POWER, 0.02,
-			"the rubber band should be a fixed %.2f of full power"
-			% ProgressionTable.PLUNGER_FIXED_POWER)
-	check(soft_speed < full_speed * 0.6, "charge bands are not a range")
-	print("        rubber band %.0f px/s | spring 0.5 %.0f | spring 1.0 %.0f"
-			% [bare_speed, soft_speed, full_speed])
+	var full := await _launch_probe(1.0)
+	var soft := await _launch_probe(0.5)
+	var full_launch := float(full.get("launch_speed", 0.0))
+	var soft_launch := float(soft.get("launch_speed", 0.0))
+	check(full_launch > 0.0, "the real plunger did not launch")
+	check(soft_launch < full_launch * 0.6, "real-plunger charge is not a continuous range")
+	print("        starter launch %.0f/%.0f/%.0f px/s | spring 0.5 %.0f | spring 1.0 %.0f"
+			% [low_launch, middle_launch, high_launch, soft_launch, full_launch])
 	finish()
 
 
-func _launch_speed(power: float) -> float:
+## Launch with either a selected starter band (bare table) or an analog power (real plunger),
+## then watch long enough to prove the ball crossed from the shooter lane onto the playfield.
+func _launch_probe(power_or_band: float) -> Dictionary:
 	table.despawn_ball()
 	await step(2)
 	table.spawn_ball()
 	await wait(0.35)
-	table.plunger.launch(power)
-	await step(1)
+	if not table.plunger.bands_enabled:
+		table.plunger.set_starter_band(int(power_or_band))
 	var b := table.ball
+	if b == null or not is_instance_valid(b):
+		return {"launch_speed": 0.0, "apex": INF, "reached": false}
+	table.plunger.launch(power_or_band if table.plunger.bands_enabled else 1.0)
+	# Impulses are integrated on the next physics frame, so sample after one tick rather
+	# than reading the pre-kick velocity from the same callback.
+	await step(1)
+	if not is_instance_valid(b):
+		return {"launch_speed": 0.0, "apex": INF, "reached": false}
+	var launch_speed := b.speed()
+	var apex := b.global_position.y
+	var reached := b.global_position.x < ProgressionTable.DIVIDER_X
+	for i in range(ticks(1.0) - 1):
+		await step(1)
+		if b == null or not is_instance_valid(b):
+			break
+		apex = minf(apex, b.global_position.y)
+		if b.global_position.x < ProgressionTable.DIVIDER_X:
+			reached = true
 	var speed := b.speed() if b != null and is_instance_valid(b) else 0.0
 	table.despawn_ball()
 	await step(2)
-	return speed
+	return {"launch_speed": launch_speed, "speed": speed, "apex": apex, "reached": reached}
 
 
 ## 9 — raid hardware comes out on cue and goes away again.

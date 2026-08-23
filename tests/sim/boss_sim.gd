@@ -28,13 +28,14 @@ const FIXTURE: PackedStringArray = [
 	"rackets.protection_pizzeria", "rackets.protection_pawn", "rackets.getaway_loop",
 ]
 
-const DRAIN_POINT := Vector2(490.0, 1876.0)
-## Clear felt above the bumper nest and clear of the left channel guide.
-const SAFE_POINT := Vector2(250.0, 660.0)
+const DRAIN_POINT := ProgressionTable.CENTRE_DRAIN_AT
+## Clear felt between the stepped Block and the enlarged slings. The old parking point was
+## deliberately consumed by the new left-side bumper neighborhood.
+const SAFE_POINT := Vector2(490.0, 1430.0)
 ## Where the sim parks the Butcher's truck to shoot at it. The orbit channel is deliberately
 ## narrower than a ball plus a truck, so a ball cannot be staged beside it up there; phase 1
 ## is about the speed RULE, and parking it on open felt tests exactly that rule.
-const OPEN_FIELD := Vector2(490.0, 1180.0)
+const OPEN_FIELD := Vector2(300.0, 1120.0)
 
 var main: Main = null
 var table: Node2D = null

@@ -350,8 +350,9 @@ func _s2_geometry() -> void:
 	check(gap > dia, "the deck's drain gap (%.0f px) passes a ball" % gap)
 	check(gap < dia + 45.0, "the deck's drain gap is not a barn door (%.0f px)" % gap)
 	near(club.flipper_left.bat_length(), Feel.FLIPPER_LENGTH * 0.8, 0.001, "mini bat length")
-	near(table.flipper_left.bat_length(), Feel.FLIPPER_LENGTH, 0.001,
-			"the main table's bats are untouched by the mini pair")
+	near(table.flipper_left.bat_length(),
+			Feel.FLIPPER_LENGTH * ProgressionTable.FLIPPER_SCALE, 0.001,
+			"the main table keeps its own authored bat size")
 
 	# beside the wheel is either a lane or a wall, never a ball-sized slot to wedge in
 	var wheel_slot: float = (ClubDeck.WHEEL_AT.x - RouletteWheel.RADIUS) - inner_l

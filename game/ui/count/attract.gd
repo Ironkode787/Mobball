@@ -17,41 +17,47 @@ func _ready() -> void:
 	var bg := ColorRect.new()
 	bg.color = Feel.COL_INK
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color.a = 0.88
+	# The table's illuminated backglass is the title screen now. A lighter smoked-glass wash
+	# keeps it visible instead of printing a second KINGPIN logo over the first one.
+	bg.color.a = 0.62
 	add_child(bg)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	margin.add_theme_constant_override("margin_left", 60)
 	margin.add_theme_constant_override("margin_right", 60)
-	margin.add_theme_constant_override("margin_top", 220)
-	margin.add_theme_constant_override("margin_bottom", 160)
+	margin.add_theme_constant_override("margin_top", 1030)
+	margin.add_theme_constant_override("margin_bottom", 120)
 	add_child(margin)
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 18)
+	col.add_theme_constant_override("separation", 14)
 	margin.add_child(col)
 
-	col.add_child(PaperKit.label("KINGPIN", PaperKit.FONT_HUGE, Feel.COL_BRASS))
-	col.add_child(PaperKit.label("5TH STREET ARCADE", PaperKit.FONT_BODY,
-			Feel.COL_NEWSPRINT.darkened(0.25)))
+	col.add_child(PaperKit.label("THE HOUSE IS OPEN", PaperKit.FONT_TITLE, Feel.COL_BRASS,
+			HORIZONTAL_ALIGNMENT_CENTER))
 	col.add_child(PaperKit.rule())
 	col.add_child(PaperKit.label(
 			"%s   ·   NIGHT %d   ·   RESPECT %d" % [Game.rank_title(), Game.night_no + 1, Game.respect],
-			PaperKit.FONT_SMALL, Feel.COL_NEWSPRINT.darkened(0.3)))
-	col.add_child(PaperKit.label("DIRTY  " + Game.wallet.dirty.text(), PaperKit.FONT_BODY,
-			Feel.COL_DIRTY))
-	col.add_child(PaperKit.label("CLEAN  " + Game.wallet.clean.text(), PaperKit.FONT_BODY,
-			Feel.COL_CLEAN))
+			PaperKit.FONT_SMALL, Feel.COL_NEWSPRINT.darkened(0.22),
+			HORIZONTAL_ALIGNMENT_CENTER))
+
+	var money := HBoxContainer.new()
+	money.add_theme_constant_override("separation", 28)
+	var dirty := PaperKit.label("DIRTY  " + Game.wallet.dirty.text(), PaperKit.FONT_BODY,
+			Feel.COL_DIRTY)
+	dirty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	money.add_child(dirty)
+	var clean := PaperKit.label("CLEAN  " + Game.wallet.clean.text(), PaperKit.FONT_BODY,
+			Feel.COL_CLEAN, HORIZONTAL_ALIGNMENT_RIGHT)
+	clean.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	money.add_child(clean)
+	col.add_child(money)
 
 	_build_safe(col)
 
-	var grow := Control.new()
-	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	grow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(grow)
-
 	var start := PaperKit.button("ROLL CALL", PaperKit.FONT_TITLE, Feel.COL_CLEAN)
+	start.custom_minimum_size.y = 78.0
 	start.pressed.connect(func() -> void: start_pressed.emit())
 	col.add_child(start)
 

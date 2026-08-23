@@ -4,16 +4,17 @@ extends TableSegment
 ## collision geometry and the `_draw()` come from the same numbers and can never drift.
 ##
 ## What the player starts with is a *bare alley*: walls, two flippers, a drain, one dented
-## trash can and a rubber band for a plunger. Everything else on this table already exists —
-## it is built, wired and standing there — but it is hidden and its collision is switched
-## off until `Game.stats.hardware_unlocked(id)` says the Ledger has paid for it. Buying
-## furniture is the tutorial (docs/02 §2 R0), so the growth has to be physical: a dormant
-## piece must not deflect a ball, and a live one must not appear without its geometry.
+## trash can, dead sling triangles and short return sweeps, plus a rubber band for a plunger.
+## Everything else on this table already exists — it is built, wired and standing there — but
+## it is hidden and its collision is switched off until `Game.stats.hardware_unlocked(id)` says
+## the Ledger has paid for it. The starter slings are the deliberate exception: Corner Boys
+## powers their face sensor, kick, score and figures without changing their physical triangle.
+## Buying furniture is the tutorial (docs/02 §2 R0), so the growth has to be physical: a
+## dormant piece must not deflect a ball, and a live one must not appear without its geometry.
 ##
-## The lower third is inherited from the M0 alley and is not up for renegotiation: flipper
-## pivots, slingshot rake, the divider fix and the raked inlane floors are all tuned numbers
-## (see segments/alley_debug.gd's header for why each one is what it is). Everything M1 adds
-## lives in the top two thirds.
+## This is its own machine, not the M0 alley with furniture bolted above it. The base alley
+## remains the feel calibration fixture; this table authors a broader, higher control zone,
+## a sculpted centre drain and offset city shots around those proven flipper mechanics.
 ##
 ## Zones, bottom to top (docs/02 §0):
 ##   THE ALLEY   flippers, slings, one to three trash cans, the storm-grate drain
@@ -105,40 +106,45 @@ const LANE_RIGHT := 1040.0
 const GATE_TOP := 258.0
 const GATE_BOTTOM := 418.0
 
-# ---------------------------------------------------------------- lower third (sacred)
-const FLIPPER_PIVOT_L := Vector2(293.0, 1700.0)
-const FLIPPER_PIVOT_R := Vector2(687.0, 1700.0)
-const OUTLANE_X := 150.0
-const OUTLANE_TOP := 1440.0
-const OUTLANE_BOTTOM := 1580.0
-const INLANE_END := Vector2(296.0, 1668.0)
-# Classic orientation (device-feedback fix): outer edge vertical at x=256 (it IS the
-# inlane's inner wall), kicker face OUTER_TOP -> INNER (normal up-and-across, so a sling
-# throws the ball back into play, never toward the outlane).
-const SLING_OUTER_TOP := Vector2(256.0, 1436.0)
-const SLING_OUTER_BOTTOM := Vector2(256.0, 1560.0)
-const SLING_INNER := Vector2(352.0, 1552.0)
+# ---------------------------------------------------------------- the new control zone
+## The bats sit a full 85 px above the alley pair. Their 430 px pivot spread and 1.08-scale
+## bodies give the centre grate an 81 px mouth while opening a lower mini-field beneath them.
+const FLIPPER_PIVOT_L := Vector2(275.0, 1615.0)
+const FLIPPER_PIVOT_R := Vector2(705.0, 1615.0)
+const FLIPPER_SCALE := 1.08
+## Taller slings create a proper lower-field arena. The lane guides sweep into the pivots,
+## making two long, satisfying return feeds instead of short vertical gutters.
+const OUTLANE_X := 143.0
+const OUTLANE_TOP := 1360.0
+const OUTLANE_BOTTOM := 1510.0
+const INLANE_END := Vector2(273.0, 1595.0)
+const SLING_OUTER_TOP := Vector2(230.0, 1435.0)
+const SLING_OUTER_BOTTOM := Vector2(230.0, 1495.0)
+const SLING_INNER := Vector2(375.0, 1540.0)
 const MIRROR_X := 490.0
 const DRAIN_Y := 1880.0
 const DRAIN_HEIGHT := 24.0
+const CENTRE_DRAIN_AT := Vector2(490.0, 1810.0)
+const CENTRE_DRAIN_SIZE := Vector2(190.0, 64.0)
+const OUTLANE_DRAIN_Y := 1545.0
 
 # ---------------------------------------------------------------- the numbers lane / orbit
-## A 90 px channel down the left wall. The spinner lives in it (R1); the getaway loop (R3)
-## extends it around the arch, which is why one guide serves both and either owner builds it.
-const LANE_GUIDE_X := 157.0
+## A broad avenue down the left wall. The old 90 px gutter read like plumbing; this one is a
+## committed orbit with enough daylight to see the ball accelerate through the spinner.
+const LANE_GUIDE_X := 180.0
 const LANE_GUIDE_TOP := 486.0
 const LANE_GUIDE_BOTTOM := 1180.0
-const CHANNEL_WIDTH := 90.0
-const ORBIT_ARC_RADIUS := 394.8
-const ORBIT_ARC_FROM_DEG := -167.64
+const CHANNEL_WIDTH := 113.0
+const ORBIT_ARC_RADIUS := 370.0
+const ORBIT_ARC_FROM_DEG := -167.0
 ## Stops short of the apex on purpose: at the very top the arc's own surface is level enough
 ## for a ball to sit down on it, and a ball parked on the roof of the orbit ends the night.
 const ORBIT_ARC_TO_DEG := -112.0
-const SPINNER_AT := Vector2(103.0, 900.0)
-const ORBIT_ENTRY_AT := Vector2(103.0, 1120.0)
-const ORBIT_ENTRY_SIZE := Vector2(86.0, 56.0)
+const SPINNER_AT := Vector2(114.5, 900.0)
+const ORBIT_ENTRY_AT := Vector2(114.5, 1120.0)
+const ORBIT_ENTRY_SIZE := Vector2(104.0, 56.0)
 const ORBIT_EXIT_DEG := -120.0
-const ORBIT_EXIT_RADIUS := 449.0
+const ORBIT_EXIT_RADIUS := 436.0
 
 # ---------------------------------------------------------------- the Truck Route (M3)
 ## The right-hand loop (docs/02 §2 R5). It cannot be a mirror of the getaway: the shooter
@@ -154,27 +160,46 @@ const ORBIT_R_ENTRY_SIZE := Vector2(74.0, 56.0)
 const ORBIT_R_EXIT_DEG := -60.0
 
 # ---------------------------------------------------------------- the top lanes
-const ROLLOVER_POST_X: PackedFloat32Array = [290.0, 420.0, 550.0, 680.0]
-const ROLLOVER_POST_TOP := 470.0
-const ROLLOVER_POST_BOTTOM := 610.0
+## Four splayed rails turn the old comb of parallel posts into a three-way fan. The approach
+## pinches toward the inserts, then opens into three visibly different exits under the arch.
+const ROLLOVER_POST_FROM: Array = [
+	Vector2(260.0, 500.0), Vector2(385.0, 450.0),
+	Vector2(525.0, 430.0), Vector2(690.0, 485.0),
+]
+const ROLLOVER_POST_TO: Array = [
+	Vector2(320.0, 630.0), Vector2(420.0, 610.0),
+	Vector2(525.0, 590.0), Vector2(650.0, 620.0),
+]
+const ROLLOVER_AT: Array = [
+	Vector2(365.0, 565.0), Vector2(472.0, 560.0), Vector2(585.0, 570.0),
+]
 const ROLLOVER_POST_THICK := 16.0
-const ROLLOVER_SENSOR_Y := 590.0
 
 # ---------------------------------------------------------------- the alley & the corner
-const BUMPER_AT: Array = [Vector2(490.0, 700.0), Vector2(370.0, 830.0), Vector2(610.0, 830.0)]
-const WIRE_X := 845.0
-const WIRE_Y: PackedFloat32Array = [620.0, 730.0, 840.0]
+## The cans now own an offset left-side neighborhood. A clean right diagonal stays open for
+## aimed Wire and Staircase shots instead of every upper-field device sharing one triangle.
+const BUMPER_AT: Array = [
+	Vector2(480.0, 700.0), Vector2(300.0, 735.0), Vector2(390.0, 890.0),
+]
+const BUMPER_SCALE: PackedFloat32Array = [1.14, 0.92, 1.02]
+## The payphones make a real diagonal bank whose face looks down the main shooting line.
+## Their centres are close enough to deny a ball-sized hiding place between cabinets.
+const WIRE_AT: Array = [
+	Vector2(750.0, 600.0), Vector2(792.0, 720.0), Vector2(834.0, 840.0),
+]
+const WIRE_FACE := Vector2(-0.943858, 0.330350)
+const WIRE_LENGTHS: PackedFloat32Array = [94.0, 82.0, 70.0]
 const TARGET_LENGTH := 76.0
 
 # ---------------------------------------------------------------- the block
 const STOREFRONT_AT: Array = [
-	Vector2(368.0, 1120.0),      # Lucky's Laundromat
-	Vector2(600.0, 1010.0),      # Nonna's Pizzeria
-	Vector2(838.0, 1120.0),      # Fat Tony's Pawn
+	Vector2(570.0, 1280.0),      # Lucky's Laundromat: the lower centre anchor
+	Vector2(475.0, 1030.0),      # Nonna's Pizzeria: the block's high point
+	Vector2(820.0, 1240.0),      # Fat Tony's Pawn: low right
 ]
 ## Banks are raked off square so a ball coming down from above sheds sideways into a gap
 ## instead of parking on 148 px of flat drop-target roof.
-const STOREFRONT_RAKE: PackedFloat32Array = [14.0, 14.0, -14.0]
+const STOREFRONT_RAKE: PackedFloat32Array = [18.0, -12.0, -18.0]
 const STOREFRONT_IDS: Array[StringName] = [
 	&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn",
 ]
@@ -184,26 +209,26 @@ const STOREFRONT_SIGNS: Array[StringName] = [&"LUCKY'S", &"NONNA'S", &"FAT TONY'
 ## The donut shop stands square to the field, not raked across it: a bar angled into the
 ## right-hand wall is a corner, and a soak found the ball asleep in it for forty seconds.
 ## Vertical faces have no roof to sit on.
-const BRIBE_AT := Vector2(770.0, 470.0)
-const BRIBE_FACE := Vector2(-1.0, 0.0)
-## The lower-left cop stood at x=400 until M3 put the Docks yard there; it now stands just
-## outside the yard's wall, close enough that nothing can wedge between the two.
+const BRIBE_AT := Vector2(870.0, 540.0)
+const BRIBE_FACE := Vector2(-0.98, 0.20)
+## Raid officers occupy four different intersections in the new crooked street plan. The
+## fourth closes the southern briefcase court while leaving a fair drop elsewhere.
 const COP_AT: Array = [
-	Vector2(320.0, 980.0), Vector2(760.0, 950.0),
-	Vector2(470.0, 1296.0), Vector2(660.0, 1290.0),
+	Vector2(270.0, 1010.0), Vector2(860.0, 1000.0),
+	Vector2(350.0, 1180.0), Vector2(540.0, 1370.0),
 ]
 ## Steep enough that the ball outruns rubber friction (0.30) on the way down their backs.
 const COP_RAKE: PackedFloat32Array = [22.0, -22.0, 22.0, -22.0]
-const KICKBACK_AT := Vector2(95.0, 1520.0)
+const KICKBACK_AT := Vector2(96.0, 1455.0)
 const KICKBACK_SIZE := Vector2(86.0, 56.0)
-const MAGNET_AT := Vector2(490.0, 1810.0)
+const MAGNET_AT := Vector2(490.0, 1755.0)
 
 # ---------------------------------------------------------------- the federal raid (M3)
 ## The Director's coil (docs/05 §9 phase 3). It sits a third of the way up the field rather
 ## than at the grate: the Captain drags you *into* the drain, the Bureau drags you *off* the
 ## block, and a player has to read which of the two is winding up. Two tells at once is not
 ## difficulty, so the table keeps their telegraphs apart in code — see `_keep_magnets_apart`.
-const DIRECTOR_AT := Vector2(490.0, 1500.0)
+const DIRECTOR_AT := Vector2(535.0, 1430.0)
 ## Room the two coils must leave each other: a full telegraph plus a beat to read it in.
 const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
 ## How dirty the felt goes. The M1 raid's 0.12 is a shipped, tuned number and stays exactly
@@ -218,9 +243,9 @@ const FEDERAL_TINT: PackedFloat32Array = [0.0, 0.16, 0.20, 0.25]
 ## collision of its own. The first two are also clear of the raid's cops; the third is the
 ## roomiest spot on the table and the cops stand right next to it.
 const BRIEFCASE_SPOTS: Array = [
-	Vector2(590.0, 1160.0),      # the waist, under Nonna's
-	Vector2(810.0, 1320.0),      # the corner under Fat Tony's
-	Vector2(610.0, 1260.0),      # open felt over the truck's back door
+	Vector2(700.0, 870.0),       # the court below the diagonal Wire
+	Vector2(700.0, 1000.0),      # the court above the stepped Block
+	Vector2(520.0, 1450.0),      # southern court; the fourth raid cop closes it
 ]
 ## Centre-to-centre room a piece of *transient* hardware has to leave a spot before the case
 ## will be dropped on it. The fixed furniture is already accounted for in the spots.
@@ -259,10 +284,15 @@ const DOOR_RAKE := 12.0
 const BOSS_METER_AT := Vector2(540.0, 300.0)
 const BOSS_METER_SIZE := Vector2(420.0, 30.0)
 
-## The rubber band is meant to be reliable-but-uncontrollable, not broken: below ~0.90 the
-## ball never clears the shooter lane on this geometry, so a bare alley would earn nothing
-## at all. One power, and it always feeds the playfield.
-const PLUNGER_FIXED_POWER := 0.92
+## The starter rubber band is reliable-but-coarse, not broken: below ~0.90 the ball never
+## clears the shooter lane on this geometry. Three safe powers let a new player choose a
+## broad pull without pretending the rubber band is a precision plunger. `A Real Plunger`
+## replaces these bands with the inherited continuous charge and detents.
+const PLUNGER_STARTER_POWERS := [0.90, 0.95, 1.00]
+const PLUNGER_STARTER_DEFAULT_BAND := 1
+## Legacy fixture alias: old growth probes read this as the desktop/default middle band. The
+## live starter plunger is no longer fixed; touch pulls select all three values above.
+const PLUNGER_FIXED_POWER := 0.95
 
 # ---------------------------------------------------------------- ball search
 ## Real machines hunt for a lost ball, and this one has to as well. The playfield grows new
@@ -348,6 +378,8 @@ var _boss_meter_text: String = ""
 var _boss_meter_fill: float = 0.0
 var _built_once: Dictionary = {}             ## node -> true: already stood up at least once
 var _first_refresh: bool = true              ## boot: the table loads its save, it is not built
+var _show_clock: float = 0.0                  ## slow cabinet bulbs; cosmetic only
+var _show_redraw: float = 0.0
 
 
 # ================================================================ TableSegment =====
@@ -484,15 +516,25 @@ func _build_walls() -> void:
 			Vector2(LANE_RIGHT + off, LANE_FLOOR_Y), OUTER_THICK)
 	_walls.bar(Vector2(DIVIDER_X, DIVIDER_TOP), Vector2(DIVIDER_X, DIVIDER_BOTTOM), DIVIDER_THICK)
 
-	# The guard rails are an upgrade (docs/02 §2 R0: "no inlane guides"), so they are a
-	# separate switchable body — the bare table really is bare down there.
+	# The short return sweep is battered furniture on the starter table. Guard Rails adds the
+	# long vertical outlane guard above it; buying the upgrade therefore extends this return
+	# path instead of making the whole inlane geometry materialise from nowhere.
+	var returns := WallPiece.new()
+	returns.name = "InlaneReturns"
+	returns.color = Feel.COL_BRASS.darkened(0.52)
+	returns.rim = Feel.COL_INK.darkened(0.12)
+	add_child(returns)
+	for s in [1.0, -1.0]:
+		returns.bar(_mx(OUTLANE_X, s, OUTLANE_BOTTOM),
+				_mx(INLANE_END.x, s, INLANE_END.y), GUIDE_THICK)
+
+	# The vertical guard rails are an upgrade (docs/02 §2 R0). They are a separate body so
+	# the bare table keeps the short return geometry without getting the outlane wall yet.
 	var guides := WallPiece.new()
 	guides.name = "InlaneGuides"
 	add_child(guides)
 	for s in [1.0, -1.0]:
 		guides.bar(_mx(OUTLANE_X, s, OUTLANE_TOP), _mx(OUTLANE_X, s, OUTLANE_BOTTOM), GUIDE_THICK)
-		guides.bar(_mx(OUTLANE_X, s, OUTLANE_BOTTOM),
-				_mx(INLANE_END.x, s, INLANE_END.y), GUIDE_THICK)
 	_register([&"inlane_guides"], guides)
 
 
@@ -541,16 +583,14 @@ func _build_top_lanes() -> void:
 	var posts := WallPiece.new()
 	posts.name = "TopLanePosts"
 	add_child(posts)
-	for x in ROLLOVER_POST_X:
-		posts.bar(Vector2(x, ROLLOVER_POST_TOP), Vector2(x, ROLLOVER_POST_BOTTOM),
-				ROLLOVER_POST_THICK)
+	for i in range(ROLLOVER_POST_FROM.size()):
+		posts.bar(ROLLOVER_POST_FROM[i], ROLLOVER_POST_TO[i], ROLLOVER_POST_THICK)
 	_register([&"rollovers"], posts)
 
-	for i in range(ROLLOVER_POST_X.size() - 1):
+	for i in range(ROLLOVER_AT.size()):
 		var r := Rollover.new()
 		r.name = "Rollover%d" % (i + 1)
-		var cx := (ROLLOVER_POST_X[i] + ROLLOVER_POST_X[i + 1]) * 0.5
-		r.configure(StringName("rollover_%d" % (i + 1)), i, Vector2(cx, ROLLOVER_SENSOR_Y))
+		r.configure(StringName("rollover_%d" % (i + 1)), i, ROLLOVER_AT[i])
 		add_child(r)
 		r.rolled.connect(_on_rollover)
 		rollovers.append(r)
@@ -564,6 +604,7 @@ func _build_bumpers() -> void:
 		b.group = TableScore.GROUP_BUMPERS
 		b.value = int(TableScore.BUMPER)
 		b.position = BUMPER_AT[i]
+		b.size_scale = BUMPER_SCALE[i]
 		b.name = "Bumper%d" % (i + 1)
 		add_child(b)
 		_bumpers.append(b)
@@ -574,6 +615,9 @@ func _build_bumpers() -> void:
 func _build_slings() -> void:
 	for s in [1.0, -1.0]:
 		var sl: Slingshot = SLING_SCENE.instantiate()
+		# The triangle is starter-table dead rubber: it is physically present and visible, but
+		# Corner Boys are what power its face sensor, kick, score and figure/glow.
+		sl.passive_when_inactive = true
 		var id := &"sling_l" if s > 0.0 else &"sling_r"
 		sl.configure(id,
 			_mx(SLING_OUTER_BOTTOM.x, s, SLING_OUTER_BOTTOM.y),
@@ -592,11 +636,10 @@ func _build_wire() -> void:
 	wire_bank.name = "WireBank"
 	wire_bank.id = &"wire_bank"
 	add_child(wire_bank)
-	for i in range(WIRE_Y.size()):
+	for i in range(WIRE_AT.size()):
 		var t := StandupTarget.new()
 		t.name = "Payphone%d" % (i + 1)
-		t.configure(StringName("wire_%d" % (i + 1)), Vector2(WIRE_X, WIRE_Y[i]),
-				Vector2.LEFT, TARGET_LENGTH)
+		t.configure(StringName("wire_%d" % (i + 1)), WIRE_AT[i], WIRE_FACE, WIRE_LENGTHS[i])
 		wire_bank.add_target(t)
 	_register([&"wire_bank"], wire_bank)
 
@@ -760,12 +803,14 @@ func _truck_path() -> PackedVector2Array:
 func _build_flippers() -> void:
 	flipper_left = FLIPPER_SCENE.instantiate()
 	flipper_left.side = &"left"
+	flipper_left.size_scale = FLIPPER_SCALE
 	flipper_left.name = "FlipperLeft"
 	flipper_left.position = FLIPPER_PIVOT_L
 	add_child(flipper_left)
 
 	flipper_right = FLIPPER_SCENE.instantiate()
 	flipper_right.side = &"right"
+	flipper_right.size_scale = FLIPPER_SCALE
 	flipper_right.name = "FlipperRight"
 	flipper_right.position = FLIPPER_PIVOT_R
 	add_child(flipper_right)
@@ -846,21 +891,47 @@ func _build_construction() -> void:
 	add_child(construction)
 
 
-## The storm grate. The Docks' pier is the same event by a different door: it reports through
-## `Docks.pier_fall` into the same `_lose_ball`, so falling off the pier costs a ball in
-## exactly the way draining does — one ball_lost, one Events.ball_drained, one respawn.
+## Three visible exits replace the old invisible full-width line: a centre storm grate below
+## the bats and a collection trench at the foot of either outlane. A final thin floor sensor
+## remains as cabinet safety, but normal play reaches one of the authored mouths first.
 func _build_drain() -> void:
 	var area := Area2D.new()
 	area.name = "Drain"
 	area.collision_layer = Feel.LAYER_ZONES
 	area.collision_mask = Feel.LAYER_BALL
 	area.monitorable = false
-	var cs := CollisionShape2D.new()
-	var rect := RectangleShape2D.new()
-	rect.size = Vector2(PLAY_RIGHT - PLAY_LEFT, DRAIN_HEIGHT)
-	cs.shape = rect
-	cs.position = Vector2((PLAY_LEFT + PLAY_RIGHT) * 0.5, DRAIN_Y + DRAIN_HEIGHT * 0.5)
-	area.add_child(cs)
+
+	var centre_shape := CollisionShape2D.new()
+	var centre_rect := RectangleShape2D.new()
+	centre_rect.size = CENTRE_DRAIN_SIZE
+	centre_shape.shape = centre_rect
+	centre_shape.position = CENTRE_DRAIN_AT
+	area.add_child(centre_shape)
+
+	var left_shape := CollisionShape2D.new()
+	var left_rect := RectangleShape2D.new()
+	left_rect.size = Vector2(OUTLANE_X - PLAY_LEFT, DRAIN_Y - OUTLANE_DRAIN_Y)
+	left_shape.shape = left_rect
+	left_shape.position = Vector2((PLAY_LEFT + OUTLANE_X) * 0.5,
+			(OUTLANE_DRAIN_Y + DRAIN_Y) * 0.5)
+	area.add_child(left_shape)
+
+	var right_shape := CollisionShape2D.new()
+	var right_edge := MIRROR_X * 2.0 - OUTLANE_X
+	var right_rect := RectangleShape2D.new()
+	right_rect.size = Vector2(PLAY_RIGHT - right_edge, DRAIN_Y - OUTLANE_DRAIN_Y)
+	right_shape.shape = right_rect
+	right_shape.position = Vector2((right_edge + PLAY_RIGHT) * 0.5,
+			(OUTLANE_DRAIN_Y + DRAIN_Y) * 0.5)
+	area.add_child(right_shape)
+
+	var safety_shape := CollisionShape2D.new()
+	var safety_rect := RectangleShape2D.new()
+	safety_rect.size = Vector2(PLAY_RIGHT - PLAY_LEFT, DRAIN_HEIGHT)
+	safety_shape.shape = safety_rect
+	safety_shape.position = Vector2((PLAY_LEFT + PLAY_RIGHT) * 0.5,
+			DRAIN_Y + DRAIN_HEIGHT * 0.5)
+	area.add_child(safety_shape)
 	add_child(area)
 	area.body_entered.connect(func(body: Node2D) -> void: _on_drain_entered(body))
 
@@ -869,7 +940,8 @@ func _build_plunger() -> void:
 	plunger = BandedPlunger.new()
 	plunger.name = "Plunger"
 	plunger.lane_rect = lane_rect()
-	plunger.fixed_power = PLUNGER_FIXED_POWER
+	plunger.starter_powers = PLUNGER_STARTER_POWERS
+	plunger.starter_band = PLUNGER_STARTER_DEFAULT_BAND
 	add_child(plunger)
 
 
@@ -919,6 +991,13 @@ func _needs_met(id: StringName, depth: int = 0) -> bool:
 ## couple of pieces answer to two owners (the left channel guide serves the numbers lane and
 ## the getaway loop), and owning one of those does not put the other one on the table.
 func hardware_present(id: StringName) -> bool:
+	# Progression slings are visible passive bodies before purchase. Presence here means the
+	# upgrade is live/powered, preserving the hardware query contract without hiding the body.
+	if id == &"slingshots":
+		for sl: Slingshot in _slings:
+			if sl.is_powered():
+				return true
+		return false
 	var found := false
 	for piece: Dictionary in _pieces:
 		var ids: Array[StringName] = piece["ids"]
@@ -1455,6 +1534,16 @@ func _physics_process(delta: float) -> void:
 	_keep_magnets_apart()
 
 
+func _process(delta: float) -> void:
+	_show_clock += delta
+	_show_redraw += delta
+	# Twelve redraws a second is enough for incandescent bulbs and keeps the vector table
+	# cheap on the Android compatibility renderer.
+	if _show_redraw >= 1.0 / 12.0:
+		_show_redraw = 0.0
+		queue_redraw()
+
+
 ## Pulse the coils under a ball that has stopped somewhere it has no business stopping.
 func _ball_search(delta: float) -> void:
 	if ball == null or not is_instance_valid(ball):
@@ -1574,6 +1663,7 @@ static func circumcenter(a: Vector2, b: Vector2, c: Vector2) -> Vector2:
 
 
 func _draw() -> void:
+	_draw_cabinet()
 	var a0 := arch_angle(ARCH_A)
 	var a1 := arch_angle(ARCH_C)
 	var felt := PackedVector2Array()
@@ -1590,6 +1680,10 @@ func _draw() -> void:
 		draw_colored_polygon(felt, Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g,
 				Feel.COL_DIRTY.b, tint))
 
+	_draw_playfield_inlay()
+	_draw_backglass()
+	_draw_shot_labels()
+
 	draw_rect(Rect2(Vector2(LANE_LEFT, DIVIDER_TOP), Vector2(LANE_RIGHT - LANE_LEFT,
 			LANE_FLOOR_Y - DIVIDER_TOP)), Feel.COL_FELT.darkened(0.25))
 	for i in range(1, 4):
@@ -1599,16 +1693,231 @@ func _draw() -> void:
 
 	if _walls != null:
 		_walls.draw_into(self, Feel.COL_INK.lightened(0.12), Feel.COL_INK)
+		draw_arc(ARCH_CENTER, _arch_radius - OUTER_THICK * 0.48, a0, a1, 56,
+				Feel.COL_BRASS.darkened(0.42), 4.0)
+		draw_line(ARCH_A + Vector2(OUTER_THICK * 0.48, 0.0),
+				Vector2(PLAY_LEFT + OUTER_THICK * 0.48, PLAY_BOTTOM),
+				Feel.COL_BRASS.darkened(0.52), 4.0)
+		draw_line(ARCH_C - Vector2(OUTER_THICK * 0.48, 0.0),
+				Vector2(LANE_RIGHT - OUTER_THICK * 0.48, PLAY_BOTTOM),
+				Feel.COL_BRASS.darkened(0.52), 4.0)
 
 	var gate_col := Feel.COL_BRASS if _gate_closed else Feel.COL_BRASS.darkened(0.6)
 	draw_line(Vector2(DIVIDER_X, GATE_TOP), Vector2(DIVIDER_X, GATE_BOTTOM), gate_col, 12.0)
+	for i in range(6):
+		var y := 660.0 + float(i) * 190.0
+		var hot := posmod(i - int(floor(_show_clock * 3.0)), 4) == 0
+		var lane_col := Feel.COL_BRASS.darkened(0.18 if hot else 0.62)
+		draw_polyline(PackedVector2Array([
+			Vector2(982.0, y + 18.0), Vector2(996.0, y), Vector2(1010.0, y + 18.0),
+		]), lane_col, 3.0)
 
 	_draw_boss_meter()
 
-	# the drain is a storm grate lit from below, not a hole (docs/02 §4)
-	draw_line(Vector2(PLAY_LEFT, DRAIN_Y), Vector2(PLAY_RIGHT, DRAIN_Y),
-			Feel.COL_DIRTY.darkened(0.35), 3.0)
+	# The centre grate is a real, readable target between the bat tips; the two side trenches
+	# make the outlanes equally explicit. The cabinet safety switch at DRAIN_Y stays invisible.
+	var grate := Rect2(CENTRE_DRAIN_AT - CENTRE_DRAIN_SIZE * 0.5, CENTRE_DRAIN_SIZE)
+	draw_rect(grate, Feel.COL_DIRTY.darkened(0.42))
+	draw_rect(grate.grow(-5.0), Feel.COL_INK.darkened(0.25), false, 3.0)
+	for i in range(7):
+		var gx := grate.position.x + 22.0 + float(i) * 24.0
+		draw_line(Vector2(gx, grate.position.y + 8.0),
+				Vector2(gx, grate.end.y - 8.0), Feel.COL_BRASS.darkened(0.62), 4.0)
+	for side in [-1.0, 1.0]:
+		var x0 := PLAY_LEFT if side < 0.0 else MIRROR_X * 2.0 - OUTLANE_X
+		var x1 := OUTLANE_X if side < 0.0 else PLAY_RIGHT
+		draw_rect(Rect2(Vector2(x0, OUTLANE_DRAIN_Y),
+				Vector2(x1 - x0, DRAIN_Y - OUTLANE_DRAIN_Y)),
+				Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.42))
+		for row in range(4):
+			var y := OUTLANE_DRAIN_Y + 34.0 + float(row) * 54.0
+			draw_line(Vector2(x0 + 10.0, y), Vector2(x1 - 10.0, y),
+					Feel.COL_BRASS.darkened(0.72), 3.0)
+
+
+## The cabinet is part of the spectacle now, not unclaimed black around a physics field. It
+## also stitches the negative-y rooms into one machine when the camera follows a ball up.
+func _draw_cabinet() -> void:
+	var wood := Color("21150F")
+	var wood_dark := Color("0B0908")
+	draw_rect(Rect2(-10.0, -1600.0, 1100.0, 3520.0), wood_dark)
+	draw_rect(Rect2(2.0, -1580.0, 26.0, 3480.0), wood)
+	draw_rect(Rect2(1052.0, -1580.0, 26.0, 3480.0), wood)
+	draw_line(Vector2(16.0, -1560.0), Vector2(16.0, 1894.0),
+			Feel.COL_BRASS.darkened(0.58), 3.0)
+	draw_line(Vector2(1064.0, -1560.0), Vector2(1064.0, 1894.0),
+			Feel.COL_BRASS.darkened(0.58), 3.0)
+
+	# A city canyon behind the upper floors. The rooms paint over it, while the gaps retain
+	# enough architecture that the full-table view reads as one vertical place.
+	for i in range(12):
+		var x := 42.0 + float(i) * 86.0
+		var h := 190.0 + fmod(float(i) * 113.0, 330.0)
+		var top := -30.0 - h
+		draw_rect(Rect2(x, top, 58.0, h), Feel.COL_INK.lightened(0.045))
+		for row in range(5):
+			var wy := top + 28.0 + float(row) * 48.0
+			if wy > -28.0:
+				break
+			var lit := (i * 3 + row) % 4 == 1
+			draw_rect(Rect2(x + 15.0, wy, 9.0, 13.0),
+					Feel.COL_BRASS.darkened(0.28) if lit else Feel.COL_INK.lightened(0.12))
+			draw_rect(Rect2(x + 34.0, wy, 9.0, 13.0),
+					Feel.COL_BRASS.darkened(0.45) if lit and row % 2 == 0
+					else Feel.COL_INK.lightened(0.10))
+
+
+## Layered felt, walnut and brass turn the lower third into a cockpit and make the main shots
+## legible at a glance. None of this has collision; the authored rails remain the truth.
+func _draw_playfield_inlay() -> void:
+	# Fifth Street bends through the triangular Block, then forks around the bumper
+	# neighborhood. These painted routes agree with the actual new shot entrances.
+	var street := PackedVector2Array([
+		Vector2(190.0, 1468.0), Vector2(790.0, 1468.0),
+		Vector2(735.0, 1260.0), Vector2(690.0, 1130.0),
+		Vector2(645.0, 960.0), Vector2(470.0, 940.0),
+		Vector2(315.0, 1080.0), Vector2(245.0, 1270.0),
+	])
+	draw_colored_polygon(street, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.17))
+	draw_polyline(PackedVector2Array([
+		Vector2(190.0, 1468.0), Vector2(245.0, 1270.0), Vector2(315.0, 1080.0),
+		Vector2(470.0, 940.0), Vector2(645.0, 960.0),
+	]), Feel.COL_BRASS.darkened(0.62), 3.0)
+	draw_polyline(PackedVector2Array([
+		Vector2(790.0, 1468.0), Vector2(735.0, 1260.0), Vector2(690.0, 1130.0),
+		Vector2(645.0, 960.0),
+	]), Feel.COL_BRASS.darkened(0.62), 3.0)
+	for p in [Vector2(322.0, 1305.0), Vector2(480.0, 1115.0),
+			Vector2(665.0, 1200.0), Vector2(705.0, 1360.0)]:
+		draw_line(p - Vector2(18.0, 5.0), p + Vector2(18.0, 5.0),
+				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
+				Feel.COL_NEWSPRINT.b, 0.13), 4.0)
+
+	# Split walnut apron wings frame the new centre grate instead of painting a false solid
+	# floor beneath it. The open V makes the danger legible from either cradle.
+	var apron_left := PackedVector2Array([
+		Vector2(62.0, 1690.0), Vector2(205.0, 1570.0), Vector2(432.0, 1760.0),
+		Vector2(392.0, 1868.0), Vector2(62.0, 1868.0),
+	])
+	var apron_right := PackedVector2Array([
+		Vector2(918.0, 1690.0), Vector2(775.0, 1570.0), Vector2(548.0, 1760.0),
+		Vector2(588.0, 1868.0), Vector2(918.0, 1868.0),
+	])
+	for wing in [apron_left, apron_right]:
+		draw_colored_polygon(wing, Color("241710"))
+		draw_polyline(PackedVector2Array([wing[0], wing[1], wing[2], wing[3]]),
+				Feel.COL_BRASS.darkened(0.48), 5.0)
+	for side in [-1.0, 1.0]:
+		draw_line(Vector2(MIRROR_X + side * 82.0, 1792.0),
+				Vector2(MIRROR_X + side * 335.0, 1818.0),
+				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.22), 3.0)
+
+	# The offset can neighborhood gets a broken ward boundary that opens toward aimed shots.
+	draw_arc(Vector2(385.0, 790.0), 172.0, -2.72, 1.22, 36,
+			Feel.COL_BRASS.darkened(0.68), 4.0)
+	draw_arc(Vector2(385.0, 790.0), 188.0, -2.60, 1.08, 36,
+			Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
+			Feel.COL_NEWSPRINT.b, 0.10), 2.0)
+
+	# The Family seal fills the intentionally open first-Night midfield without pretending to
+	# be a switch. Furniture grows over it as the Block is built.
+	var seal_at := Vector2(MIRROR_X, 1350.0)
+	var seal := PackedVector2Array([
+		seal_at + Vector2(0.0, -92.0), seal_at + Vector2(78.0, -48.0),
+		seal_at + Vector2(62.0, 54.0), seal_at + Vector2(0.0, 102.0),
+		seal_at + Vector2(-62.0, 54.0), seal_at + Vector2(-78.0, -48.0),
+	])
+	draw_colored_polygon(seal, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.18))
+	draw_polyline(PackedVector2Array([
+		seal[0], seal[1], seal[2], seal[3], seal[4], seal[5], seal[0],
+	]), Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.14), 3.0)
+	draw_line(seal_at + Vector2(-34.0, -42.0), seal_at + Vector2(-34.0, 50.0),
+			Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.15), 8.0)
+	draw_line(seal_at + Vector2(-28.0, 8.0), seal_at + Vector2(38.0, -44.0),
+			Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.15), 8.0)
+	draw_line(seal_at + Vector2(-18.0, 1.0), seal_at + Vector2(40.0, 54.0),
+			Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.15), 8.0)
+
+	# Quiet print texture: fixed, deterministic, and subtle enough that the ball stays king.
+	for i in range(28):
+		var x := 188.0 + fmod(float(i) * 137.0, 670.0)
+		var y := 646.0 + fmod(float(i) * 211.0, 820.0)
+		draw_circle(Vector2(x, y), 2.0 + float(i % 3),
+				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
+				Feel.COL_NEWSPRINT.b, 0.035))
+
+
+## The previously empty arch is the machine's backglass: a pulp title card, a deco fan, and
+## incandescent chase bulbs. It is the visual reward visible before any furniture is bought.
+func _draw_backglass() -> void:
+	var plate := PackedVector2Array([
+		Vector2(218.0, 136.0), Vector2(762.0, 136.0),
+		Vector2(816.0, 400.0), Vector2(164.0, 400.0),
+	])
+	draw_colored_polygon(plate, Color("17120F"))
+	draw_polyline(PackedVector2Array([
+		Vector2(218.0, 136.0), Vector2(762.0, 136.0),
+		Vector2(816.0, 400.0), Vector2(164.0, 400.0), Vector2(218.0, 136.0),
+	]), Feel.COL_BRASS.darkened(0.28), 6.0)
+	var fan_at := Vector2(MIRROR_X, 392.0)
 	for i in range(9):
-		var gx := lerpf(PLAY_LEFT + 40.0, PLAY_RIGHT - 40.0, float(i) / 8.0)
-		draw_line(Vector2(gx, DRAIN_Y + 3.0), Vector2(gx, PLAY_BOTTOM - 4.0),
-				Feel.COL_DIRTY.darkened(0.55), 3.0)
+		var x := lerpf(198.0, 782.0, float(i) / 8.0)
+		draw_line(fan_at, Vector2(x, 154.0), Color(Feel.COL_BRASS.r,
+				Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.18), 3.0)
+	draw_arc(fan_at, 236.0, PI + 0.18, TAU - 0.18, 32,
+			Feel.COL_BRASS.darkened(0.55), 3.0)
+
+	var font := ThemeDB.fallback_font
+	if font != null:
+		draw_string(font, Vector2(218.0, 274.0), "K I N G P I N",
+				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 54, Feel.COL_BRASS)
+		draw_string(font, Vector2(218.0, 322.0), "THE FAMILY RUNS THIS TOWN",
+				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 20, Feel.COL_NEWSPRINT.darkened(0.18))
+		draw_string(font, Vector2(218.0, 362.0), "FIFTH STREET SOCIAL CLUB",
+				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 15, Feel.COL_BRASS.darkened(0.35))
+
+	var chase := int(floor(_show_clock * 5.0))
+	for i in range(14):
+		var top := i < 7
+		var u := float(i % 7) / 6.0
+		var p := Vector2(lerpf(234.0, 746.0, u), 142.0 if top else 396.0)
+		var hot := posmod(i - chase, 5) == 0
+		var col := Feel.COL_NEWSPRINT if hot else Feel.COL_BRASS.darkened(0.58)
+		draw_circle(p, 5.0 if hot else 3.5, col)
+
+
+func _draw_shot_labels() -> void:
+	var font := ThemeDB.fallback_font
+	if font == null:
+		return
+	# Labels live in dead felt, never over the switch they describe. Their orientation makes
+	# the shot lanes readable from the flippers, where the player's eyes actually are.
+	draw_string(font, Vector2(220.0, 982.0), "THE RACKET",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 17, Feel.COL_BRASS.darkened(0.34))
+	var any_store := false
+	for store: Storefront in storefronts:
+		any_store = any_store or store.visible
+	if any_store:
+		draw_string(font, Vector2(410.0, 1360.0), "—  THE BLOCK  —",
+				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Feel.COL_NEWSPRINT.darkened(0.38))
+	draw_string(font, Vector2(306.0, 1518.0), "KEEP IT IN THE FAMILY",
+			HORIZONTAL_ALIGNMENT_CENTER, 368.0, 15, Feel.COL_BRASS.darkened(0.48))
+
+	if not rollovers.is_empty() and rollovers[0].visible:
+		for i in range(3):
+			var at: Vector2 = ROLLOVER_AT[i]
+			draw_string(font, at + Vector2(-42.0, -18.0), str(i + 1),
+					HORIZONTAL_ALIGNMENT_CENTER, 84.0, 17, Feel.COL_BRASS.darkened(0.45))
+
+	if (spinner != null and spinner.visible) or (orbit != null and orbit.visible):
+		draw_set_transform(Vector2(103.0, 1125.0), -PI * 0.5, Vector2.ONE)
+		draw_string(font, Vector2.ZERO, "NUMBERS  •  GETAWAY",
+				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Feel.COL_BRASS.darkened(0.42))
+	if wire_bank != null and wire_bank.visible:
+		draw_set_transform(Vector2(882.0, 900.0), -1.91, Vector2.ONE)
+		draw_string(font, Vector2.ZERO, "THE WIRE",
+				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Feel.COL_BRASS.darkened(0.42))
+	draw_set_transform(Vector2(1007.0, 1710.0), -PI * 0.5, Vector2.ONE)
+	draw_string(font, Vector2.ZERO, "DROP-OFF",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Feel.COL_BRASS.darkened(0.38))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

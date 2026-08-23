@@ -112,7 +112,15 @@ func _apply_collision() -> void:
 
 func _draw() -> void:
 	var half := blade_length * 0.5
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK, 5.0)
+	# The numbers racket runs on a stripped bicycle wheel. The hoop and bearings stay still;
+	# the brass ticket blade rolls over inside them.
+	draw_arc(Vector2.ZERO, half * 0.92, 0.0, TAU, 32, Feel.COL_INK, 8.0)
+	draw_arc(Vector2.ZERO, half * 0.92, 0.0, TAU, 32, Feel.COL_BRASS.darkened(0.38), 3.0)
+	for i in range(8):
+		var a := float(i) * TAU / 8.0 + _angle * 0.18
+		draw_line(Vector2.ZERO, Vector2(cos(a), sin(a)) * half * 0.84,
+				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.35), 2.0)
+	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK, 7.0)
 	# a blade on a horizontal axle, seen from above: it foreshortens as it turns over
 	var squash := absf(cos(_angle))
 	var h := 15.0 * squash + 2.0
@@ -123,3 +131,4 @@ func _draw() -> void:
 		var x := lerpf(-half * 0.7, half * 0.7, float(i) / 2.0)
 		draw_line(Vector2(x, -h), Vector2(x, h), Feel.COL_INK, 2.0)
 	draw_circle(Vector2.ZERO, 6.0, Feel.COL_INK)
+	draw_circle(Vector2.ZERO, 3.0, Feel.COL_NEWSPRINT.darkened(0.25))
