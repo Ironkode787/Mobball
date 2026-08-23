@@ -115,7 +115,8 @@ heist clean exit ☆40. **No purchase, no idle source, no conversion.** Rank thr
   5 cities. Numbers use short-scale suffixes ($1.2M, $3.4B, $7.7T) with mantissa+exponent
   arithmetic ([09-TECH](09-TECH.md) §6). Lifetime clean by first Skip Town: ~$5–20B.
 - Upgrade cost bands per tier: T0 $50–500 · T1 1–10k · T2 10–100k · T3 0.1–1M · T4 1–20M ·
-  T5 20–500M · T6 0.5–20B · T7 20B–5T. Repeatables cost `base × 1.15^level` (classic
+  T5 20–500M · T6 0.5–6B · T7 6B–120B *(T6/T7 sim-derived: 0.5–7 days of decent-profile
+  clean income at the gating rank)*. Repeatables cost `base × 1.15^level` (classic
   incremental curve); one-offs sit at band edges.
 - Newspaper headlines lampshade the absurdity on schedule ("LOCAL ECONOMY NOW 60% PINBALL").
 

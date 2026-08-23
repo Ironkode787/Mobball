@@ -615,6 +615,65 @@
         {"kind": "idle_rate_add", "target": "penthouse", "value": "2K"}
       ],
       "table_change": "the room above the Club lights up — the calmest, most dangerous place in the city"
+    },
+
+    {
+      "id": "fronts.wash_cycle",
+      "branch": "fronts", "tier": 6,
+      "name": "The Wash Cycle",
+      "flavor": "At this volume it isn't laundry. It's weather.",
+      "cost": "900M", "repeat": {"max": 6, "growth": 1.15}, "requires": ["fronts.industrial_washers"],
+      "reveal": {"rank": 6},
+      "effects": [
+        {"kind": "launder_cap_add", "value": "25M", "per_level": true},
+        {"kind": "launder_cap_mult", "value": 1.35, "per_level": true}
+      ],
+      "table_change": "the laundromat's steam becomes its own microclimate"
+    },
+    {
+      "id": "crew.the_bagman",
+      "branch": "crew", "tier": 6,
+      "name": "The Bagman",
+      "flavor": "Carries nothing. Delivers everything.",
+      "cost": "2B", "repeat": {"max": 5, "growth": 1.3}, "requires": ["crew.nussbaum"],
+      "reveal": {"rank": 6},
+      "specialist": {"id": "bagman", "instrument": "upright_bass"},
+      "effects": [{"kind": "clean_share", "value": 0.02, "per_level": true}],
+      "table_change": "a quiet man with a quiet bag starts making rounds — a slice of every take arrives clean"
+    },
+    {
+      "id": "influence.city_hall",
+      "branch": "influence", "tier": 7,
+      "name": "City Hall",
+      "flavor": "The dome is gold because you paid for it. Twice.",
+      "cost": "10B", "repeat": null, "requires": ["rackets.the_penthouse"],
+      "reveal": {"rank": 7},
+      "effects": [
+        {"kind": "unlock_hardware", "target": "city_hall"},
+        {"kind": "idle_rate_add", "target": "city_hall", "value": "40K"}
+      ],
+      "table_change": "the golden dome crowns the sky — the hardest shot on the machine opens"
+    },
+    {
+      "id": "rackets.skim_off_the_top",
+      "branch": "rackets", "tier": 7,
+      "name": "Skim Off the Top",
+      "flavor": "Every till in the city rounds down. Guess where it rounds to.",
+      "cost": "40B", "repeat": {"max": 3, "growth": 1.15}, "requires": ["influence.city_hall"],
+      "effects": [{"kind": "clean_share", "value": 0.03, "per_level": true}],
+      "table_change": "the skyline's windows tick like registers"
+    },
+    {
+      "id": "fronts.casa_de_cambio",
+      "branch": "fronts", "tier": 7,
+      "name": "Casa de Cambio",
+      "flavor": "Ask no questions. Get excellent rates.",
+      "cost": "60B", "repeat": null, "requires": ["fronts.wash_cycle"],
+      "effects": [
+        {"kind": "launder_cap_mult", "value": 2.5},
+        {"kind": "clean_share", "value": 0.04}
+      ],
+      "table_change": "a discreet bureau opens where the docks meet the block"
     }
   ]
 }

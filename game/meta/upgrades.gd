@@ -34,6 +34,8 @@ const HARDWARE_IDS: PackedStringArray = [
 	# M3 Docks & Penthouse (specs/m3-fall-rise.md)
 	"docks", "containers", "crane", "cargo_ramp", "orbit_right",
 	"penthouse", "commission_chairs", "sitdown_saucer", "penthouse_stairs",
+	# M3 the crown (docs/02 §2 R7)
+	"city_hall",
 ]
 
 ## Switch groups `Game.earn_switch` pays out to. `all` folds into every other group.

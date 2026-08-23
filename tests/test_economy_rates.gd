@@ -170,11 +170,12 @@ func _test_repeatable_cost_guards(t: TestCtx) -> void:
 
 func _test_tier_bands(t: TestCtx) -> void:
 	# docs/03 §7: T0 $50–500 · T1 1–10k · T2 10–100k · T3 0.1–1M · T4 1–20M
-	#             T5 20–500M · T6 0.5–20B · T7 20B–5T
+	#             T5 20–500M · T6 0.5–6B · T7 6B–120B (T6/T7 sim-derived, SIM-2)
 	_same(t, Rates.tier_cost_low(0), BigMoney.of(5.0, 1), "T0 starts at $50")
 	_same(t, Rates.tier_cost_high(0), BigMoney.of(5.0, 2), "T0 tops out at $500")
 	_same(t, Rates.tier_cost_low(4), BigMoney.of(1.0, 6), "T4 starts at $1M")
-	_same(t, Rates.tier_cost_high(7), BigMoney.of(5.0, 12), "T7 tops out at $5T")
+	_same(t, Rates.tier_cost_high(6), BigMoney.of(6.0, 9), "T6 tops out at $6B")
+	_same(t, Rates.tier_cost_high(7), BigMoney.of(1.2, 11), "T7 tops out at $120B")
 	t.eq(Rates.TIER_BANDS.size(), 8, "eight tiers, T0..T7")
 	var ascending := true
 	for tier in 8:

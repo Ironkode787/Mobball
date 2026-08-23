@@ -95,8 +95,11 @@ const TIER_BANDS: Array = [
 	[1.0, 5, 1.0, 6],      # T3  $100k – $1M
 	[1.0, 6, 2.0, 7],      # T4  $1M – $20M
 	[2.0, 7, 5.0, 8],      # T5  $20M – $500M
-	[5.0, 8, 2.0, 10],     # T6  $500M – $20B
-	[2.0, 10, 5.0, 12],    # T7  $20B – $5T
+	# T6/T7 re-derived from measured income (SIM-2): the old $20B/$5T ceilings were 3x /
+	# 5,500 days of a decent player's clean. Bands are 0.5–7 days of income at the gating
+	# rank for the reference (decent) profile.
+	[5.0, 8, 6.0, 9],      # T6  $500M – $6B
+	[6.0, 9, 1.2, 11],     # T7  $6B – $120B
 ]
 
 
