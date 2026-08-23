@@ -27,8 +27,8 @@ func _run() -> void:
 	var pent := table.penthouse
 	var dome := table.city_hall
 	print("gravity %.0f" % ProjectSettings.get_setting("physics/2d/default_gravity"))
-	var fl: Flipper = club.flipper_right
-	for offset: float in [0.35, 0.5, 0.65, 0.8]:
+	var fl: Flipper = club.flipper_left
+	for offset: float in [0.3, 0.45, 0.6, 0.75, 0.9]:
 		table.despawn_ball()
 		await step(2)
 		var b := table.spawn_ball()
@@ -37,7 +37,7 @@ func _run() -> void:
 		b.set_velocity(Vector2.ZERO)
 		await step(6)
 		var launch := b.speed()
-		table.flipper_right.set_pressed(true)
+		table.flipper_left.set_pressed(true)
 		var best := 0.0
 		var at_corner := 0.0
 		var in_dome := false
@@ -46,7 +46,7 @@ func _run() -> void:
 		for i in range(360):
 			await step(1)
 			if i == 12:
-				table.flipper_right.set_pressed(false)
+				table.flipper_left.set_pressed(false)
 			if b == null or not is_instance_valid(b):
 				break
 			var p := b.global_position
@@ -55,6 +55,8 @@ func _run() -> void:
 			if dome.loop.entry_rect().has_point(p):
 				at_corner = maxf(at_corner,
 						b.linear_velocity.dot(dome.loop.tangent_at(dome.loop.project(p))))
+			if pent.stairs.entry_rect().has_point(p):
+				at_corner = maxf(at_corner, 0.0)
 			if dome.loop.riding():
 				in_dome = true
 				break
@@ -63,7 +65,7 @@ func _run() -> void:
 				break
 		print("  cradle %.2f: launch %.0f best %.0f | along-dome-at-mouth %.0f | dome=%s pent=%s top=%.0f"
 				% [offset, launch, best, at_corner, in_dome, in_pent, top])
-		table.flipper_right.set_pressed(false)
+		table.flipper_left.set_pressed(false)
 	table.despawn_ball()
 	await step(2)
 	get_tree().quit(0)
