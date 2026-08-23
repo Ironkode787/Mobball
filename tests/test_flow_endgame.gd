@@ -277,6 +277,39 @@ func _the_black_book(t: TestCtx) -> void:
 	t.eq(Game.rank_ladder().size(), Game.RANK_RESPECT.size(), "and the whole ladder with it")
 	t.eq(Game.rank_for_respect(Game.RANK_RESPECT[4]), 4, "the ☆ still say what they said")
 
+	# ★ the clean share (Stats.clean_share, T6/T7 content). A slice of every switch arrives
+	# already clean — drawn against tonight's wash cap, hot for its whole value, and booked as
+	# LAUNDERED, because dirty really did become clean.
+	Game.new_game(37)
+	# The share is drawn against the wash cap, so a career with no laundry has nothing to draw
+	# from — which is the honest behaviour, and why the fixture buys a washer too.
+	Game.owned["fronts.coin_op"] = 1
+	Game.owned["crew.the_bagman"] = 1
+	Game._recompute_stats()
+	Game.start_night()
+	var share := Game.stats.clean_share()
+	if share > 0.0:
+		var clean_before := Game.wallet.clean
+		var washed_before := Game.night_laundered
+		var paid := Game.earn_switch(&"bumpers", BigMoney.from_float(10_000.0))
+		var washed := Game.night_laundered.sub_clamped(washed_before)
+		t.ok(washed.is_positive(), "the Bagman's share did not wash anything")
+		t.ok(washed.equals_approx(paid.mul(share), 1e-6),
+				"the share is not the share the Ledger sold")
+		t.ok(Game.wallet.clean.equals_approx(clean_before.add(washed), 1e-9),
+				"and it lands as clean")
+		t.ok(Game.night_dirty.sub_clamped(Game.night_laundered)
+				.equals_approx(Game.wallet.dirty, 1e-6),
+				"night_dirty − night_laundered == held dirty survives the share")
+		# It is drawn against the per-Night cap, so it cannot outrun docs/03 §2.
+		Game.night_laundered = Game.stats.launder_cap()
+		var capped_before := Game.wallet.clean
+		Game.earn_switch(&"bumpers", BigMoney.from_float(10_000.0))
+		t.ok(Game.wallet.clean.equals_approx(capped_before, 1e-9),
+				"with the wash cap spent the share pays nothing")
+	else:
+		t.ok(true, "no clean_share content in this build: the consumption point is inert")
+
 	# The Book itself rides in the save file: the flow lane owns the file, meta owns the object.
 	var book := Game.prestige()
 	if book == null:

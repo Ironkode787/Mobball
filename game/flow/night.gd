@@ -138,6 +138,8 @@ var _plunger: Plunger = null
 ## What happens when the between-balls beat runs out: &"same" (ball save), &"next", &"end".
 var _after_beat: StringName = &""
 var _wire_enabled: bool = false
+## The table has briefcase hardware, so the bagman does his rounds this Night.
+var _briefcases_on: bool = false
 var _collect_poll: float = 0.0
 ## Guys whose ball was saved and is waiting to be put back on the table next tick.
 var _reserve_queue: Array[Dictionary] = []
@@ -243,6 +245,10 @@ func start() -> void:
 	_connect_table(&"containers_state", _on_containers_state)
 	_connect_table(&"cargo_shipped", _on_cargo_shipped)
 	_connect_table(&"sitdown_entered", _on_sitdown_entered)
+	# The small rituals (docs/05 §10). The table owns the token and the walk-off; flow owns
+	# what is in the case and who is on the phone.
+	_briefcases_on = _connect_table(&"briefcase_collected", _on_briefcase_collected)
+	_connect_table(&"briefcase_expired", _on_briefcase_expired)
 	_connect_table(&"chair_taken", _on_chair_taken)
 	_connect_table(&"chairs_completed", _on_chairs_completed)
 	_connect_table(&"penthouse_entered", _on_penthouse_entered)
@@ -345,6 +351,8 @@ func _physics_process(delta: float) -> void:
 	_tick_sitdown(delta)
 	_tick_election(delta)
 	_tick_empire(delta)
+	_tick_briefcases(delta)
+	_tick_phone(delta)
 	_tick_heist(delta)
 	_tick_raid_hold()
 	_tick_wire(delta)
@@ -841,6 +849,8 @@ func _on_switch_hit(id: StringName, _ball_node: Node2D, strength: float) -> void
 	_heist_switch(group, strength)
 	if not _wash_from_signal and (group == &"laundry" or String(id).begins_with("laundromat")):
 		_wash_pass()
+	if group == &"wire" and Game.phone.ringing:
+		_answer_phone()
 	if group == &"rollovers":
 		if not _lanes_from_signal:
 			_check_skill_shot(id)
@@ -1366,6 +1376,75 @@ func _heist_ball_lost() -> void:
 		return
 	AudioDirector.play(&"heist_blown")
 	Game.heist_finished(run)
+
+
+# ==================================================== briefcases & the phone =====
+##
+## docs/05 §10. The table owns the case (where it stands, how long, and the bagman walking off
+## with it) and the payphones; everything about what is IN the case, and who is on the line,
+## is flow's.
+
+
+func _tick_briefcases(delta: float) -> void:
+	if not _briefcases_on or Game.economy_paused():
+		return
+	if not Game.briefcases.tick(delta, GuyTraits.briefcase_odds_add(current_guy())):
+		return
+	if bool(TableAPI.call_if(table, "briefcase_live", [], false)):
+		return
+	TableAPI.call_if(table, "spawn_briefcase")
+	if bool(TableAPI.call_if(table, "briefcase_live", [], false)):
+		AudioDirector.play(&"briefcase_drop")
+
+
+func _on_briefcase_collected() -> void:
+	if not running:
+		return
+	var result := Game.open_briefcase()
+	match StringName(result["kind"]):
+		Briefcases.WAD:
+			AudioDirector.play(&"coin_drop")
+			_arpeggio([&"chime_a", &"chime_c"], 0.09)
+		Briefcases.SETUP:
+			# Stung: Heat and a face at the door. The cop belongs to the raid's hardware, so
+			# it is an ask — a table without one costs the player the Heat and nothing else.
+			AudioDirector.play(&"drop_clack")
+			AudioDirector.play(&"siren")
+			TableAPI.call_if(table, "spawn_cop_target")
+		Briefcases.BOON:
+			AudioDirector.play(&"chime_b")
+			if StringName(result["boon"]) == Briefcases.BOON_SAVE:
+				# The ball saves are the Night's, so the Night is where the charge lands.
+				saves_left += 1
+
+
+func _on_briefcase_expired() -> void:
+	if running:
+		Game.briefcases.on_expired()
+		AudioDirector.play(&"briefcase_leave")
+
+
+## The payphones ARE the phone on this table (see game/flow/phone.gd): while it rings, a hit
+## on the Wire bank picks it up, which costs a real shot under a real clock.
+func _tick_phone(delta: float) -> void:
+	if not _wire_enabled or Game.economy_paused():
+		return
+	var was := Game.phone.ringing
+	if Game.phone.tick(delta):
+		AudioDirector.play(&"radio_squelch")
+		Game.phone_changed.emit({"ringing": true, "caller": ""})
+		return
+	if was and not Game.phone.ringing:
+		Game.phone_rang_out()
+
+
+func _answer_phone() -> void:
+	var result := Game.answer_phone()
+	if not bool(result.get("answered", false)):
+		return
+	AudioDirector.play(&"chime_b")
+	if StringName(result["caller"]) == ThePhone.NONNA:
+		AudioDirector.play(&"chime_a")
 
 
 # ================================================================= the wire =====

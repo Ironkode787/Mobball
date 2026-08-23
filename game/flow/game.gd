@@ -35,6 +35,10 @@ signal heist_changed(state: Dictionary)
 signal federal_changed(state: Dictionary)
 ## The City Hall Circuit moved a leg, or EMPIRE lit / ran out (docs/02 §2 R7).
 signal empire_changed(state: Dictionary)
+## A briefcase was opened, or the bagman left with it (docs/05 §10).
+signal briefcase_opened(result: Dictionary)
+## The backbox phone rang, was answered, or rang out (docs/05 §10).
+signal phone_changed(state: Dictionary)
 ## A Commission fight's shape changed (phase, panels, the Butcher's freezer) — HUD fodder.
 signal boss_changed(state: Dictionary)
 ## Manny worked a till without a ball (`auto_collect_interval`). The HUD flashes it, because
@@ -103,6 +107,9 @@ var heist: HeistRun = null
 var federal := FederalHeat.new()
 ## EMPIRE MODE (docs/02 §2 R7): the City Hall Circuit and the sixty seconds it lights.
 var empire := EmpireMode.new()
+## The small rituals (docs/05 §10): the man in the trench coat, and the phone.
+var briefcases := Briefcases.new()
+var phone := ThePhone.new()
 ## THE COMMISSION (specs/m2-content.md §5): who is waiting, who has been put away, and which
 ## rank the ladder is not allowed past yet.
 var commission := Commission.new()
@@ -365,7 +372,8 @@ func preview_switch(group: StringName, base_value: BigMoney) -> BigMoney:
 ## which is the point of taking the crew out together.
 func mode_multiplier() -> float:
 	return meeting.dirty_multiplier() * elections.dirty_multiplier() \
-			* empire.dirty_multiplier() * GuyTraits.dirty_mult_for(fielded)
+			* empire.dirty_multiplier() * briefcases.dirty_multiplier() \
+			* GuyTraits.dirty_mult_for(fielded)
 
 
 ## Dirty booked in one value group tonight, as it landed in the wallet.
@@ -850,9 +858,10 @@ func rico_finished(survived: bool, insured: bool = false) -> Dictionary:
 ## and a player who can fly it twice has earned it twice.
 
 
-## Is the crown even reachable? R7 and the dome bought.
+## Is the crown even reachable? The dome is a purchase (`influence.city_hall`), not a rank —
+## the circuit's last leg is a shot at hardware that has to be standing there.
 func empire_unlocked() -> bool:
-	return rank >= FederalHeat.RANK or stats.hardware_unlocked(&"city_hall")
+	return stats.hardware_unlocked(&"city_hall")
 
 
 ## One leg of the circuit. Returns true if that closed it and lit the mode.
@@ -1029,6 +1038,61 @@ func _keep_one_guy(keep: Dictionary) -> Dictionary:
 			roster.append(g)
 	bench.guys = roster
 	return him
+
+
+# ======================================================= briefcases & the phone =====
+
+
+## A case was hit. Rolls what was in it and pays it (docs/05 §10, odds docs/03 §3). Returns
+## the result so the Night can make the right noise.
+func open_briefcase() -> Dictionary:
+	var result := briefcases.open(stats.hardware_unlocked(Briefcases.FENCE_FLAG))
+	result["paid"] = BigMoney.zero()
+	match StringName(result["kind"]):
+		Briefcases.WAD:
+			var wad := earn_flat_dirty(Briefcases.wad_value(stats.idle_rate_total()),
+					&"briefcase")
+			briefcases.book_payout(wad)
+			result["paid"] = wad
+		Briefcases.SETUP:
+			# Stung. Heat and a face at the door — the cop is the table's to stand up.
+			heat_add_flat(Briefcases.SETUP_HEAT)
+		Briefcases.BOON:
+			match StringName(result["boon"]):
+				Briefcases.BOON_COOL:
+					heat_reduce(Briefcases.BOON_COOL_HEAT)
+				Briefcases.BOON_SAVE:
+					pass    # the Night hands out the charge; it owns the ball saves
+	briefcase_opened.emit(result)
+	return result
+
+
+## The phone was picked up. Every caller is worth something (docs/05 §10).
+func answer_phone() -> Dictionary:
+	var who := phone.answer()
+	var result := {"caller": String(who), "answered": who != &""}
+	match who:
+		ThePhone.TIP:
+			heat_reduce(ThePhone.TIP_HEAT)
+		ThePhone.BET:
+			# A free stake on the next landing: the house is buying, exactly as a comp does.
+			casino.comps_left += 1
+		ThePhone.JOB:
+			add_respect(ThePhone.JOB_RESPECT, &"phone")
+		ThePhone.NONNA:
+			add_respect(ThePhone.NONNA_RESPECT, &"phone")
+	if who != &"":
+		phone_changed.emit(result)
+	return result
+
+
+## It rang out. If that was your grandmother, it costs you exactly one ☆ and you have earned
+## every bit of it (docs/05 §10).
+func phone_rang_out() -> void:
+	if phone.missed_nonna():
+		respect = maxi(respect - ThePhone.NONNA_MISS_RESPECT, 0)
+		Events.respect_changed.emit(respect)
+	phone_changed.emit({"caller": "", "answered": false, "missed": true})
 
 
 func _election_state(what: StringName, district: StringName = &"") -> Dictionary:
@@ -1287,6 +1351,8 @@ func new_game(seed_value: int = 0) -> void:
 	heist = null
 	federal = FederalHeat.new()
 	empire = EmpireMode.new()
+	briefcases = Briefcases.new()
+	phone = ThePhone.new()
 	career = _blank_career()
 	commission = Commission.new()
 	boss = null
@@ -1325,6 +1391,8 @@ func start_night() -> void:
 	elections.night_tick()
 	heist = null
 	empire.begin_night()
+	briefcases.begin_night(session_seed, night_no)
+	phone.begin_night(session_seed, night_no)
 	_tick_federal()
 	wire.begin_night(session_seed, night_no)
 	set_fielded([])
@@ -1371,6 +1439,8 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["election"] = elections.night_summary()
 	s["federal"] = federal.night_summary()
 	s["empire"] = empire.night_summary()
+	s["briefcases"] = briefcases.night_summary()
+	s["phone"] = phone.night_summary()
 	s["heist"] = night_heist.duplicate()
 	# `boss` comes from the NightController — `commission.last_result` is the CAREER's last
 	# fight and would print a week-old front page on an ordinary Night.
@@ -1567,6 +1637,8 @@ func to_dict() -> Dictionary:
 		# owns, bought, taken or carried between cities.
 		"prestige": _prestige_to_dict(),
 		"empire": empire.to_dict(),
+		"briefcases": briefcases.to_dict(),
+		"phone": phone.to_dict(),
 		"career": _career_to_dict(),
 		"commission": commission.to_dict(),
 		"safe": {
@@ -1637,6 +1709,10 @@ func from_dict(d: Dictionary) -> void:
 	heat.federal_enabled = federal.enabled
 	empire = EmpireMode.new()
 	empire.from_dict(d.get("empire", {}))
+	briefcases = Briefcases.new()
+	briefcases.from_dict(d.get("briefcases", {}))
+	phone = ThePhone.new()
+	phone.from_dict(d.get("phone", {}))
 	_career_from_dict(d.get("career", {}))
 	commission = Commission.new()
 	commission.from_dict(d.get("commission", {}))
