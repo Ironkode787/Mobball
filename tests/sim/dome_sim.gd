@@ -5,10 +5,11 @@ extends Node2D
 ## it has an upstairs and the docks sim proves it has two more rooms. This one proves it has
 ## a roof, and that the three things TABLE-4 bolts on cannot quietly end a Night:
 ##
-##   * the DOME is a speed gate first and a shot second — the mouth wants 1000 px/s along the
-##     rail, which is more than the Penthouse's 900 and twice a staircase arrival, so the
-##     three shots that share the Club's ceiling channel form a ladder that is read off one
-##     number. A ball that misses the gate is not punished, it is simply not picked up;
+##   * the DOME is a speed gate first and a shot second — the mouth wants 1350 px/s along the
+##     rail against the Penthouse's 900, so the three shots that share the Club's ceiling
+##     channel form a ladder that is read off one number, and there is a real band of pace
+##     between the two rooms rather than a coin flip. A ball that misses the gate is not
+##     punished, it is simply not picked up;
 ##   * a closed lap pays once, in `penthouse`, at `TableScore.DOME_LOOP`, and puts the ball
 ##     down on the Club deck clear of every toy up there;
 ##   * the BRIEFCASE lands only where there is room for it, is collected by contact, is taken
@@ -59,6 +60,9 @@ const CHANNEL_ENTRY := Vector2(920.0, -806.0)
 ## the channel and grazes the orbit guide 36 px later — the channel's own centre line rises
 ## 12 px over that stretch. A real lap arrives on the same slope for the same reason.
 const APPROACH_DIR := Vector2(-0.98, -0.2)
+## A lap with Penthouse pace and no more — the speed the docks sim posts its Penthouse shots
+## at, kept here so the crown can be proved not to have stolen that room's shot.
+const PENTHOUSE_SHOT := 1160.0
 
 var host: Node2D = null
 var table: ProgressionTable = null
@@ -474,11 +478,11 @@ func _s4_lap() -> void:
 func _s5_ladder() -> void:
 	begin("the ceiling channel is a ladder: wheel, Penthouse, dome")
 	use(ALL_IDS)
-	await shoot_channel(Penthouse.STAIR_ENTRY_SPEED + 60.0, 1.4)
-	check(pent.holds_ball(), "%.0f px/s did not take the Penthouse"
-			% (Penthouse.STAIR_ENTRY_SPEED + 60.0))
-	check(not dome.holds_ball(), "%.0f px/s was taken up to the dome"
-			% (Penthouse.STAIR_ENTRY_SPEED + 60.0))
+	# 1160 is the number the docks sim posts Penthouse shots at, and it has to keep working
+	# with the crown built: the room below the dome may not be taken out of the game by it.
+	await shoot_channel(PENTHOUSE_SHOT, 1.4)
+	check(pent.holds_ball(), "%.0f px/s did not take the Penthouse" % PENTHOUSE_SHOT)
+	check(not dome.holds_ball(), "%.0f px/s was taken up to the dome" % PENTHOUSE_SHOT)
 	check(_laps.is_empty(), "a Penthouse-speed arrival paid a dome lap")
 	table.despawn_ball()
 
@@ -487,8 +491,11 @@ func _s5_ladder() -> void:
 	check(dome.holds_ball(), "%.0f px/s did not take the dome" % (CityHall.ENTRY_SPEED + 400.0))
 	check(_pent_in.is_empty(), "the Penthouse stole a dome-speed shot")
 	table.despawn_ball()
+	check(CityHall.ENTRY_SPEED - PENTHOUSE_SHOT > 150.0,
+			"only %.0f px/s of pace separates the two rooms — that is a coin flip, not a ladder"
+			% (CityHall.ENTRY_SPEED - PENTHOUSE_SHOT))
 	print("        %.0f → Penthouse | %.0f → dome"
-			% [Penthouse.STAIR_ENTRY_SPEED + 60.0, CityHall.ENTRY_SPEED + 400.0])
+			% [PENTHOUSE_SHOT, CityHall.ENTRY_SPEED + 400.0])
 	finish()
 
 

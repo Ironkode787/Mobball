@@ -62,7 +62,7 @@ const LOOP_STEPS := 32
 ## ball, it is the one the ball's own pace chose.
 const MOUTH_AT := Vector2(892.0, -806.0)
 const MOUTH_SIZE := Vector2(86.0, 84.0)
-const ENTRY_SPEED := 1000.0
+const ENTRY_SPEED := 1350.0
 ## Gentler than the Penthouse's rake: this rail is nearly twice as long, and a lap has to be
 ## survivable by a shot that only just made the gate.
 const CLIMB_GRAVITY := 400.0
