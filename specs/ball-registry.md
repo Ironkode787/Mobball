@@ -33,7 +33,9 @@ core autoload, minimal diffs elsewhere.
   (only used for cradle detection — verify with feel_sim scenario 2 unchanged).
 - **NightController**: a drained ball pinches ITS guy (`Balls.guy_for`); the Night ends
   only when the LAST live ball drains with no guys left to serve; ball-save windows are
-  per-ball (spawn time stamped per instance).
+  per-ball (spawn time stamped per instance). Guy binding also calls `ball.apply_guy_design(guy)`
+  so the persistent guy ID selects the same deterministic `BallDesign` face used by Roll Call's
+  `BallPreview`; empty/anonymous bindings retain the plain steel debug face.
 
 ## Timing contracts (learned in M2 integration — binding)
 
