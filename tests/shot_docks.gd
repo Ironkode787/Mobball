@@ -10,6 +10,8 @@ extends Node2D
 ##
 ##   SHOT_DOCKS_VIEW=docks      (default) the yard, camera down on the lower field
 ##   SHOT_DOCKS_VIEW=penthouse  the Commission's room at the top of the table
+##   SHOT_DOCKS_VIEW=dome       CITY HALL, the crown, with the ball on the loop
+##   SHOT_DOCKS_VIEW=federal    the RICO raid at full tilt: vans, both coils, a briefcase
 ##   SHOT_DOCKS_VIEW=whole      the whole machine at once, zoomed out to the camera's bounds
 
 const TABLE_SCENE := preload("res://game/table/table_main.tscn")
@@ -19,6 +21,7 @@ const RINGS: Array[StringName] = [
 	&"high_roller_saucer", &"backroom_saucer", &"club_flippers",
 	&"docks", &"containers", &"crane", &"cargo_ramp", &"orbit_right",
 	&"penthouse", &"commission_chairs", &"sitdown_saucer", &"penthouse_stairs",
+	&"city_hall",
 ]
 
 ## Where the ball is parked for each view, and how far in to zoom. The rooms are small next
@@ -26,6 +29,8 @@ const RINGS: Array[StringName] = [
 const VIEWS := {
 	&"docks": {"at": Vector2(232.0, 1300.0), "zoom": 2.1, "centre": Vector2(288.0, 1272.0)},
 	&"penthouse": {"at": Vector2(300.0, -700.0), "zoom": 1.45, "centre": Vector2(276.0, -676.0)},
+	&"dome": {"at": Vector2(310.0, -1140.0), "zoom": 2.0, "centre": Vector2(520.0, -1090.0)},
+	&"federal": {"at": Vector2(300.0, 700.0), "zoom": 1.15, "centre": Vector2(540.0, 1059.0)},
 	&"whole": {"at": Vector2(490.0, 520.0), "zoom": 0.0, "centre": Vector2.ZERO},
 }
 
@@ -73,6 +78,10 @@ func _ready() -> void:
 		table.penthouse.chairs.targets()[3].set_marked(true)
 	if table.docks != null:
 		table.docks.containers.target_at(1, 0).drop()
+	# the endgame siege, for the one shot that is about it
+	if view == &"federal":
+		table.set_federal_raid(3)
+		table.spawn_briefcase()
 	var ball := table.spawn_ball()
 	ball.place(_at)
 	camera.set_target(ball)

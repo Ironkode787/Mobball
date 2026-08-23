@@ -12,8 +12,11 @@ extends RefCounted
 ##     var p := Prestige.shared()                  # one per process
 ##     var got := p.skip_town(career)              # scores the career, banks the Juice
 ##     p.buy("blackbook.old_contacts")             # spends it
-##     save["prestige"] = p.to_dict()              # {juice, earned, cities, owned}
+##     save["prestige"] = p.to_dict()              # {juice, earned, cities, owned, spoils}
 ##     p.from_dict(save.get("prestige", {}))       # on boot
+##
+## `career` is the plain dictionary `juice_for` documents below — the flow lane assembles it
+## from its own tallies, so nothing here ever reads `Game`.
 ##
 ## …and then, when the new city opens, the getters below answer "what did the Book buy me":
 ## `start_rank()`, `kept_specialists()`, `stash_fraction()`, `bench_starters()`,
@@ -96,8 +99,12 @@ var _stats_effects: Array[Dictionary] = []
 # --- the process-wide Book ----------------------------------------------------
 
 
-## The prestige state for this process. The flow lane loads it at boot and saves it with the
-## career; the Ledger's Black Book page reads it to paint owned perks.
+## The prestige state for this process — the one the Ledger's Black Book page spends from.
+##
+## The flow lane must load and save THIS instance (`Prestige.shared().from_dict(...)` at boot,
+## `to_dict()` into the save): a lane that news up its own `Prestige` would persist a wallet
+## the player never touched, and the perks bought on the board would vanish at the next boot.
+## `Prestige.new()` is for tests and for previewing a career that is not the live one.
 static func shared() -> Prestige:
 	if _shared == null:
 		_shared = Prestige.new()

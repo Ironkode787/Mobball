@@ -107,7 +107,10 @@ const STEPS_HALF := 190.0
 ## the camera never finds a seam between the two once it climbs this high.
 const SKY_LEFT := 22.0
 const SKY_RIGHT := 1058.0
-const SKY_TOP := -1440.0
+## Painted well past the top of `bounds()` on purpose: the game's camera clamps to the
+## bounds and can never see the edge, but a hand-parked camera (a screenshot, a debug scene)
+## can, and a machine that ends in a grey rectangle photographs badly.
+const SKY_TOP := -1580.0
 const SKY_BOTTOM := -886.0
 
 # ------------------------------------------------------------------ look (docs/07 §1)

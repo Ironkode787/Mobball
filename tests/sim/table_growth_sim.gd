@@ -35,6 +35,8 @@ const DOCKS_SET: Array[StringName] = [
 const PENT_SET: Array[StringName] = [
 	&"penthouse", &"commission_chairs", &"sitdown_saucer", &"penthouse_stairs",
 ]
+## The crown (R7). One piece of furniture: the dome is a rail and a painting.
+const DOME_SET: Array[StringName] = [&"city_hall"]
 
 const T3_LEDGER: Array = [
 	"muscle.real_plunger", "rackets.trash_2", "rackets.trash_3", "muscle.corner_boys",
@@ -63,6 +65,7 @@ const FIXTURES := {
 	"T4": T3_LEDGER,
 	"T5": T3_LEDGER,
 	"T6": T3_LEDGER,
+	"T7": T3_LEDGER,
 }
 
 ## The ring forced on top of each stage's ledger (see CLUB_SET/DOCKS_SET/PENT_SET).
@@ -71,12 +74,13 @@ const FORCED := {
 	"T4": CLUB_SET,
 	"T5": CLUB_SET + DOCKS_SET,
 	"T6": CLUB_SET + DOCKS_SET + PENT_SET,
+	"T7": CLUB_SET + DOCKS_SET + PENT_SET + DOME_SET,
 }
 ## Untyped: concatenating typed constant arrays yields a plain Array.
-const ALL_FORCEABLE: Array = CLUB_SET + DOCKS_SET + PENT_SET
+const ALL_FORCEABLE: Array = CLUB_SET + DOCKS_SET + PENT_SET + DOME_SET
 
 ## Every stage, in career order.
-const STAGES: PackedStringArray = ["bare", "T1", "T2", "T3", "T4", "T5", "T6"]
+const STAGES: PackedStringArray = ["bare", "T1", "T2", "T3", "T4", "T5", "T6", "T7"]
 
 ## Hardware ids checked at every stage. `storefront_laundromat` is deliberately absent: it
 ## shares its shell with `laundromat_loop`, so the bank is asserted on its own below. The
@@ -90,6 +94,7 @@ const TRACKED: Array[StringName] = [
 	&"high_roller_saucer", &"backroom_saucer", &"club_flippers",
 	&"docks", &"containers", &"crane", &"cargo_ramp", &"orbit_right",
 	&"penthouse", &"commission_chairs", &"sitdown_saucer", &"penthouse_stairs",
+	&"city_hall",
 ]
 
 const T3_LIVE: Array[StringName] = [
@@ -113,6 +118,7 @@ const EXPECT := {
 	"T4": T3_LIVE + CLUB_SET,
 	"T5": T3_LIVE + CLUB_SET + DOCKS_SET,
 	"T6": T3_LIVE + CLUB_SET + DOCKS_SET + PENT_SET,
+	"T7": T3_LIVE + CLUB_SET + DOCKS_SET + PENT_SET + DOME_SET,
 }
 
 var table: ProgressionTable = null
@@ -338,8 +344,15 @@ func _s1_fixtures() -> void:
 	near(whole.position.y, Penthouse.ROOM_TOP - Penthouse.WALL_THICK * 0.5, 0.001,
 			"the Penthouse ceiling is the top of a T6 table")
 	check(whole.end.y >= flat.end.y - 0.001, "the empire lost the bottom of the table")
-	print("        T3 %.0f px | T4 %.0f px | T6 %.0f px tall"
-			% [flat.size.y, with_club.size.y, whole.size.y])
+	use("T7")
+	var crowned := table.bounds()
+	near(crowned.position.y, table.city_hall.bounds().position.y, 0.001,
+			"the dome is the top of a T7 table")
+	check(crowned.size.y > whole.size.y + 300.0,
+			"the crown added only %.0f px of sky" % (crowned.size.y - whole.size.y))
+	check(crowned.end.y >= flat.end.y - 0.001, "the crown lost the bottom of the table")
+	print("        T3 %.0f px | T4 %.0f px | T6 %.0f px | T7 %.0f px tall"
+			% [flat.size.y, with_club.size.y, whole.size.y, crowned.size.y])
 	finish()
 
 	begin("bare alley is walls, flippers, one can and a drain")
