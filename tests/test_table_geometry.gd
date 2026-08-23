@@ -70,7 +70,7 @@ func _lanes_fit_a_ball(t: TestCtx) -> void:
 
 	var guide_face: float = AlleyDebugTable.OUTLANE_X + AlleyDebugTable.GUIDE_THICK * 0.5
 	var outlane: float = AlleyDebugTable.OUTLANE_X - AlleyDebugTable.GUIDE_THICK * 0.5 - AlleyDebugTable.PLAY_LEFT
-	var inlane: float = AlleyDebugTable.SLING_CORNER.x - guide_face
+	var inlane: float = AlleyDebugTable.SLING_OUTER_BOTTOM.x - guide_face
 	t.ok(outlane >= dia + 20.0, "outlane %.0f px wide" % outlane)
 	t.ok(inlane >= dia + 20.0, "inlane %.0f px wide" % inlane)
 
@@ -78,8 +78,8 @@ func _lanes_fit_a_ball(t: TestCtx) -> void:
 	var floor_from := Vector2(AlleyDebugTable.OUTLANE_X, AlleyDebugTable.OUTLANE_BOTTOM)
 	var floor_to := AlleyDebugTable.INLANE_END
 	var span := floor_to - floor_from
-	var at_sling: float = floor_from.y + (AlleyDebugTable.SLING_BOTTOM.x - floor_from.x) * span.y / span.x
-	var head: float = at_sling - AlleyDebugTable.GUIDE_THICK * 0.5 / cos(span.angle()) - AlleyDebugTable.SLING_BOTTOM.y
+	var at_sling: float = floor_from.y + (AlleyDebugTable.SLING_OUTER_BOTTOM.x - floor_from.x) * span.y / span.x
+	var head: float = at_sling - AlleyDebugTable.GUIDE_THICK * 0.5 / cos(span.angle()) - AlleyDebugTable.SLING_OUTER_BOTTOM.y
 	t.ok(head >= dia, "inlane exit clears the slingshot corner by %.0f px" % head)
 
 	# ...and it has to meet the flipper pivot without leaving a hole to fall into
@@ -111,17 +111,23 @@ func _mirror(t: TestCtx) -> void:
 			"flipper pivots mirror about the playfield centre")
 	t.near(AlleyDebugTable.FLIPPER_PIVOT_L.y, AlleyDebugTable.FLIPPER_PIVOT_R.y, 0.01,
 			"flipper pivots are level")
-	t.ok(AlleyDebugTable.SLING_CORNER.x < AlleyDebugTable.SLING_TOP.x,
+	t.ok(AlleyDebugTable.SLING_OUTER_BOTTOM.x < AlleyDebugTable.SLING_INNER.x,
 			"the slingshot's kicker face points inward")
+	# CLASSIC kick (device-feedback fix): the face normal must throw up-and-across —
+	# a left sling that kicks toward its own outlane is a drain machine.
+	var edge: Vector2 = AlleyDebugTable.SLING_OUTER_TOP - AlleyDebugTable.SLING_INNER
+	var n: Vector2 = Vector2(-edge.y, edge.x).normalized()
+	t.ok(n.x > 0.4 and n.y < -0.4,
+			"left sling kicks up-and-inward (normal %s)" % n)
 	# no surface may be shallower than its own friction coefficient or a ball parks on it
-	var rake: float = absf(AlleyDebugTable.SLING_CORNER.y - AlleyDebugTable.SLING_TOP.y) \
-			/ absf(AlleyDebugTable.SLING_TOP.x - AlleyDebugTable.SLING_CORNER.x)
+	var rake: float = absf(AlleyDebugTable.SLING_OUTER_TOP.y - AlleyDebugTable.SLING_INNER.y) \
+			/ absf(AlleyDebugTable.SLING_INNER.x - AlleyDebugTable.SLING_OUTER_TOP.x)
 	t.ok(rake > Feel.RUBBER_FRICTION + 0.15,
-			"slingshot top edge (slope %.2f) outruns rubber friction %.2f" % [rake, Feel.RUBBER_FRICTION])
+			"slingshot kicker face (slope %.2f) outruns rubber friction %.2f" % [rake, Feel.RUBBER_FRICTION])
 	var floor_span := AlleyDebugTable.INLANE_END - Vector2(AlleyDebugTable.OUTLANE_X, AlleyDebugTable.OUTLANE_BOTTOM)
 	t.ok(absf(floor_span.y / floor_span.x) > Feel.WALL_FRICTION + 0.15,
 			"inlane floor (slope %.2f) delivers the ball instead of holding it" % absf(floor_span.y / floor_span.x))
-	t.near(AlleyDebugTable.SLING_CORNER.x, AlleyDebugTable.SLING_BOTTOM.x, 0.01,
+	t.near(AlleyDebugTable.SLING_OUTER_TOP.x, AlleyDebugTable.SLING_OUTER_BOTTOM.x, 0.01,
 			"the slingshot's outer edge is vertical — it is the inlane's inner wall")
 
 
@@ -133,9 +139,9 @@ func _mirror(t: TestCtx) -> void:
 func _progression_keeps_the_alley(t: TestCtx) -> void:
 	t.eq(ProgressionTable.FLIPPER_PIVOT_L, AlleyDebugTable.FLIPPER_PIVOT_L, "left flipper pivot")
 	t.eq(ProgressionTable.FLIPPER_PIVOT_R, AlleyDebugTable.FLIPPER_PIVOT_R, "right flipper pivot")
-	t.eq(ProgressionTable.SLING_CORNER, AlleyDebugTable.SLING_CORNER, "slingshot corner")
-	t.eq(ProgressionTable.SLING_TOP, AlleyDebugTable.SLING_TOP, "slingshot rake top")
-	t.eq(ProgressionTable.SLING_BOTTOM, AlleyDebugTable.SLING_BOTTOM, "slingshot bottom")
+	t.eq(ProgressionTable.SLING_OUTER_TOP, AlleyDebugTable.SLING_OUTER_TOP, "slingshot outer top")
+	t.eq(ProgressionTable.SLING_OUTER_BOTTOM, AlleyDebugTable.SLING_OUTER_BOTTOM, "slingshot outer bottom")
+	t.eq(ProgressionTable.SLING_INNER, AlleyDebugTable.SLING_INNER, "slingshot inner vertex")
 	t.eq(ProgressionTable.INLANE_END, AlleyDebugTable.INLANE_END, "inlane floor end")
 	t.eq(ProgressionTable.OUTLANE_X, AlleyDebugTable.OUTLANE_X, "outlane guide x")
 	t.eq(ProgressionTable.OUTLANE_TOP, AlleyDebugTable.OUTLANE_TOP, "outlane guide top")

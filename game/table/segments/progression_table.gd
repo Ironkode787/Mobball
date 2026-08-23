@@ -112,9 +112,12 @@ const OUTLANE_X := 150.0
 const OUTLANE_TOP := 1440.0
 const OUTLANE_BOTTOM := 1580.0
 const INLANE_END := Vector2(296.0, 1668.0)
-const SLING_CORNER := Vector2(256.0, 1494.0)
-const SLING_TOP := Vector2(368.0, 1430.0)
-const SLING_BOTTOM := Vector2(256.0, 1560.0)
+# Classic orientation (device-feedback fix): outer edge vertical at x=256 (it IS the
+# inlane's inner wall), kicker face OUTER_TOP -> INNER (normal up-and-across, so a sling
+# throws the ball back into play, never toward the outlane).
+const SLING_OUTER_TOP := Vector2(256.0, 1436.0)
+const SLING_OUTER_BOTTOM := Vector2(256.0, 1560.0)
+const SLING_INNER := Vector2(352.0, 1552.0)
 const MIRROR_X := 490.0
 const DRAIN_Y := 1880.0
 const DRAIN_HEIGHT := 24.0
@@ -570,9 +573,9 @@ func _build_slings() -> void:
 		var sl: Slingshot = SLING_SCENE.instantiate()
 		var id := &"sling_l" if s > 0.0 else &"sling_r"
 		sl.configure(id,
-			_mx(SLING_CORNER.x, s, SLING_CORNER.y),
-			_mx(SLING_TOP.x, s, SLING_TOP.y),
-			_mx(SLING_BOTTOM.x, s, SLING_BOTTOM.y))
+			_mx(SLING_OUTER_BOTTOM.x, s, SLING_OUTER_BOTTOM.y),
+			_mx(SLING_INNER.x, s, SLING_INNER.y),
+			_mx(SLING_OUTER_TOP.x, s, SLING_OUTER_TOP.y))
 		sl.group = TableScore.GROUP_SLINGS
 		sl.value = int(TableScore.SLING)
 		sl.name = "SlingL" if s > 0.0 else "SlingR"

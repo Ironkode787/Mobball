@@ -494,7 +494,7 @@ func _s5_return_lane() -> void:
 		check(b.speed() <= ClubDeck.RETURN_RELEASE_SPEED + 60.0,
 				"delivered at %.0f px/s — a wireform does not fire the ball out" % b.speed())
 		var mirror_outlane: float = ProgressionTable.MIRROR_X * 2.0 - ProgressionTable.OUTLANE_X
-		var sling_edge: float = ProgressionTable.MIRROR_X * 2.0 - ProgressionTable.SLING_CORNER.x
+		var sling_edge: float = ProgressionTable.MIRROR_X * 2.0 - ProgressionTable.SLING_OUTER_BOTTOM.x
 		check(landed.x > sling_edge and landed.x < mirror_outlane,
 				"delivered at x=%.0f, outside the right inlane (%.0f..%.0f)"
 				% [landed.x, sling_edge, mirror_outlane])

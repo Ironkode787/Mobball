@@ -432,11 +432,11 @@ func _s2_docks_geometry() -> void:
 	check(water.position.x > ProgressionTable.OUTLANE_X,
 			"the harbour hangs over the left outlane")
 	# ...and the yard must leave the slingshot its sky
-	check(Docks.BED_FROM.y + Docks.BED_THICK * 0.5 < ProgressionTable.SLING_TOP.y - 20.0,
+	check(Docks.BED_FROM.y + Docks.BED_THICK * 0.5 < ProgressionTable.SLING_OUTER_TOP.y - 20.0,
 			"the harbour bed sits on the slingshot's tip")
 	print("        rake %.3f | mouth %.0f | harbour %s | bed→sling %.0f"
 			% [rake, Docks.MOUTH_BOTTOM - Docks.MOUTH_TOP, str(Docks.WATER_SIZE),
-			ProgressionTable.SLING_TOP.y - Docks.BED_FROM.y])
+			ProgressionTable.SLING_OUTER_TOP.y - Docks.BED_FROM.y])
 	finish()
 
 
