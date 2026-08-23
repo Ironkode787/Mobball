@@ -262,6 +262,16 @@ func _build_lines() -> void:
 	if _money(summary.get("pocket", null)).is_positive():
 		_add_money_row("   incl. pocket money", summary.get("pocket", BigMoney.zero()),
 				Feel.COL_INK.lightened(0.35), PaperKit.FONT_SMALL)
+	# Teach the wash where the player feels it (device feedback: "how do I get clean
+	# cash?"). Only until the first washer is bought; then the machine speaks for itself.
+	if Game.stats.launder_rate() <= 0.0:
+		var tip := "the first %s washes itself each night — the rest needs a front" \
+				% Game.pocket_money().text()
+		if Game.wallet.dirty.cmp(BigMoney.parse("1K")) > 0:
+			tip = "word around the block: Lucky's coin-op washer takes dirty money — check THE LEDGER"
+		var tip_label := PaperKit.label(tip, PaperKit.FONT_SMALL, Feel.COL_CLEAN.darkened(0.15))
+		tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_body.add_child(tip_label)
 	if _money(summary.get("raid_payout", null)).is_positive():
 		_add_money_row("BEAT THE RAP", summary.get("raid_payout", BigMoney.zero()), Feel.COL_CLEAN)
 	if _money(summary.get("confiscated", null)).is_positive():
@@ -456,13 +466,21 @@ func _build_roster() -> void:
 	for guy: Dictionary in held:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 16)
-		var name_label := PaperKit.label(String(guy["name"]), PaperKit.FONT_SMALL, Feel.COL_INK)
+		# Waiting is normal, not a fail state (device feedback): every held guy says when
+		# he walks on his own, so bail reads as the impatience tax it is.
+		var nights := maxi(int(guy.get("sit_out", 1)), 1)
+		var walks := "walks next night" if nights <= 1 else "walks in %d nights" % nights
+		var name_label := PaperKit.label("%s   ·  %s" % [String(guy["name"]), walks],
+				PaperKit.FONT_SMALL, Feel.COL_INK)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(name_label)
 		# Through `Game`, not the Bench: Cohen's discount is the session's, not the roster's.
 		var cost := Game.bail_cost(guy)
+		var affordable := Game.wallet.can_afford_dirty(cost)
 		var b := PaperKit.button("BAIL " + cost.text(), PaperKit.FONT_SMALL, Feel.COL_DIRTY)
-		b.disabled = not Game.wallet.can_afford_dirty(cost)
+		b.disabled = not affordable
+		if not affordable:
+			b.tooltip_text = "dirty cash only — you're short"
 		b.pressed.connect(_on_bail.bind(guy))
 		row.add_child(b)
 		_roster.add_child(row)

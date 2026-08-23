@@ -312,9 +312,14 @@ func _show_docket(id: String) -> void:
 		return
 	var owned := LedgerState.get_owned()
 	var block := catalog.block_for(id, owned, _rank(), _clean())
+	var cost := catalog.next_cost(id, owned)
+	# The wash lesson: the reason line names the real problem when the player HAS the
+	# money — just the wrong color of it.
+	var dirty_covers := block == Upgrades.Block.MONEY \
+			and Game.wallet.can_afford_dirty(cost)
 	_docket.show_for(
-		node_def, int(owned.get(id, 0)), catalog.next_cost(id, owned), block,
-		LedgerStyle.block_reason(block, node_def, catalog, owned)
+		node_def, int(owned.get(id, 0)), cost, block,
+		LedgerStyle.block_reason(block, node_def, catalog, owned, dirty_covers)
 	)
 	_set_board_controls(false)
 

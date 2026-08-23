@@ -620,7 +620,9 @@ func _s6_specialists() -> void:
 	check(not held.is_empty(), "nobody is in holding to bail")
 	if not held.is_empty():
 		var guy: Dictionary = held[0]
-		var full := Game.bench.bail_cost(guy)
+		# Bail rides rank_scale now (device ruling): the undiscounted reference must be
+		# priced at the SAME rank Game prices at, or Cohen looks like a markup.
+		var full := Game.bench.bail_cost(guy, Game.rank)
 		var ours := Game.bail_cost(guy)
 		check(ours.cmp(full) < 0, "bail is still %s with Cohen hired" % ours.text())
 		check(ours.equals_approx(full.mul(1.0 - Game.stats.bail_discount()), 1e-6),

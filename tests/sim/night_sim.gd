@@ -387,7 +387,9 @@ func _s4_bail_and_bench() -> void:
 		finish()
 		return
 	var guy := held[0]
-	var cost := Game.bench.bail_cost(guy)
+	# Bail rides rank_scale now: fund and verify against the SESSION's price (rank and
+	# Cohen included) — the rank-0 bench price is not what bail_guy charges.
+	var cost := Game.bail_cost(guy)
 	Game.wallet.earn_dirty(cost.mul(2.0))
 	var dirty_before := Game.wallet.dirty
 	var ok := Game.bail_guy(guy)

@@ -73,10 +73,10 @@ const BRIBE_COST_BASE_MANTISSA := 5.0
 const BRIBE_COST_BASE_EXP := 3
 const BRIBE_COST_ESCALATOR := 2.0
 ## Bail: dirty, scales with the guy's level and his rap sheet; ×3 out of a busted raid.
-const BAIL_COST_BASE_MANTISSA := 2.5
-const BAIL_COST_BASE_EXP := 2
-const BAIL_PER_GUY_LEVEL := 0.5
-const BAIL_RAP_ESCALATOR := 1.6
+## Bail rides rank_scale (see bail_cost): 5% of it = $100 at R0, with a $100 floor.
+const BAIL_RANK_SCALE_FRACTION := 0.05
+const BAIL_PER_GUY_LEVEL := 0.4
+const BAIL_RAP_ESCALATOR := 1.5
 const BAIL_RAID_MULTIPLIER := 3.0
 
 # --- The Ledger cost curve (docs/03 §7, docs/04) ------------------------------
@@ -163,10 +163,18 @@ static func bribe_cost(uses_this_night: int) -> BigMoney:
 
 ## Dirty cost to bail a guy out: base × (1 + 0.5·level) × 1.6^prior_pinches, ×3 if the
 ## stretch came out of a busted raid (docs/05 §2).
-static func bail_cost(guy_level: int, prior_pinches: int = 0, from_raid: bool = false) -> BigMoney:
+## Priced off the SAME career curve heat uses (device-feedback ruling): a flat base was
+## crushing at Lookout ($250 against a ~$300 Night) and dust by Capo. 5% of rank_scale =
+## $100 at R0, tracking income x3.5 per rank, so bail always costs "a felt slice of a
+## Night" — the impatience tax it was designed to be, at every rank.
+static func bail_cost(guy_level: int, prior_pinches: int = 0, from_raid: bool = false,
+		rank: int = 0) -> BigMoney:
 	var lvl := maxi(guy_level, 0)
 	var priors := maxi(prior_pinches, 0)
-	var base := BigMoney.of(BAIL_COST_BASE_MANTISSA, BAIL_COST_BASE_EXP)
+	var base := rank_scale(rank).mul(BAIL_RANK_SCALE_FRACTION)
+	var floor_cost := BigMoney.of(1.0, 2)
+	if base.cmp(floor_cost) < 0:
+		base = floor_cost
 	var cost := base.mul(1.0 + BAIL_PER_GUY_LEVEL * float(lvl))
 	cost = cost.mul_big(_pow_big(BAIL_RAP_ESCALATOR, priors))
 	if from_raid:

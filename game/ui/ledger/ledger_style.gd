@@ -385,13 +385,19 @@ static func _read_spoils() -> void:
 
 
 ## Why the BUY button is dark, in the player's words.
-static func block_reason(block: Upgrades.Block, node: Dictionary, catalog: Upgrades, owned: Dictionary) -> String:
+static func block_reason(block: Upgrades.Block, node: Dictionary, catalog: Upgrades,
+		owned: Dictionary, dirty_covers: bool = false) -> String:
 	match block:
 		Upgrades.Block.RANK:
 			return "NEEDS RANK R%d" % int(node["tier"])
 		Upgrades.Block.MAXED:
 			return "MAXED OUT"
 		Upgrades.Block.MONEY:
+			# Teach the wash at the exact moment of frustration (device feedback): a
+			# player holding a fat dirty roll learns HERE that the Ledger won't take it.
+			# The caller says whether dirty would cover it — this helper stays tree-free.
+			if dirty_covers:
+				return "DIRTY MONEY'S NO GOOD HERE — WASH IT"
 			return "NOT ENOUGH CLEAN"
 		Upgrades.Block.REQUIRES:
 			var missing: PackedStringArray = []

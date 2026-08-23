@@ -112,7 +112,7 @@
       "name": "Coin-Op Washer",
       "flavor": "It washes socks. Among other things.",
       "cost": "1.5K", "repeat": null, "requires": [],
-      "reveal": {"dirty_held": "10K"},
+      "reveal": {"dirty_held": "2K"},
       "effects": [
         {"kind": "unlock_hardware", "target": "laundromat_loop"},
         {"kind": "launder_rate_add", "value": 0.08},

@@ -1581,7 +1581,7 @@ func _recompute_stats() -> void:
 func bail_cost(guy: Dictionary) -> BigMoney:
 	if bench == null or guy.is_empty():
 		return BigMoney.zero()
-	var cost := bench.bail_cost(guy)
+	var cost := bench.bail_cost(guy, rank)
 	var off := clampf(stats.bail_discount(), 0.0, Stats.BAIL_DISCOUNT_MAX)
 	return cost if off <= 0.0 else cost.mul(1.0 - off)
 

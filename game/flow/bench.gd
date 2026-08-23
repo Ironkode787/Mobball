@@ -116,11 +116,11 @@ func survived_night(guy: Dictionary) -> void:
 
 
 ## Dirty cost to spring him right now. Zero if he is not inside.
-func bail_cost(guy: Dictionary) -> BigMoney:
+func bail_cost(guy: Dictionary, rank: int = 0) -> BigMoney:
 	if guy.is_empty() or guy["state"] != STATE_HOLDING:
 		return BigMoney.zero()
 	var priors := maxi(int(guy["pinches"]) - 1, 0)
-	return Rates.bail_cost(int(guy["level"]), priors, bool(guy["from_raid"]))
+	return Rates.bail_cost(int(guy["level"]), priors, bool(guy["from_raid"]), rank)
 
 
 ## Spring him. Returns the cost that was owed (the caller does the paying — this class

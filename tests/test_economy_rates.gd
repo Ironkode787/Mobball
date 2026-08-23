@@ -92,11 +92,21 @@ func _test_bribe_cost(t: TestCtx) -> void:
 
 
 func _test_bail_cost(t: TestCtx) -> void:
-	_same(t, Rates.bail_cost(0, 0), BigMoney.of(2.5, 2), "a clean rookie posts $250")
-	_same(t, Rates.bail_cost(2, 0), BigMoney.of(5.0, 2), "level 2 doubles the base")
-	_same(t, Rates.bail_cost(0, 1), BigMoney.of(4.0, 2), "one prior pinch is x1.6")
-	_same(t, Rates.bail_cost(3, 2), BigMoney.of(1.6, 3), "level 3 with two priors is $1.6k")
-	_same(t, Rates.bail_cost(3, 2, true), BigMoney.of(4.8, 3), "out of a raid, bail is x3")
+	# Device-feedback ruling: bail rides rank_scale (5%, floor $100) so it stays "a felt
+	# slice of a Night" at every rank instead of crushing R0 and vanishing by R4.
+	_same(t, Rates.bail_cost(0, 0), BigMoney.of(1.0, 2), "a clean rookie posts $100 at R0")
+	t.ok(Rates.bail_cost(2, 0).equals_approx(BigMoney.of(1.8, 2), 1e-9),
+			"level 2 is x1.8 the base")
+	t.ok(Rates.bail_cost(0, 1).equals_approx(BigMoney.of(1.5, 2), 1e-9),
+			"one prior pinch is x1.5")
+	t.ok(Rates.bail_cost(3, 2, true).equals_approx(
+			BigMoney.from_float(100.0 * 2.2 * 2.25 * 3.0), 1e-9),
+			"level 3, two priors, out of a raid stacks x2.2 x2.25 x3")
+	t.ok(Rates.bail_cost(0, 0, false, 2).equals_approx(
+			Rates.rank_scale(2).mul(Rates.BAIL_RANK_SCALE_FRACTION), 1e-9),
+			"at R2 the base is 5% of the R2 rank scale")
+	t.near(Rates.bail_cost(0, 0, false, 3).ratio_to(Rates.bail_cost(0, 0, false, 2)),
+			Rates.RANK_SCALE_PER_RANK_FACTOR, 1e-9, "bail climbs the career curve")
 	_same(t, Rates.bail_cost(-5, -5), Rates.bail_cost(0, 0), "negative inputs clamp to the base case")
 	t.ok(Rates.bail_cost(0, 200).cmp(Rates.bail_cost(0, 199)) > 0, "the rap sheet keeps escalating")
 	t.ok(is_finite(Rates.bail_cost(0, 500).m), "a 500-pinch rap sheet stays finite")
