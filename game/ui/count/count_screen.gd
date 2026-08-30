@@ -39,6 +39,7 @@ var _safe: PanelContainer = null
 var _body: VBoxContainer = null
 var _counter: AudioStreamPlayer = null
 var _board: VBoxContainer = null
+var _content_margin: MarginContainer = null
 
 
 func _ready() -> void:
@@ -51,23 +52,31 @@ func _ready() -> void:
 	_counter = AudioDirector.play(&"bill_counter", {"loop": true})
 
 
+func _on_safe_margins_changed(_margins: Vector4) -> void:
+	_apply_safe_area()
+
+
+func _apply_safe_area() -> void:
+	Presentation.safe.apply_to_margin_container(_content_margin,
+			Vector4(48.0, 60.0, 48.0, 48.0))
+
+
 func _build() -> void:
 	var bg := ColorRect.new()
 	bg.color = Feel.COL_NEWSPRINT
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
-	var margin := MarginContainer.new()
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 48)
-	margin.add_theme_constant_override("margin_right", 48)
-	margin.add_theme_constant_override("margin_top", 60)
-	margin.add_theme_constant_override("margin_bottom", 48)
-	add_child(margin)
+	_content_margin = MarginContainer.new()
+	_content_margin.name = "SafeContent"
+	_content_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_content_margin)
+	_apply_safe_area()
+	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
 	_body = VBoxContainer.new()
 	_body.add_theme_constant_override("separation", 14)
-	margin.add_child(_body)
+	_content_margin.add_child(_body)
 
 	_body.add_child(PaperKit.label("THE COUNT", PaperKit.FONT_TITLE, Feel.COL_INK))
 	_body.add_child(PaperKit.label(

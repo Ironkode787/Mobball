@@ -18,6 +18,7 @@ var _crew: VBoxContainer = null
 var _crew_buttons: Array[Button] = []
 var _selection_label: Label = null
 var _start: Button = null
+var _content_margin: MarginContainer = null
 
 
 func _ready() -> void:
@@ -45,17 +46,16 @@ func _build() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
-	var margin := MarginContainer.new()
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 42)
-	margin.add_theme_constant_override("margin_right", 42)
-	margin.add_theme_constant_override("margin_top", 42)
-	margin.add_theme_constant_override("margin_bottom", 34)
-	add_child(margin)
+	_content_margin = MarginContainer.new()
+	_content_margin.name = "SafeContent"
+	_content_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_content_margin)
+	_apply_safe_area()
+	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 12)
-	margin.add_child(outer)
+	_content_margin.add_child(outer)
 	outer.add_child(PaperKit.label("ROLL CALL", PaperKit.FONT_TITLE, Feel.COL_BRASS))
 	outer.add_child(PaperKit.rule())
 	var explain := PaperKit.label(
@@ -89,6 +89,15 @@ func _build() -> void:
 	_start.pressed.connect(_on_start)
 	outer.add_child(_start)
 	_refresh()
+
+
+func _on_safe_margins_changed(_margins: Vector4) -> void:
+	_apply_safe_area()
+
+
+func _apply_safe_area() -> void:
+	Presentation.safe.apply_to_margin_container(_content_margin,
+			Vector4(42.0, 42.0, 42.0, 34.0))
 
 
 func _job_slip(job: Dictionary) -> PanelContainer:

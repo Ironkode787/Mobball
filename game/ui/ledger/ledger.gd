@@ -53,6 +53,7 @@ var _preview: bool = false
 ## The board and docket only exist after _ready; the meta layer exists from instantiation.
 var _built: bool = false
 var _open_wanted: bool = false
+var _safe_margins := Vector4.ZERO
 
 
 ## Catalog and reveal are wired at instantiation, not at _ready, so `get_owned()` and
@@ -72,6 +73,8 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build()
+	_apply_safe_area()
+	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 	_connect_events()
 	_built = true
 	if _is_standalone():
@@ -82,6 +85,39 @@ func _ready() -> void:
 		open()
 	else:
 		visible = false
+
+
+func _on_safe_margins_changed(_margins: Vector4) -> void:
+	_apply_safe_area()
+
+
+func _apply_safe_area() -> void:
+	if _board == null:
+		return
+	_safe_margins = Presentation.safe.margins()
+	var header_bottom := HEADER_H + _safe_margins.y
+	_board.offset_top = header_bottom
+	_book_page.offset_top = header_bottom
+
+	var close_right := -(_safe_margins.z + 30.0)
+	_close_btn.offset_left = close_right - 190.0
+	_close_btn.offset_right = close_right
+	_close_btn.offset_top = _safe_margins.y + 26.0
+	_close_btn.offset_bottom = _safe_margins.y + 96.0
+	_book_btn.offset_right = _close_btn.offset_left - 20.0
+	_book_btn.offset_left = _book_btn.offset_right - 300.0
+	_book_btn.offset_top = _safe_margins.y + 26.0
+	_book_btn.offset_bottom = _safe_margins.y + 96.0
+
+	_zoom_btn.offset_left = _safe_margins.x + 36.0
+	_zoom_btn.offset_right = _zoom_btn.offset_left + 150.0
+	_zoom_btn.offset_bottom = -(_safe_margins.w + 40.0)
+	_zoom_btn.offset_top = _zoom_btn.offset_bottom - 84.0
+	_compass.offset_right = -(_safe_margins.z + 36.0)
+	_compass.offset_left = _compass.offset_right - 330.0
+	_compass.offset_bottom = -(_safe_margins.w + 40.0)
+	_compass.offset_top = _compass.offset_bottom - 84.0
+	queue_redraw()
 
 
 # --- public surface -----------------------------------------------------------
@@ -486,54 +522,59 @@ func _apply_shot_framing() -> void:
 
 func _draw() -> void:
 	var w := size.x
-	draw_rect(Rect2(0.0, 0.0, w, HEADER_H), LedgerStyle.INK)
-	draw_rect(Rect2(0.0, HEADER_H - 3.0, w, 3.0), LedgerStyle.BRASS)
+	var top := _safe_margins.y
+	var left := _safe_margins.x + 36.0
+	var header_bottom := HEADER_H + top
+	draw_rect(Rect2(0.0, 0.0, w, header_bottom), LedgerStyle.INK)
+	draw_rect(Rect2(0.0, header_bottom - 3.0, w, 3.0), LedgerStyle.BRASS)
 	if _page == PAGE_BOOK:
 		_draw_book_header(w)
 		return
-	draw_string(_font, Vector2(36.0, 74.0), "THE LEDGER", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48, LedgerStyle.NEWSPRINT)
-	draw_string(_font, Vector2(38.0, 106.0), "EVIDENCE PHOTO 44-C", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.BRASS, 0.7))
+	draw_string(_font, Vector2(left, top + 74.0), "THE LEDGER", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48, LedgerStyle.NEWSPRINT)
+	draw_string(_font, Vector2(left + 2.0, top + 106.0), "EVIDENCE PHOTO 44-C", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.BRASS, 0.7))
 
 	var rank_text := "R%d" % _rank()
 	var rw := _font.get_string_size(rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26).x
-	draw_rect(Rect2(36.0, 122.0, rw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
-	draw_string(_font, Vector2(49.0, 148.0), rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26, LedgerStyle.INK)
+	draw_rect(Rect2(left, top + 122.0, rw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
+	draw_string(_font, Vector2(left + 13.0, top + 148.0), rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26, LedgerStyle.INK)
 
 	# The Ledger only takes clean, so clean is the headline and dirty is the reminder.
 	var clean_text := _clean().text()
 	var cw := _font.get_string_size(clean_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42).x
-	var cx := w - 250.0 - cw
-	draw_string(_font, Vector2(cx, 148.0), clean_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42, LedgerStyle.CLEAN)
-	draw_string(_font, Vector2(cx, 112.0), "CLEAN", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color(LedgerStyle.CLEAN, 0.6))
+	var cx := w - _safe_margins.z - 250.0 - cw
+	draw_string(_font, Vector2(cx, top + 148.0), clean_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42, LedgerStyle.CLEAN)
+	draw_string(_font, Vector2(cx, top + 112.0), "CLEAN", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color(LedgerStyle.CLEAN, 0.6))
 	var dirty_text := _dirty().text()
 	var dw := _font.get_string_size(dirty_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22).x
-	draw_string(_font, Vector2(cx - dw - 34.0, 148.0), dirty_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22, Color(LedgerStyle.DIRTY, 0.85))
+	draw_string(_font, Vector2(cx - dw - 34.0, top + 148.0), dirty_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22, Color(LedgerStyle.DIRTY, 0.85))
 
 
 ## The Black Book's header. Same bar, different currency: Juice where clean cash goes, and
 ## the city count where the rank badge goes — this page belongs to the player, not the career.
 func _draw_book_header(w: float) -> void:
-	draw_string(_font, Vector2(36.0, 74.0), "THE BLACK BOOK", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48,
+	var top := _safe_margins.y
+	var left := _safe_margins.x + 36.0
+	draw_string(_font, Vector2(left, top + 74.0), "THE BLACK BOOK", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48,
 		LedgerStyle.NEWSPRINT)
-	draw_string(_font, Vector2(38.0, 106.0), "WITNESS RELOCATION FORM 12-B",
+	draw_string(_font, Vector2(left + 2.0, top + 106.0), "WITNESS RELOCATION FORM 12-B",
 		HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.BRASS, 0.7))
 
 	var city_text := "CITY %d" % prestige.city_number()
 	var cw := _font.get_string_size(city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22).x
-	draw_rect(Rect2(36.0, 122.0, cw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
-	draw_string(_font, Vector2(49.0, 148.0), city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22,
+	draw_rect(Rect2(left, top + 122.0, cw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
+	draw_string(_font, Vector2(left + 13.0, top + 148.0), city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22,
 		LedgerStyle.INK)
 
 	var juice_text := str(prestige.juice)
 	var jw := _font.get_string_size(juice_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42).x
-	var jx := w - 250.0 - jw
-	draw_string(_font, Vector2(jx, 148.0), juice_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42,
+	var jx := w - _safe_margins.z - 250.0 - jw
+	draw_string(_font, Vector2(jx, top + 148.0), juice_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42,
 		LedgerStyle.BRASS)
-	draw_string(_font, Vector2(jx, 112.0), "JUICE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18,
+	draw_string(_font, Vector2(jx, top + 112.0), "JUICE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18,
 		Color(LedgerStyle.BRASS, 0.6))
 	var earned := "%d EARNED" % prestige.juice_earned
 	var ew := _font.get_string_size(earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20).x
-	draw_string(_font, Vector2(jx - ew - 34.0, 148.0), earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20,
+	draw_string(_font, Vector2(jx - ew - 34.0, top + 148.0), earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20,
 		Color(LedgerStyle.NEWSPRINT, 0.45))
 
 

@@ -7,6 +7,7 @@ extends Node
 
 var shots_dir := "/tmp/device_probe"
 var failures := 0
+const PROBE_SAVE := "user://device_probe_save.json"
 
 
 var main: Node = null
@@ -17,9 +18,17 @@ func _ready() -> void:
 	if not env.is_empty():
 		shots_dir = env
 	DirAccess.make_dir_recursive_absolute(shots_dir)
-	main = (load("res://game/main.tscn") as PackedScene).instantiate()
-	add_child(main)
+	_clean_probe_save()
+	main = _spawn_main()
 	_run()
+
+
+func _spawn_main() -> Node:
+	var instance := (load("res://game/main.tscn") as PackedScene).instantiate()
+	instance.set("auto_start", false)
+	add_child(instance)
+	instance.call("start_session", PROBE_SAVE)
+	return instance
 
 
 func _run() -> void:
@@ -30,12 +39,15 @@ func _run() -> void:
 	var roll := _find_button(get_tree().root, "ROLL CALL")
 	_check(roll != null, "ROLL CALL button exists")
 	if roll != null:
+		_check_inside_safe(roll, "ROLL CALL")
 		await _tap(roll)
 		await _frames(30)
 	_check(Game.state == &"roll_call", "touch on ROLL CALL opens Roll Call (state=%s)" % Game.state)
+	await _shot("1b_roll_call")
 	var start_night := _find_button(get_tree().root, "START NIGHT")
 	_check(start_night != null, "START NIGHT button exists on Roll Call")
 	if start_night != null:
+		_check_inside_safe(start_night, "START NIGHT")
 		await _tap(start_night)
 		await _frames(30)
 	_check(Game.state == &"night", "START NIGHT launches the prepared Night (state=%s)" % Game.state)
@@ -58,6 +70,7 @@ func _run() -> void:
 	var ledger_btn := _find_button(get_tree().root, "THE LEDGER")
 	_check(ledger_btn != null, "THE LEDGER button exists on The Count")
 	if ledger_btn != null:
+		_check_inside_safe(ledger_btn, "THE LEDGER")
 		await _tap(ledger_btn)
 		await _frames(30)
 	_check(Game.state == &"ledger", "touch on THE LEDGER opens the Ledger (state=%s)" % Game.state)
@@ -84,6 +97,10 @@ func _run() -> void:
 	# And back.
 	var close_btn := _find_button(get_tree().root, "CLOSE")
 	if close_btn != null:
+		_check_inside_safe(close_btn, "Ledger CLOSE")
+		var next_buy := _find_button(get_tree().root, "NEXT BUY  ▸")
+		if next_buy != null:
+			_check_inside_safe(next_buy, "Ledger NEXT BUY")
 		await _tap(close_btn)
 		await _frames(20)
 		_check(Game.state == &"count", "CLOSE returns to The Count (state=%s)" % Game.state)
@@ -100,8 +117,7 @@ func _run() -> void:
 			"bought bumper stands on the field")
 	main.queue_free()
 	await _frames(5)
-	main = (load("res://game/main.tscn") as PackedScene).instantiate()
-	add_child(main)
+	main = _spawn_main()
 	await _frames(40)
 	var table2: Node2D = main.get("table")
 	_check(bool(table2.call("hardware_present", &"bumper_2")),
@@ -109,7 +125,12 @@ func _run() -> void:
 	await _shot("6_restart")
 
 	print("DEVICE PROBE: %s" % ("OK" if failures == 0 else "%d FAILURES" % failures))
+	_clean_probe_save()
 	get_tree().quit(0 if failures == 0 else 1)
+
+
+func _clean_probe_save() -> void:
+	SaveGame.new(PROBE_SAVE).erase()
 
 
 func _tap(c: Control) -> void:
@@ -187,6 +208,13 @@ func _check(cond: bool, msg: String) -> void:
 	else:
 		failures += 1
 		printerr("  [FAIL] " + msg)
+
+
+func _check_inside_safe(control: Control, label: String) -> void:
+	var safe := Presentation.safe.content_rect()
+	var rect := control.get_global_rect()
+	_check(safe.encloses(rect), "%s stays inside safe content %s (got %s)" % [
+			label, safe, rect])
 
 
 func _shot(name: String) -> void:

@@ -10,6 +10,7 @@ signal start_pressed
 
 var _safe_panel: PanelContainer = null
 var _safe_label: Label = null
+var _content_margin: MarginContainer = null
 
 
 func _ready() -> void:
@@ -22,17 +23,16 @@ func _ready() -> void:
 	bg.color.a = 0.62
 	add_child(bg)
 
-	var margin := MarginContainer.new()
-	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 60)
-	margin.add_theme_constant_override("margin_right", 60)
-	margin.add_theme_constant_override("margin_top", 1030)
-	margin.add_theme_constant_override("margin_bottom", 120)
-	add_child(margin)
+	_content_margin = MarginContainer.new()
+	_content_margin.name = "SafeContent"
+	_content_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_content_margin)
+	_apply_safe_area()
+	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 14)
-	margin.add_child(col)
+	_content_margin.add_child(col)
 
 	col.add_child(PaperKit.label("THE HOUSE IS OPEN", PaperKit.FONT_TITLE, Feel.COL_BRASS,
 			HORIZONTAL_ALIGNMENT_CENTER))
@@ -62,6 +62,15 @@ func _ready() -> void:
 	col.add_child(start)
 
 	Game.safe_changed.connect(_on_safe_changed)
+
+
+func _on_safe_margins_changed(_margins: Vector4) -> void:
+	_apply_safe_area()
+
+
+func _apply_safe_area() -> void:
+	Presentation.safe.apply_to_margin_container(_content_margin,
+			Vector4(60.0, 1030.0, 60.0, 120.0))
 
 
 func _build_safe(col: VBoxContainer) -> void:

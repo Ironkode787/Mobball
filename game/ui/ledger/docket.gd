@@ -24,6 +24,7 @@ var _buy: Button = null
 var _shut: Button = null
 var _slide: float = 0.0
 var _tween: Tween = null
+var _pad: MarginContainer = null
 
 
 func _ready() -> void:
@@ -33,23 +34,22 @@ func _ready() -> void:
 	anchor_top = 1.0
 	anchor_bottom = 1.0
 	_build()
+	_apply_safe_area()
+	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 	_set_slide(0.0)
 
 
 func _build() -> void:
-	var pad := MarginContainer.new()
-	pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	pad.add_theme_constant_override("margin_left", 44)
-	pad.add_theme_constant_override("margin_right", 44)
-	pad.add_theme_constant_override("margin_top", 34)
-	pad.add_theme_constant_override("margin_bottom", 34)
-	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(pad)
+	_pad = MarginContainer.new()
+	_pad.name = "SafeContent"
+	_pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_pad)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 12)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pad.add_child(col)
+	_pad.add_child(col)
 
 	var head := HBoxContainer.new()
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -104,6 +104,14 @@ func _build() -> void:
 	LedgerStyle.style_button(_buy, LedgerStyle.CLEAN.darkened(0.15), LedgerStyle.INK)
 	_buy.pressed.connect(func() -> void: buy_pressed.emit(node_id))
 	foot.add_child(_buy)
+
+
+func _on_safe_margins_changed(_margins: Vector4) -> void:
+	_apply_safe_area()
+
+
+func _apply_safe_area() -> void:
+	Presentation.safe.apply_to_margin_container(_pad, Vector4(44.0, 34.0, 44.0, 34.0))
 
 
 # --- content ------------------------------------------------------------------

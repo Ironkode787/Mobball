@@ -32,6 +32,8 @@ var _combo: Label = null
 var _heat: HeatBar = null
 var _charge: ProgressBar = null
 var _star: StarBadge = null
+var _strip: ColorRect = null
+var _rule: ColorRect = null
 var _combo_left: float = 0.0
 var _modes: VBoxContainer = null
 var _wire: Label = null
@@ -52,21 +54,21 @@ var _flash_left: float = 0.0
 
 func _ready() -> void:
 	layer = 10
-	var strip := ColorRect.new()
-	strip.name = "Strip"
-	strip.color = Feel.COL_INK
-	strip.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	strip.offset_bottom = STRIP_H
-	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(strip)
+	_strip = ColorRect.new()
+	_strip.name = "Strip"
+	_strip.color = Feel.COL_INK
+	_strip.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_strip.offset_bottom = STRIP_H
+	_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_strip)
 
-	var rule := ColorRect.new()
-	rule.color = Feel.COL_BRASS.darkened(0.35)
-	rule.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	rule.offset_top = STRIP_H
-	rule.offset_bottom = STRIP_H + 3.0
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(rule)
+	_rule = ColorRect.new()
+	_rule.color = Feel.COL_BRASS.darkened(0.35)
+	_rule.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_rule.offset_top = STRIP_H
+	_rule.offset_bottom = STRIP_H + 3.0
+	_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_rule)
 
 	_dirty = _add_label(Vector2(26.0, 14.0), PaperKit.FONT_BIG, Feel.COL_DIRTY)
 	_clean = _add_label(Vector2(26.0, 74.0), PaperKit.FONT_BIG, Feel.COL_CLEAN)
@@ -115,6 +117,8 @@ func _ready() -> void:
 	add_child(_charge)
 
 	_build_modes()
+	_apply_safe_area()
+	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
 	Game.wallet.dirty_changed.connect(_on_dirty)
 	Game.wallet.clean_changed.connect(_on_clean)
@@ -127,6 +131,63 @@ func _ready() -> void:
 	Events.plunger_charge_changed.connect(_on_charge)
 	Game.auto_collected.connect(_on_auto_collected)
 	refresh()
+
+
+func _on_safe_margins_changed(_margins: Vector4) -> void:
+	_apply_safe_area()
+
+
+func _apply_safe_area() -> void:
+	if _strip == null:
+		return
+	var m := Presentation.safe.margins()
+	var viewport_width := get_viewport().get_visible_rect().size.x
+	var header_bottom := STRIP_H + m.y
+	_strip.offset_bottom = header_bottom
+	_rule.offset_top = header_bottom
+	_rule.offset_bottom = header_bottom + 3.0
+
+	_dirty.offset_left = m.x + 26.0
+	_dirty.offset_right = -(m.z + 26.0)
+	_dirty.offset_top = m.y + 14.0
+	_dirty.offset_bottom = m.y + 14.0 + PaperKit.FONT_BIG + 12.0
+	_clean.offset_left = m.x + 26.0
+	_clean.offset_right = -(m.z + 26.0)
+	_clean.offset_top = m.y + 74.0
+	_clean.offset_bottom = m.y + 74.0 + PaperKit.FONT_BIG + 12.0
+	_night.offset_left = m.x
+	_night.offset_right = -(m.z + 26.0)
+	_night.offset_top = m.y + 14.0
+	_night.offset_bottom = m.y + 14.0 + PaperKit.FONT_SMALL + 12.0
+	_respect.offset_left = m.x
+	_respect.offset_right = -(m.z + 72.0)
+	_respect.offset_top = m.y + 60.0
+	_respect.offset_bottom = m.y + 60.0 + PaperKit.FONT_BIG + 12.0
+
+	_star.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_star.offset_left = -(m.z + 62.0)
+	_star.offset_right = -(m.z + 28.0)
+	_star.offset_top = m.y + 68.0
+	_star.offset_bottom = m.y + 102.0
+
+	var heat_x := m.x + (viewport_width - m.x - m.z - HEAT_W) * 0.5
+	_heat.position = Vector2(heat_x, m.y + 128.0)
+	_guy.offset_left = m.x + 26.0
+	_guy.offset_right = -(viewport_width - (heat_x - 12.0))
+	_guy.offset_top = m.y + 124.0
+	_guy.offset_bottom = m.y + 124.0 + PaperKit.FONT_SMALL + 12.0
+
+	_combo.offset_left = m.x
+	_combo.offset_right = -m.z
+	_combo.offset_top = m.y + 210.0
+	_combo.offset_bottom = m.y + 320.0
+	_modes.offset_left = m.x + 26.0
+	_modes.offset_right = -(m.z + 26.0)
+	_modes.offset_top = m.y + MODES_TOP
+	_modes.offset_bottom = m.y + MODES_TOP + MODE_H * 10.0
+	_charge.offset_right = -(m.z + 40.0)
+	_charge.offset_top = -(m.w + 46.0)
+	_charge.offset_bottom = -(m.w + 14.0)
 
 
 ## The mode lines. Nothing is laid out per-mode: they stack, and a line with no text takes

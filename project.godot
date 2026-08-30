@@ -19,6 +19,7 @@ Feel="*res://game/core/feel.gd"
 Balls="*res://game/core/ball_registry.gd"
 AudioDirector="*res://game/audio/audio_director.gd"
 Game="*res://game/flow/game.gd"
+Presentation="*res://game/presentation/presentation.gd"
 
 [display]
 
