@@ -68,6 +68,12 @@ func _run() -> void:
 	_check(Game.state == &"count", "the Night reached The Count (state=%s)" % Game.state)
 	await _shot("3_count")
 	_check_visible_buttons_inside_safe(get_tree().root, "THE COUNT")
+	var count_screen: Node = main.get("count")
+	if count_screen != null and count_screen.has_method("skip"):
+		count_screen.call("skip")
+		await _frames(3)
+		_check(bool(count_screen.call("finished")), "the completed Count printed its headline")
+		await _shot("3b_count_finished")
 
 	# COUNT → LEDGER via a real touch on THE LEDGER. This is the user's bug report.
 	var ledger_btn := _find_button(get_tree().root, "THE LEDGER")
@@ -228,10 +234,27 @@ func _check_visible_buttons_inside_safe(node: Node, scope: String) -> void:
 		var button := node as Button
 		var rect := button.get_global_rect()
 		var viewport_rect := get_viewport().get_visible_rect()
-		if rect.size.x > 0.0 and rect.size.y > 0.0 and viewport_rect.intersects(rect):
+		var rendered := _rendered_control_rect(button).intersection(viewport_rect)
+		if rect.size.x > 0.0 and rect.size.y > 0.0 and rendered.size.x > 0.0 \
+				and rendered.size.y > 0.0:
 			_check_inside_safe(button, "%s / %s" % [scope, button.text])
 	for child in node.get_children():
 		_check_visible_buttons_inside_safe(child, scope)
+
+
+## `is_visible_in_tree()` does not account for a ScrollContainer clipping its children.
+## Walk the Control ancestry so off-scroll buttons are not mistaken for rendered controls;
+## buttons that are actually on screen still receive the unchanged full-rect safe-area check.
+func _rendered_control_rect(control: Control) -> Rect2:
+	var rendered := control.get_global_rect()
+	var ancestor := control.get_parent()
+	while ancestor != null:
+		if ancestor is Control and (ancestor as Control).clip_contents:
+			rendered = rendered.intersection((ancestor as Control).get_global_rect())
+			if rendered.size.x <= 0.0 or rendered.size.y <= 0.0:
+				return Rect2()
+		ancestor = ancestor.get_parent()
+	return rendered
 
 
 func _shot(name: String) -> void:

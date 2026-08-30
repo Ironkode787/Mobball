@@ -7,6 +7,7 @@ func run(t: TestCtx) -> void:
 	_phase_one_assets(t)
 	_effect_bus(t)
 	_budget(t)
+	_screen_transitions(t)
 
 
 func _theme_and_city(t: TestCtx) -> void:
@@ -89,3 +90,43 @@ func _budget(t: TestCtx) -> void:
 	t.ok(budget.register(&"custom", 500), "unknown counters are observable but unbounded")
 	budget.reset()
 	t.eq(budget.count(&"custom"), 0, "reset clears accounting")
+
+
+func _screen_transitions(t: TestCtx) -> void:
+	t.eq(ScreenTransition.ritual_for(&"attract", &"roll_call"), &"shutter",
+			"front door closes through the cabinet shutter")
+	t.eq(ScreenTransition.ritual_for(&"night", &"count"), &"receipt",
+			"night hands off through the Count receipt")
+	t.eq(ScreenTransition.ritual_for(&"count", &"ledger"), &"dossier",
+			"Ledger opens as a dossier")
+	t.eq(ScreenTransition.caption_for(&"ledger"), "THE LEDGER",
+			"transition captions use authored screen names")
+	var was_reduced := Presentation.fx.reduced_motion
+	Presentation.fx.reduced_motion = true
+	var transition := ScreenTransition.new()
+	transition.play_reveal(&"count", &"ledger")
+	t.ok(transition.visible and transition.amount == 1.0,
+			"reduced-motion handoff still installs an opaque input cover")
+	t.eq(transition.mouse_filter, Control.MOUSE_FILTER_STOP,
+			"transition cover blocks accidental taps")
+	transition._finish_reveal()
+	t.ok(not transition.visible and transition.mouse_filter == Control.MOUSE_FILTER_IGNORE,
+			"transition reveal releases input")
+	transition.free()
+	Presentation.fx.reduced_motion = was_reduced
+
+	var book_page := LedgerBlackBook.new()
+	book_page.build(BlackBook.shared(), Prestige.shared())
+	book_page.set_safe_margins(Vector4(56.0, 112.0, 72.0, 80.0))
+	var buy: Button = null
+	for child in book_page.get_children():
+		if child is Button:
+			buy = child as Button
+			break
+	t.ok(buy != null, "Black Book builds its purchase control")
+	if buy != null:
+		t.near(buy.offset_right, -108.0, 0.001,
+				"Black Book BUY clears the rounded right edge")
+		t.near(buy.offset_bottom, -102.0, 0.001,
+				"Black Book BUY clears the rounded bottom edge")
+	book_page.free()

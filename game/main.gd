@@ -39,6 +39,11 @@ var _music_level: int = 2
 var _ledger_missing_logged: bool = false
 ## The CanvasLayer the Ledger overlay rides (layer 2, above The Count's layer 1).
 var _ledger_layer: CanvasLayer = null
+## Presentation-only cover for screen swaps. State and gameplay continue to belong to Game.
+var _transition_layer: CanvasLayer = null
+var _transition: ScreenTransition = null
+var _shown_state: StringName = &""
+var _transitions_enabled := false
 
 
 func _ready() -> void:
@@ -75,6 +80,7 @@ func _ready() -> void:
 
 	AudioDirector.music_start()
 	AudioDirector.music_set_level(_music_level)
+	_build_transition_layer()
 
 	if auto_start:
 		start_session()
@@ -84,12 +90,15 @@ func _ready() -> void:
 ## is set; the flow sims call it directly so they can point the save file somewhere
 ## harmless instead of at the player's career.
 func start_session(save_path: String = SaveGame.DEFAULT_PATH) -> void:
+	_transitions_enabled = false
 	if not Game.state_changed.is_connected(_on_state_changed):
 		Game.state_changed.connect(_on_state_changed)
 	Game.boot(save_path)
 	# boot() sets the stem count from the rank; keep the M debug key cycling from there.
 	_music_level = AudioDirector.music_level()
+	_shown_state = Game.state
 	_apply_state(Game.state)
+	_transitions_enabled = true
 
 
 func _notification(what: int) -> void:
@@ -147,7 +156,24 @@ func _on_tilted() -> void:
 
 
 func _on_state_changed(state: StringName) -> void:
+	if not _transitions_enabled or _transition == null:
+		_shown_state = state
+		_apply_state(state)
+		return
+	var previous := _shown_state
+	_transition.play_reveal(previous, state)
 	_apply_state(state)
+	_shown_state = state
+
+
+func _build_transition_layer() -> void:
+	_transition_layer = CanvasLayer.new()
+	_transition_layer.name = "ScreenTransitionLayer"
+	_transition_layer.layer = 100
+	add_child(_transition_layer)
+	_transition = ScreenTransition.new()
+	_transition.name = "ScreenTransition"
+	_transition_layer.add_child(_transition)
 
 
 func _apply_state(state: StringName) -> void:

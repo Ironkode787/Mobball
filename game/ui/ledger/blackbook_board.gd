@@ -38,6 +38,7 @@ var _content_h: float = 0.0
 var _dragging: bool = false
 var _drag_travel: float = 0.0
 var _buy: Button = null
+var _safe_margins := Vector4.ZERO
 
 
 func _ready() -> void:
@@ -66,6 +67,21 @@ func _ensure_button() -> void:
 	_buy.pressed.connect(func() -> void: buy_pressed.emit(_selected))
 	LedgerStyle.style_button(_buy, LedgerStyle.BRASS.darkened(0.1), LedgerStyle.INK)
 	add_child(_buy)
+	_apply_safe_button_offsets()
+
+
+func set_safe_margins(margins: Vector4) -> void:
+	_safe_margins = margins
+	_apply_safe_button_offsets()
+
+
+func _apply_safe_button_offsets() -> void:
+	if _buy == null:
+		return
+	_buy.offset_right = -maxf(36.0, _safe_margins.z + 36.0)
+	_buy.offset_left = _buy.offset_right - 340.0
+	_buy.offset_bottom = -maxf(22.0, _safe_margins.w + 22.0)
+	_buy.offset_top = _buy.offset_bottom - 96.0
 
 
 # --- construction -------------------------------------------------------------

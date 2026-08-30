@@ -21,9 +21,122 @@ signal skip_town_pressed(keep: Dictionary)
 const LINE_TIME := 0.55
 const TICK_INTERVAL := 0.07
 const LINE_GAP := 0.12
+const HEADLINE_DELAY := 0.18
+const HEADLINE_CHAR_TIME := 0.022
 ## Jobs offered on the page at once. The board holds five targets; a Count screen that is
 ## mostly heist buttons is a menu, not a newspaper.
 const HEIST_SLOTS := 2
+
+
+## The number window on the adding machine. It remains a Label for the count logic, but the
+## parent paints the little mechanical windows behind it so each line reads as a physical
+## odometer rather than a value floating over the room plate.
+class CountOdometerFace extends Control:
+	var tint := Feel.COL_BRASS
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_process(false)
+
+	func set_tint(value: Color) -> void:
+		tint = value
+		queue_redraw()
+
+	func _draw() -> void:
+		if size.x < 2.0 or size.y < 2.0:
+			return
+		var outer := Rect2(0.0, 5.0, size.x, maxf(size.y - 10.0, 1.0))
+		draw_rect(Rect2(3.0, 8.0, size.x, outer.size.y), Color(0.0, 0.0, 0.0, 0.24))
+		draw_rect(outer, Color(Feel.COL_INK, 0.86))
+		draw_rect(outer, Color(tint, 0.58), false, 2.0)
+		var slot_count := 6
+		var gap := 3.0
+		var slot_w := (size.x - gap * float(slot_count + 1)) / float(slot_count)
+		for i in slot_count:
+			var x := gap + float(i) * (slot_w + gap)
+			var slot := Rect2(x, 12.0, slot_w, maxf(size.y - 24.0, 1.0))
+			draw_rect(slot, Color(Feel.COL_NEWSPRINT, 0.07))
+			draw_line(slot.position + Vector2(0.0, 4.0),
+				slot.position + Vector2(slot.size.x, 4.0), Color(tint, 0.32), 1.0)
+			draw_line(slot.position + Vector2(0.0, slot.size.y - 4.0),
+				slot.position + Vector2(slot.size.x, slot.size.y - 4.0),
+				Color(0.0, 0.0, 0.0, 0.30), 1.0)
+			if i > 0:
+				draw_line(Vector2(x - gap * 0.5, 9.0), Vector2(x - gap * 0.5, size.y - 9.0),
+					Color(tint, 0.48), 1.0)
+
+
+## A narrow adding-machine receipt and the counted bills. The generated room plate stays the
+## hero image; this layer gives the live values a physical surface without adding an asset or
+## changing the gameplay layout. It is deliberately mouse-transparent.
+class CountSetPiece extends Control:
+	var summary: Dictionary = {}
+	var roll_progress := 0.0:
+		set(value):
+			roll_progress = clampf(value, 0.0, 1.0)
+			queue_redraw()
+
+	var _font: Font = null
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_font = Presentation.theme.font_for(&"annotation_bold")
+
+	func _draw() -> void:
+		if size.x < 2.0 or size.y < 2.0:
+			return
+		var paper := Rect2(size.x * 0.075, size.y * 0.115, size.x * 0.85, size.y * 0.59)
+		# The machine receipt is not a flat panel: a drop shadow and a torn feed edge make it
+		# read as the paper coming out of the photographed adding machine.
+		draw_rect(Rect2(paper.position + Vector2(10.0, 16.0), paper.size),
+			Color(0.0, 0.0, 0.0, 0.28))
+		draw_rect(paper, Color(Feel.COL_NEWSPRINT, 0.82))
+		draw_rect(paper, Color(Feel.COL_INK, 0.30), false, 2.0)
+		var header_y := paper.position.y + 72.0
+		draw_line(Vector2(paper.position.x + 32.0, header_y),
+			Vector2(paper.end.x - 32.0, header_y), Color(Feel.COL_INK, 0.26), 2.0)
+		var ruled_y := header_y + 76.0
+		while ruled_y < paper.end.y - 80.0:
+			draw_line(Vector2(paper.position.x + 32.0, ruled_y),
+				Vector2(paper.end.x - 32.0, ruled_y), Color(Feel.COL_INK, 0.095), 1.0)
+			ruled_y += 78.0
+		if _font != null:
+			draw_string(_font, paper.position + Vector2(34.0, 52.0), "EASTPORT · NIGHTLY TALLY",
+				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22, Color(Feel.COL_INK, 0.62))
+		# Feed holes and the torn bottom edge sell the receipt silhouette at phone scale.
+		for x in range(int(paper.position.x + 18.0), int(paper.end.x - 18.0), 30):
+			draw_circle(Vector2(float(x), paper.position.y + 13.0), 3.0, Color(Feel.COL_INK, 0.23))
+			draw_circle(Vector2(float(x), paper.end.y - 13.0), 3.0, Color(Feel.COL_INK, 0.23))
+		var teeth := PackedVector2Array()
+		for i in 25:
+			var x := paper.position.x + float(i) / 24.0 * paper.size.x
+			teeth.append(Vector2(x, paper.end.y + (7.0 if i % 2 == 0 else 0.0)))
+		draw_polyline(teeth, Color(Feel.COL_INK, 0.30), 1.5)
+
+		var bill_alpha := 0.32 + roll_progress * 0.48
+		_draw_bill_stack(Vector2(size.x * 0.14, size.y * 0.84), Feel.COL_DIRTY, 6,
+			deg_to_rad(-8.0), bill_alpha, "D")
+		_draw_bill_stack(Vector2(size.x * 0.69, size.y * 0.85), Feel.COL_CLEAN, 5,
+			deg_to_rad(7.0), bill_alpha, "C")
+
+	func _draw_bill_stack(origin: Vector2, color: Color, count: int, angle: float,
+			alpha: float, mark: String) -> void:
+		if _font == null:
+			return
+		var visible_count := maxi(1, int(roundf(float(count) * maxf(roll_progress, 0.18))))
+		for i in visible_count:
+			var lift := float(i) * -4.0
+			draw_set_transform(origin + Vector2(0.0, lift), angle, Vector2.ONE)
+			var note := Rect2(-118.0, -31.0, 236.0, 62.0)
+			draw_rect(Rect2(note.position + Vector2(5.0, 7.0), note.size), Color(0.0, 0.0, 0.0, 0.22))
+			draw_rect(note, Color(color, alpha))
+			draw_rect(note, Color(Feel.COL_NEWSPRINT, alpha * 0.72), false, 2.0)
+			draw_line(Vector2(-78.0, -22.0), Vector2(-78.0, 22.0), Color(Feel.COL_NEWSPRINT, alpha * 0.48), 1.0)
+			draw_line(Vector2(78.0, -22.0), Vector2(78.0, 22.0), Color(Feel.COL_NEWSPRINT, alpha * 0.48), 1.0)
+			draw_circle(Vector2.ZERO, 14.0, Color(Feel.COL_NEWSPRINT, alpha * 0.42))
+			draw_string(_font, Vector2(-7.0, 7.0), mark, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16,
+				Color(color.darkened(0.42), alpha))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 var summary: Dictionary = {}
 
@@ -33,6 +146,10 @@ var _row_time: float = 0.0
 var _tick_time: float = 0.0
 var _headline: Label = null
 var _headline_shown: bool = false
+var _headline_revealing: bool = false
+var _headline_stung: bool = false
+var _headline_elapsed: float = 0.0
+var _headline_target := ""
 var _buttons: HBoxContainer = null
 var _roster: VBoxContainer = null
 var _safe: PanelContainer = null
@@ -40,6 +157,7 @@ var _body: VBoxContainer = null
 var _counter: AudioStreamPlayer = null
 var _board: VBoxContainer = null
 var _content_margin: MarginContainer = null
+var _set_piece: CountSetPiece = null
 
 
 func _ready() -> void:
@@ -80,6 +198,12 @@ func _build() -> void:
 	paper_wash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	paper_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(paper_wash)
+	_set_piece = CountSetPiece.new()
+	_set_piece.name = "CountSetPiece"
+	_set_piece.summary = summary
+	_set_piece.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_set_piece.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_set_piece)
 
 	_content_margin = MarginContainer.new()
 	_content_margin.name = "SafeContent"
@@ -88,9 +212,20 @@ func _build() -> void:
 	_apply_safe_area()
 	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 14)
+	_content_margin.add_child(outer)
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "CountScroll"
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	outer.add_child(scroll)
+
 	_body = VBoxContainer.new()
+	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_body.add_theme_constant_override("separation", 14)
-	_content_margin.add_child(_body)
+	scroll.add_child(_body)
 
 	_body.add_child(PaperKit.label("THE COUNT", PaperKit.FONT_TITLE, Feel.COL_INK))
 	_body.add_child(PaperKit.label(
@@ -102,11 +237,23 @@ func _build() -> void:
 	_build_lines()
 
 	_body.add_child(PaperKit.rule(Feel.COL_INK, 4.0))
+	var headline_paper := PanelContainer.new()
+	var headline_box := StyleBoxFlat.new()
+	headline_box.bg_color = Color(Feel.COL_NEWSPRINT, 0.88)
+	headline_box.border_color = Color(Feel.COL_INK, 0.32)
+	headline_box.set_border_width_all(2)
+	headline_box.content_margin_left = 28.0
+	headline_box.content_margin_right = 28.0
+	headline_box.content_margin_top = 18.0
+	headline_box.content_margin_bottom = 18.0
+	headline_paper.add_theme_stylebox_override("panel", headline_box)
+	headline_paper.custom_minimum_size = Vector2(0.0, 190.0)
 	_headline = PaperKit.label("", PaperKit.FONT_BIG, Feel.COL_INK)
 	_headline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_headline.custom_minimum_size = Vector2(0.0, 190.0)
+	_headline.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_headline.modulate.a = 0.0
-	_body.add_child(_headline)
+	headline_paper.add_child(_headline)
+	_body.add_child(headline_paper)
 
 	_roster = VBoxContainer.new()
 	_roster.add_theme_constant_override("separation", 8)
@@ -124,14 +271,9 @@ func _build() -> void:
 	_build_war_room()
 	_build_train()
 
-	var grow := Control.new()
-	grow.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	grow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_body.add_child(grow)
-
 	_buttons = HBoxContainer.new()
 	_buttons.add_theme_constant_override("separation", 24)
-	_body.add_child(_buttons)
+	outer.add_child(_buttons)
 
 	var ledger := PaperKit.button("THE LEDGER")
 	ledger.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -465,12 +607,20 @@ static func _money(v: Variant) -> BigMoney:
 
 func _row(text: String, color: Color, size: int, money: BigMoney, count: int) -> Dictionary:
 	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 20)
 	var left := PaperKit.label(text, size, Feel.COL_INK)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var right := PaperKit.label("", size, color, HORIZONTAL_ALIGNMENT_RIGHT)
-	right.custom_minimum_size = Vector2(300.0, 0.0)
+	right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var meter := CountOdometerFace.new()
+	meter.name = "Odometer"
+	meter.custom_minimum_size = Vector2(300.0, 68.0)
+	meter.size_flags_horizontal = Control.SIZE_SHRINK_END
+	meter.set_tint(color)
+	right.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	meter.add_child(right)
 	line.add_child(left)
-	line.add_child(right)
+	line.add_child(meter)
 	_body.add_child(line)
 	return {"label": right, "money": money, "count": count}
 
@@ -549,6 +699,9 @@ func _on_bail(guy: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if _headline_revealing:
+		_advance_headline(delta)
+		return
 	if _row_index < 0 or _row_index >= _rows.size():
 		if not _headline_shown:
 			_show_headline()
@@ -575,11 +728,13 @@ func _paint_row(row: Dictionary, t: float) -> void:
 		l.text = (money as BigMoney).mul(t).text()
 	else:
 		l.text = str(int(round(float(int(row["count"])) * t)))
+	if _set_piece != null:
+		_set_piece.roll_progress = clampf((float(_row_index) + t) / maxf(float(_rows.size()), 1.0), 0.0, 1.0)
 
 
 ## True once every line has rolled up and the paper has printed.
 func finished() -> bool:
-	return _headline_shown
+	return _headline_shown and not _headline_revealing
 
 
 ## Tap anywhere to stop the theatre and see the numbers — the ritual is a gift, not a toll.
@@ -588,28 +743,73 @@ func _input(event: InputEvent) -> void:
 			or (event is InputEventMouseButton and (event as InputEventMouseButton).pressed)
 	if not tapped:
 		return
+	if _headline_revealing:
+		_finish_headline()
+		return
 	if _row_index >= 0 and _row_index < _rows.size():
 		skip()
 
 
 ## Finish every roll-up now.
 func skip() -> void:
+	if _headline_revealing:
+		_finish_headline()
+		return
 	for row in _rows:
 		_paint_row(row, 1.0)
 	_row_index = _rows.size()
-	_show_headline()
+	_show_headline(true)
+	# A deliberate tap is the old skip gesture: it still finishes the entire ceremony in the
+	# same frame, while an unattended Count gets the staged typewriter reveal.
+	_finish_headline()
 
 
-func _show_headline() -> void:
+func _show_headline(force_immediate: bool = false) -> void:
 	if _headline_shown:
 		return
 	_headline_shown = true
 	_stop_counter()
 	for row in _rows:
 		_paint_row(row, 1.0)
-	_headline.text = String(summary.get("headline", ""))
+	_headline_target = String(summary.get("headline", ""))
+	_headline_elapsed = 0.0
+	_headline_stung = false
+	if _set_piece != null:
+		_set_piece.roll_progress = 1.0
+	if force_immediate or _reduced_motion() or _headline_target.is_empty():
+		_finish_headline()
+		return
+	_headline.text = ""
+	_headline.modulate.a = 0.0
+	_headline_revealing = true
+	AudioDirector.play(&"paper_slip")
+
+
+func _advance_headline(delta: float) -> void:
+	_headline_elapsed += delta
+	var print_time := _headline_elapsed - HEADLINE_DELAY
+	if print_time <= 0.0:
+		return
+	var count := mini(_headline_target.length(), maxi(1, int(floor(print_time / HEADLINE_CHAR_TIME))))
+	_headline.text = _headline_target.left(count)
+	_headline.modulate.a = clampf(print_time / 0.12, 0.0, 1.0)
+	if count >= _headline_target.length():
+		_finish_headline()
+
+
+func _finish_headline() -> void:
+	if not _headline_shown:
+		return
+	_headline_revealing = false
+	_headline.text = _headline_target
 	_headline.modulate.a = 1.0
-	AudioDirector.play(&"headline_sting")
+	if not _headline_stung:
+		_headline_stung = true
+		AudioDirector.play(&"headline_sting")
+
+
+func _reduced_motion() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_motion
 
 
 func _stop_counter() -> void:

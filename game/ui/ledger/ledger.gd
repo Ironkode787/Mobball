@@ -29,6 +29,86 @@ const SPOIL_PREFIX := "spoil."
 ## Spoils the standalone render pretends to have taken, so the trophy shelf is in the shot.
 ## Live sessions read `Game.spoils()`; nothing else ever uses these.
 const PREVIEW_SPOILS: PackedStringArray = ["spoil.sammys_spare", "spoil.cold_storage"]
+const PORTRAIT_FACES := {
+	"skids": 1, "nussbaum": 2, "big_sal": 3, "professor": 4,
+	"rosa": 2, "cohen": 4, "manny": 1, "eddie": 3, "consigliere": 4, "bagman": 2,
+}
+
+
+## A shallow wood rail and brass tacks around the board. LedgerBoard owns the pan-able cork;
+## this stays fixed to the cabinet so the map feels pinned into a physical evidence frame.
+class LedgerMaterialFrame extends Control:
+	var header_bottom := 0.0
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func set_header_bottom(value: float) -> void:
+		header_bottom = value
+		queue_redraw()
+
+	func _draw() -> void:
+		if size.x < 2.0 or size.y <= header_bottom:
+			return
+		var rail := 18.0
+		var body := Rect2(0.0, header_bottom, size.x, size.y - header_bottom)
+		# These rails are intentionally narrow: the board remains the tactile hero, while the
+		# fixed edge gives the moving sheet a cabinet to live in.
+		draw_rect(Rect2(0.0, body.position.y, rail, body.size.y), LedgerStyle.CORK_LIGHT)
+		draw_rect(Rect2(size.x - rail, body.position.y, rail, body.size.y), LedgerStyle.CORK_LIGHT)
+		draw_rect(Rect2(0.0, body.position.y, size.x, 7.0), LedgerStyle.BRASS)
+		draw_line(Vector2(rail, body.position.y + 12.0), Vector2(rail, size.y),
+			Color(LedgerStyle.BRASS, 0.36), 2.0)
+		draw_line(Vector2(size.x - rail, body.position.y + 12.0), Vector2(size.x - rail, size.y),
+			Color(LedgerStyle.BRASS, 0.36), 2.0)
+		for y in range(int(body.position.y + 66.0), int(size.y), 184):
+			var left := Vector2(rail * 0.5, float(y))
+			var right := Vector2(size.x - rail * 0.5, float(y))
+			_draw_tack(left)
+			_draw_tack(right)
+
+	func _draw_tack(at: Vector2) -> void:
+		draw_circle(at + Vector2(2.0, 3.0), 8.0, Color(0.0, 0.0, 0.0, 0.35))
+		draw_circle(at, 6.0, LedgerStyle.BRASS.darkened(0.36))
+		draw_circle(at + Vector2(-1.5, -1.5), 2.0, LedgerStyle.BRASS.lightened(0.38))
+
+
+## The purchase beat is a local overlay on the card, so it follows the board's zoom and pan.
+## It is cosmetic only; the economy has already committed by the time this is attached.
+class LedgerPurchaseStamp extends Control:
+	var progress := 0.0:
+		set(value):
+			progress = clampf(value, 0.0, 1.0)
+			queue_redraw()
+
+	var _font: Font = null
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_font = Presentation.theme.font_for(&"annotation_bold")
+
+	func set_progress(value: float) -> void:
+		progress = value
+
+	func _draw() -> void:
+		if _font == null or progress <= 0.0:
+			return
+		var eased := 1.0 - pow(1.0 - progress, 3.0)
+		var center := Vector2(size.x * 0.5, size.y * 0.5)
+		var alpha := clampf(eased * 0.84, 0.0, 0.84)
+		for i in 8:
+			var angle := TAU * float(i) / 8.0
+			var ray := center + Vector2(cos(angle), sin(angle)) * (24.0 + eased * 78.0)
+			draw_line(center, ray, Color(LedgerStyle.BRASS, alpha * 0.46), 2.0)
+		draw_set_transform(center, deg_to_rad(-10.0 + eased * 3.0), Vector2.ONE * eased)
+		var rect := Rect2(-84.0, -25.0, 168.0, 50.0)
+		draw_rect(Rect2(rect.position + Vector2(4.0, 5.0), rect.size), Color(0.0, 0.0, 0.0, alpha * 0.35))
+		draw_rect(rect, Color(LedgerStyle.DIRTY, alpha), false, 3.0)
+		var text := "PINNED"
+		var w := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26).x
+		draw_string(_font, Vector2(-w * 0.5, 9.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26,
+			Color(LedgerStyle.DIRTY, alpha))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 var catalog: Upgrades = null
 var reveal: Reveal = null
@@ -54,6 +134,7 @@ var _preview: bool = false
 var _built: bool = false
 var _open_wanted: bool = false
 var _safe_margins := Vector4.ZERO
+var _material_frame: LedgerMaterialFrame = null
 
 
 ## Catalog and reveal are wired at instantiation, not at _ready, so `get_owned()` and
@@ -98,6 +179,7 @@ func _apply_safe_area() -> void:
 	var header_bottom := HEADER_H + _safe_margins.y
 	_board.offset_top = header_bottom
 	_book_page.offset_top = header_bottom
+	_book_page.set_safe_margins(_safe_margins)
 
 	var close_right := -(_safe_margins.z + 30.0)
 	_close_btn.offset_left = close_right - 190.0
@@ -117,6 +199,8 @@ func _apply_safe_area() -> void:
 	_compass.offset_left = _compass.offset_right - 330.0
 	_compass.offset_bottom = -(_safe_margins.w + 40.0)
 	_compass.offset_top = _compass.offset_bottom - 96.0
+	if _material_frame != null:
+		_material_frame.set_header_bottom(header_bottom)
 	queue_redraw()
 
 
@@ -199,6 +283,14 @@ func _build() -> void:
 	_board.card_tapped.connect(_on_card_tapped)
 	add_child(_board)
 	_board.build(catalog, _trophies())
+	_install_portrait_cards()
+
+	_material_frame = LedgerMaterialFrame.new()
+	_material_frame.name = "LedgerMaterialFrame"
+	_material_frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_material_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_material_frame.set_header_bottom(HEADER_H)
+	add_child(_material_frame)
 
 	_book_page = LedgerBlackBook.new()
 	_book_page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -263,6 +355,47 @@ func _connect_events() -> void:
 		Events.rank_changed.connect(_on_rank_changed)
 	if not Events.dirty_earned.is_connected(_on_dirty_earned):
 		Events.dirty_earned.connect(_on_dirty_earned)
+
+
+## Specialists use the same evidence-file portrait language as Roll Call. The four Phase 1
+## faces are reused as a restrained archive treatment until a specialist-specific set exists;
+## the id mapping is deterministic, so opening the Ledger never shuffles a face.
+func _install_portrait_cards() -> void:
+	if _board == null:
+		return
+	_install_portrait_cards_under(_board)
+
+
+func _install_portrait_cards_under(node: Node) -> void:
+	for child in node.get_children():
+		if child is LedgerCard:
+			_install_portrait_on_card(child as LedgerCard)
+		else:
+			_install_portrait_cards_under(child)
+
+
+func _install_portrait_on_card(card: LedgerCard) -> void:
+	if card == null or card.kind != LedgerCard.Kind.NODE:
+		return
+	var node_def := catalog.def(card.id)
+	var specialist: Dictionary = node_def.get("specialist", {})
+	if specialist.is_empty() or card.has_meta("portrait_face"):
+		return
+	var specialist_id := String(specialist.get("id", ""))
+	var face := int(PORTRAIT_FACES.get(specialist_id, posmod(abs(card.id.hash()), 4) + 1))
+	var portrait := TextureRect.new()
+	portrait.name = "PortraitCard"
+	portrait.texture = Presentation.art.resolve(StringName("mugshot.starter_%02d" % face), null, false)
+	portrait.position = Vector2(164.0, 40.0)
+	portrait.custom_minimum_size = Vector2(56.0, 70.0)
+	portrait.size = Vector2(56.0, 70.0)
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait.modulate = Color(1.0, 1.0, 1.0, 0.94)
+	portrait.z_index = 2
+	card.add_child(portrait)
+	card.set_meta("portrait_face", face)
 
 
 # --- state --------------------------------------------------------------------
@@ -440,6 +573,46 @@ func _on_buy(id: String) -> void:
 	Events.upgrade_purchased.emit(id, level)
 	AudioDirector.play(&"stamp_thunk")
 	_refresh()
+	_play_purchase(id)
+
+
+func _play_purchase(id: String) -> void:
+	if _reduced_motion():
+		return
+	var card := _find_card(id, _board)
+	if card == null or not is_instance_valid(card):
+		return
+	var stamp := LedgerPurchaseStamp.new()
+	stamp.name = "PurchaseStamp"
+	stamp.position = Vector2(-32.0, -46.0)
+	stamp.custom_minimum_size = Vector2(300.0, 250.0)
+	stamp.size = Vector2(300.0, 250.0)
+	card.add_child(stamp)
+	var base_scale := card.scale
+	var tween := create_tween()
+	tween.tween_method(stamp.set_progress, 0.0, 1.0, 0.38) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.parallel().tween_property(card, "scale", base_scale * 1.06, 0.10) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(card, "scale", base_scale, 0.20) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_callback(stamp.queue_free)
+
+
+func _find_card(id: String, node: Node) -> LedgerCard:
+	if node == null:
+		return null
+	for child in node.get_children():
+		if child is LedgerCard and (child as LedgerCard).id == id:
+			return child as LedgerCard
+		var nested := _find_card(id, child)
+		if nested != null:
+			return nested
+	return null
+
+
+func _reduced_motion() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_motion
 
 
 # --- session accessors --------------------------------------------------------
@@ -491,6 +664,7 @@ func _apply_shot_framing() -> void:
 		catalog = Upgrades.from_file(alt)
 		reveal.catalog = catalog
 		_board.build(catalog, _trophies())
+		_install_portrait_cards()
 		_refresh()
 	# SHOT_PAGE=blackbook renders the prestige page instead of the corkboard; SHOT_PERK picks
 	# the page it opens with selected, which is how a new perk gets looked at before it lands.
