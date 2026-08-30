@@ -12,6 +12,10 @@ extends CanvasLayer
 ## as is the plunger charge).
 
 const STRIP_H := 168.0
+## Tall phones put the unsafe top glass behind the table art and reserve only this shallow,
+## two-row panel below it for information. The cutout must not turn into a black spacer.
+const COMPACT_STRIP_H := 104.0
+const COMPACT_MONEY_FONT := 34
 const HEAT_W := 470.0
 const HEAT_H := 26.0
 const COMBO_FLASH := 1.1
@@ -50,6 +54,7 @@ var _ritual: Label = null
 ## Manny's collect, flashed for a beat so an off-screen earner is still visible.
 var _flash: String = ""
 var _flash_left: float = 0.0
+var _compact := false
 
 
 func _ready() -> void:
@@ -103,6 +108,9 @@ func _ready() -> void:
 	_combo.offset_top = 210.0
 	_combo.offset_bottom = 320.0
 	_combo.modulate.a = 0.0
+	# Phase 3 owns combo feedback centrally; retaining this second giant copy made the phone
+	# header feel taller even though it was technically outside the strip.
+	_combo.visible = false
 
 	_charge = ProgressBar.new()
 	_charge.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
@@ -148,10 +156,87 @@ func _apply_safe_area() -> void:
 		return
 	var m := Presentation.safe.margins()
 	var viewport_width := get_viewport().get_visible_rect().size.x
-	var header_bottom := STRIP_H + m.y
+	var viewport_height := get_viewport().get_visible_rect().size.y
+	_compact = m.y > 48.0 or viewport_height / maxf(viewport_width, 1.0) > 1.65
+	var content_h := COMPACT_STRIP_H if _compact else STRIP_H
+	var header_bottom := content_h + m.y
+	# On cutout phones the unsafe cap is useful full-bleed playfield, not HUD padding. Only
+	# the readable two-row panel darkens the table, and even that remains smoked rather than
+	# opaque. Desktop keeps the authored cabinet strip.
+	_strip.offset_top = m.y if _compact else 0.0
 	_strip.offset_bottom = header_bottom
+	_strip.color = Color(Feel.COL_INK, 0.88) if _compact else Feel.COL_INK
 	_rule.offset_top = header_bottom
 	_rule.offset_bottom = header_bottom + 3.0
+
+	if _compact:
+		_apply_compact_layout(m, viewport_width, header_bottom)
+	else:
+		_apply_standard_layout(m, viewport_width)
+	_on_respect(Game.respect)
+
+	_combo.offset_left = m.x
+	_combo.offset_right = -m.z
+	_combo.offset_top = m.y + 210.0
+	_combo.offset_bottom = m.y + 320.0
+	_modes.offset_left = m.x + 26.0
+	_modes.offset_right = -(m.z + 26.0)
+	_modes.offset_top = header_bottom + 12.0
+	_modes.offset_bottom = header_bottom + 12.0 + MODE_H * 10.0
+	_charge.offset_right = -(m.z + 40.0)
+	_charge.offset_top = -(m.w + 46.0)
+	_charge.offset_bottom = -(m.w + 14.0)
+
+
+func _apply_compact_layout(m: Vector4, viewport_width: float, _header_bottom: float) -> void:
+	var safe_w := maxf(viewport_width - m.x - m.z, 1.0)
+	var first_end := m.x + safe_w * 0.265
+	var second_start := m.x + safe_w * 0.285
+	var second_end := m.x + safe_w * 0.54
+	var status_start := m.x + safe_w * 0.55
+	_dirty.add_theme_font_size_override("font_size", COMPACT_MONEY_FONT)
+	_dirty.offset_left = m.x + 18.0
+	_dirty.offset_right = -(viewport_width - first_end)
+	_dirty.offset_top = m.y + 4.0
+	_dirty.offset_bottom = m.y + 54.0
+	_dirty.clip_text = true
+	_clean.add_theme_font_size_override("font_size", COMPACT_MONEY_FONT)
+	_clean.offset_left = second_start
+	_clean.offset_right = -(viewport_width - second_end)
+	_clean.offset_top = m.y + 4.0
+	_clean.offset_bottom = m.y + 54.0
+	_clean.clip_text = true
+	_night.offset_left = status_start
+	_night.offset_right = -(m.z + 18.0)
+	_night.offset_top = m.y + 10.0
+	_night.offset_bottom = m.y + 48.0
+	_night.clip_text = true
+
+	_guy.offset_left = m.x + 18.0
+	_guy.offset_right = -(viewport_width - (m.x + safe_w * 0.29))
+	_guy.offset_top = m.y + 58.0
+	_guy.offset_bottom = m.y + 96.0
+	var heat_x := m.x + safe_w * 0.31
+	var heat_w := clampf(safe_w * 0.34, 220.0, HEAT_W)
+	_heat.position = Vector2(heat_x, m.y + 67.0)
+	_heat.size = Vector2(heat_w, 18.0)
+	_respect.add_theme_font_size_override("font_size", PaperKit.FONT_SMALL)
+	_respect.offset_left = m.x + safe_w * 0.66
+	_respect.offset_right = -(m.z + 48.0)
+	_respect.offset_top = m.y + 54.0
+	_respect.offset_bottom = m.y + 98.0
+	_respect.clip_text = true
+	_star.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	_star.offset_left = -(m.z + 42.0)
+	_star.offset_right = -(m.z + 16.0)
+	_star.offset_top = m.y + 61.0
+	_star.offset_bottom = m.y + 87.0
+
+
+func _apply_standard_layout(m: Vector4, viewport_width: float) -> void:
+	_dirty.add_theme_font_size_override("font_size", PaperKit.FONT_BIG)
+	_clean.add_theme_font_size_override("font_size", PaperKit.FONT_BIG)
+	_respect.add_theme_font_size_override("font_size", PaperKit.FONT_BIG)
 
 	_dirty.offset_left = m.x + 26.0
 	_dirty.offset_right = -(m.z + 26.0)
@@ -183,17 +268,13 @@ func _apply_safe_area() -> void:
 	_guy.offset_top = m.y + 124.0
 	_guy.offset_bottom = m.y + 124.0 + PaperKit.FONT_SMALL + 12.0
 
-	_combo.offset_left = m.x
-	_combo.offset_right = -m.z
-	_combo.offset_top = m.y + 210.0
-	_combo.offset_bottom = m.y + 320.0
-	_modes.offset_left = m.x + 26.0
-	_modes.offset_right = -(m.z + 26.0)
-	_modes.offset_top = m.y + MODES_TOP
-	_modes.offset_bottom = m.y + MODES_TOP + MODE_H * 10.0
-	_charge.offset_right = -(m.z + 40.0)
-	_charge.offset_top = -(m.w + 46.0)
-	_charge.offset_bottom = -(m.w + 14.0)
+
+func compact_layout() -> bool:
+	return _compact
+
+
+func strip_rect() -> Rect2:
+	return _strip.get_rect() if _strip != null else Rect2()
 
 
 ## The mode lines. Nothing is laid out per-mode: they stack, and a line with no text takes
@@ -496,7 +577,8 @@ func _on_heat(v: float) -> void:
 func _on_respect(total: int) -> void:
 	var next := Game.respect_to_next_rank()
 	if next > 0:
-		_respect.text = "%d   (%d to %s)" % [total, next, Headlines.rank_title(Game.rank + 1)]
+		_respect.text = ("%d  ·  %d TO R%d" % [total, next, Game.rank + 1]) if _compact \
+				else "%d   (%d to %s)" % [total, next, Headlines.rank_title(Game.rank + 1)]
 	else:
 		_respect.text = str(total)
 

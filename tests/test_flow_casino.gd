@@ -365,8 +365,18 @@ func _heat_and_jackpot(t: TestCtx) -> void:
 	Game.casino.open_visit()
 	var clean_before := Game.wallet.clean
 	heat_before = Game.heat.value
+	var ceremonies: Array[Dictionary] = []
+	var ceremony_probe := func(source: StringName, amount: BigMoney, clean: bool) -> void:
+		ceremonies.append({"source": source, "amount": amount, "clean": clean})
+	Events.jackpot.connect(ceremony_probe)
 	var paid := Game.casino_reels([0, 1, 2])
+	Events.jackpot.disconnect(ceremony_probe)
 	t.ok(paid.is_positive(), "the Jackpot pays: %s" % paid.text())
+	t.eq(ceremonies.size(), 1, "the paid reels publish one Jackpot ceremony")
+	t.eq(ceremonies[0]["source"], &"slot_reels", "the ceremony names the reels")
+	t.ok((ceremonies[0]["amount"] as BigMoney).equals_approx(paid),
+			"the ceremony carries the exact clean payout")
+	t.ok(bool(ceremonies[0]["clean"]), "the Jackpot ceremony preserves clean-money meaning")
 	t.ok(Game.wallet.clean.equals_approx(clean_before.add(paid), 1e-6),
 			"clean, always — the Jackpot is not a bet")
 	t.near(Game.heat.value - heat_before, Casino.CasinoRules.JACKPOT_HEAT, 1e-6,

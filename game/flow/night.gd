@@ -1135,6 +1135,7 @@ func _on_backroom_entered() -> void:
 		var pay := Game.meeting.take_jackpot(Game.stats.idle_rate_total())
 		if pay.is_positive():
 			Game.earn_clean(pay, &"meeting")
+			Events.jackpot.emit(&"family_meeting", pay, true)
 			AudioDirector.play(&"meeting_jackpot")
 			_arpeggio([&"drop_bank_down", &"chime_c"], 0.08)
 		return
@@ -1681,6 +1682,7 @@ func _on_raid_finished(survived: bool) -> void:
 		_raid_payout = Game.wallet.dirty.mul(Game.RAID_CLEAN_PAYOUT)
 		Game.wallet.earn_clean(_raid_payout)
 		Game._book_lifetime_clean(_raid_payout)
+		Events.clean_earned.emit(_raid_payout, &"raid")
 		Game.career_raid_survived()
 		Game.add_respect(Game.RESPECT_RAID_SURVIVED, &"raid")
 		Game.mark_reveal_event(&"first_raid_survived")

@@ -404,8 +404,8 @@ func night_group_base_dirty(group: StringName) -> BigMoney:
 ## (`night_dirty − night_laundered == held dirty` is a load-bearing invariant in the sims).
 ## The Jobs board still counts it, because in the fiction the casino is a laundry (docs/03 §2).
 ##
-## `_source` labels the call site for readers; it is not published. `Events` is core and
-## frozen, and each M2 mode announces itself on its own signal above with its whole result.
+## `_source` labels the clean flight and lets presentation distinguish a casino win from a
+## boss purse without knowing either system's rules.
 func earn_clean(amount: BigMoney, _source: StringName = &"") -> BigMoney:
 	if amount == null or not amount.is_positive():
 		return BigMoney.zero()
@@ -413,6 +413,7 @@ func earn_clean(amount: BigMoney, _source: StringName = &"") -> BigMoney:
 	night_clean = night_clean.add(amount)
 	_book_lifetime_clean(amount)
 	jobs.on_launder(amount)
+	Events.clean_earned.emit(amount, _source)
 	return amount
 
 
@@ -582,6 +583,7 @@ func casino_reels(cleared_columns: Array) -> BigMoney:
 		meeting_changed.emit(meeting.active, meeting.lit)
 	casino_resolved.emit({"jackpot": true, "paid": paid, "clean": true,
 			"jackpots": casino.night_jackpots})
+	Events.jackpot.emit(&"slot_reels", paid, true)
 	return paid
 
 
@@ -850,6 +852,7 @@ func rico_finished(survived: bool, insured: bool = false) -> Dictionary:
 		var payout := wallet.dirty.mul(RICO_CLEAN_PAYOUT)
 		wallet.earn_clean(payout)
 		_book_lifetime_clean(payout)
+		Events.clean_earned.emit(payout, &"rico")
 		career_raid_survived()
 		result["payout"] = payout
 		add_respect(RESPECT_RICO_SURVIVED, &"rico")

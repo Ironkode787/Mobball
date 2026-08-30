@@ -34,6 +34,12 @@ signal raid_ended(survived: bool)
 signal job_assigned(id: String)
 signal job_completed(id: String, respect: int)
 signal laundered(amount: BigMoney)
+## Money paid clean at the source (casino, modes, boss purse). Laundering has its own signal
+## because it is a conversion and must remain distinguishable in both UI and accounting.
+signal clean_earned(amount: BigMoney, source: StringName)
+## A named clean-money ceremony. This is deliberately separate from `laundered`: a jackpot
+## never moved dirty money and must not alter the economy invariant behind The Count.
+signal jackpot(source: StringName, amount: BigMoney, clean: bool)
 signal combo_changed(count: int)
 signal skill_shot
 signal guy_pinched(guy: Dictionary)

@@ -54,6 +54,47 @@ func _run() -> void:
 		await _frames(30)
 	_check(Game.state == &"night", "START NIGHT launches the prepared Night (state=%s)" % Game.state)
 	await _shot("2_night")
+	var safe_content := Presentation.safe.content_rect()
+	_check(safe_content.size.x > 0.0 and safe_content.size.y > 0.0,
+			"asymmetric cutout leaves a positive safe content rectangle")
+	var feedback: Node = Presentation.feedback
+	_check(feedback != null and int(feedback.get("mouse_filter")) == Control.MOUSE_FILTER_IGNORE,
+			"gameplay feedback overlay can never intercept a phone touch")
+	var feedback_size: Vector2 = feedback.get("size") if feedback != null else Vector2.ZERO
+	_check(feedback_size.x > 0.0 and feedback_size.y > 0.0,
+			"gameplay feedback overlay fills the logical phone viewport (%s)" % feedback_size)
+	var hud: Node = main.get("hud")
+	var hud_strip: Rect2 = hud.call("strip_rect") if hud != null else Rect2()
+	_check(hud != null and bool(hud.call("compact_layout")),
+			"the tall phone uses the compact HUD")
+	_check(hud_strip.position.y >= safe_content.position.y - 1.0,
+			"unsafe top glass stays full-bleed instead of becoming black HUD padding")
+	_check(hud_strip.size.y <= GameHUD.COMPACT_STRIP_H + 1.0,
+			"the phone HUD obscures no more than one shallow two-row strip")
+	# Deterministic presentation fixture on the real Night: readable content must stay safe,
+	# while impact rings and edge atmosphere are allowed to bleed beneath rounded glass.
+	Presentation.fx.request(&"impact", {"screen_position": Vector2(536.0, 1040.0),
+			"strength": 1450.0})
+	Presentation.fx.request(&"currency", {"currency": &"dirty", "amount": BigMoney.of(275.0, 0),
+			"screen_position": Vector2(500.0, 1080.0)})
+	Presentation.fx.request(&"currency", {"currency": &"clean", "amount": BigMoney.of(90.0, 0),
+			"screen_position": Vector2(570.0, 1110.0)})
+	Presentation.fx.request(&"combo", {"count": 4})
+	await _frames(5)
+	_check(int(feedback.call("active_count")) == 4,
+			"hit/combo/currency fixture stays inside the bounded pool")
+	_check(Presentation.budget.count(&"emitters") <= GameplayFeedback.MAX_EFFECTS,
+			"live phone fixture respects the emitter budget")
+	await _shot("2a_feedback_hits")
+	feedback.call("clear")
+	Presentation.fx.request(&"jackpot", {"source": &"slot_reels",
+			"amount": BigMoney.of(125.0, 3), "clean": true})
+	Presentation.fx.haptic(&"jackpot", 1.0)
+	await _frames(5)
+	await _shot("2b_feedback_jackpot")
+	feedback.call("clear")
+	_check(Presentation.budget.count(&"emitters") == 0,
+			"phone fixture teardown returns every emitter token")
 
 	# Reach The Count fast: force-drain the guys (programmatic — input is not under test here).
 	for i in 6:
@@ -66,6 +107,8 @@ func _run() -> void:
 			ball.linear_velocity = Vector2(0, 400)
 		await _frames(90)
 	_check(Game.state == &"count", "the Night reached The Count (state=%s)" % Game.state)
+	_check(Presentation.budget.count(&"emitters") == 0,
+			"leaving the Night clears gameplay effects before The Count")
 	await _shot("3_count")
 	_check_visible_buttons_inside_safe(get_tree().root, "THE COUNT")
 	var count_screen: Node = main.get("count")

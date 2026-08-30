@@ -157,6 +157,17 @@ func _idle_and_laundering(t: TestCtx) -> void:
 	t.ok(Game.wallet.clean.equals_approx(washed), "into clean")
 	t.ok(Game.night_laundered.equals_approx(washed), "and books it for The Count")
 
+	var direct_clean: Array[Dictionary] = []
+	var clean_probe := func(amount: BigMoney, source: StringName) -> void:
+		direct_clean.append({"amount": amount, "source": source})
+	Events.clean_earned.connect(clean_probe)
+	var direct := Game.earn_clean(BigMoney.from_float(10.0), &"test_reward")
+	Events.clean_earned.disconnect(clean_probe)
+	t.eq(direct_clean.size(), 1, "direct clean money announces one presentation flight")
+	t.eq(direct_clean[0]["source"], &"test_reward", "the clean flight keeps its semantic source")
+	t.ok((direct_clean[0]["amount"] as BigMoney).equals_approx(direct),
+			"the clean flight carries the amount that reached the wallet")
+
 	# The per-Night cap counts what has already been washed tonight.
 	var cap_left := Game.launder_cap_left()
 	t.ok(not cap_left.is_positive(), "with no laundromat bought there is no allowance")

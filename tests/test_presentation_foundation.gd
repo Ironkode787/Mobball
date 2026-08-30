@@ -7,6 +7,7 @@ func run(t: TestCtx) -> void:
 	_phase_one_assets(t)
 	_effect_bus(t)
 	_budget(t)
+	_gameplay_feedback(t)
 	_screen_transitions(t)
 
 
@@ -90,6 +91,60 @@ func _budget(t: TestCtx) -> void:
 	t.ok(budget.register(&"custom", 500), "unknown counters are observable but unbounded")
 	budget.reset()
 	t.eq(budget.count(&"custom"), 0, "reset clears accounting")
+
+
+func _gameplay_feedback(t: TestCtx) -> void:
+	var bus := EffectBus.new()
+	var budget := PresentationBudget.new()
+	var feedback := GameplayFeedback.new()
+	feedback.configure(bus, budget, Presentation.safe)
+	bus.reduced_motion = true
+	bus.reduced_flash = true
+	var body := Node2D.new()
+	body.position = Vector2(31.0, 47.0)
+	bus.request(&"impact", {"screen_position": body.position, "strength": 1200.0})
+	var snap := feedback.snapshot()
+	t.eq(int(snap["active_count"]), 1, "feedback renderer leases one pooled slot")
+	var first: Dictionary = snap["active"][0]
+	t.near(float(first["motion_scale"]), 0.0, 0.001,
+			"pooled renderer honors reduced motion")
+	t.near(float(first["flash_scale"]), 0.25, 0.001,
+			"pooled renderer honors reduced flash")
+	t.eq(body.position, Vector2(31.0, 47.0), "screen-space feedback does not mutate a source node")
+	feedback.clear()
+	t.eq(budget.count(&"emitters"), 0, "clearing feedback returns its whole emitter budget")
+
+	bus.reduced_motion = false
+	bus.reduced_flash = false
+	for i in GameplayFeedback.MAX_EFFECTS:
+		bus.request(&"mode", {"id": StringName("mode_%d" % i), "title": "MODE %d" % i})
+	t.eq(feedback.active_count(), GameplayFeedback.MAX_EFFECTS,
+			"feedback pool reaches its fixed capacity")
+	t.eq(budget.count(&"emitters"), GameplayFeedback.MAX_EFFECTS,
+			"every live slot owns exactly one budget token")
+	bus.request(&"rank", {"rank": 3, "title": "CAPO"})
+	t.eq(feedback.active_count(), GameplayFeedback.MAX_EFFECTS,
+			"ceremony overflow cannot grow the pool")
+	t.eq(int(feedback.snapshot()["dropped"]), 1, "ceremony overflow is observable")
+	t.eq(budget.count(&"emitters"), GameplayFeedback.MAX_EFFECTS,
+			"rejected allocation does not leak an over-limit count")
+	feedback.clear()
+	t.eq(budget.count(&"emitters"), 0, "pool teardown is idempotent")
+	feedback.clear()
+	t.eq(budget.count(&"emitters"), 0, "second teardown stays at zero")
+
+	bus.haptic(&"jackpot", 2.0)
+	var haptic: Dictionary = feedback.snapshot()["last_haptic"]
+	t.eq(haptic.get("pattern", &""), &"jackpot", "semantic haptic reaches the actuator")
+	t.near(float(haptic.get("strength", 0.0)), 1.0, 0.001, "haptic strength is clamped")
+	var margins := Vector4(56.0, 112.0, 72.0, 80.0)
+	var target := GameplayFeedback.destination_for(&"clean", Vector2(486.0, 864.0), margins)
+	t.ok(target.x >= margins.x and target.x <= 486.0 - margins.z,
+			"clean flight lands inside asymmetric horizontal safe bounds")
+	t.ok(target.y >= margins.y and target.y <= 864.0 - margins.w,
+			"clean flight lands inside asymmetric vertical safe bounds")
+	body.free()
+	feedback.free()
 
 
 func _screen_transitions(t: TestCtx) -> void:
