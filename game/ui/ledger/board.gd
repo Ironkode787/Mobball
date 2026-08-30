@@ -357,7 +357,8 @@ func center_on(id: String, animate: bool = true) -> void:
 		return
 	var target := size * 0.5 - (Vector2(_slots[id]) + Vector2(LedgerCard.W, LedgerCard.H) * 0.5) * _zoom
 	target = _clamp_pan(target)
-	if not animate or not is_inside_tree():
+	if not animate or not is_inside_tree() \
+			or (Presentation.fx != null and Presentation.fx.reduced_motion):
 		_pan = target
 		_apply_view()
 		return

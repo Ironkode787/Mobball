@@ -1535,6 +1535,11 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if Presentation.fx != null and Presentation.fx.reduced_flash:
+		if _show_clock != 0.0:
+			_show_clock = 0.0
+			queue_redraw()
+		return
 	_show_clock += delta
 	_show_redraw += delta
 	# Twelve redraws a second is enough for incandescent bulbs and keeps the vector table

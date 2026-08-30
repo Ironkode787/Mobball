@@ -195,6 +195,20 @@ const SPECIALISTS: PackedStringArray = [
 const VOICE_MOODS: PackedStringArray = ["greeting", "quip", "grumble"]
 const VOICE_DEFAULT_MOOD := &"quip"
 
+## The horns do not speak words; these captions are the actual dialogue. Keeping the line
+## beside the phrase-bank contract guarantees that every audible variant has a readable twin.
+const VOICE_SUBTITLES := {
+	"skids": ["Keep it moving.", "I know a shortcut.", "That was the shortcut."],
+	"big_sal": ["Sal's on the door.", "Nobody gets through me.", "I said nobody."],
+	"nussbaum": ["The books are balanced.", "Mostly balanced.", "Do not open that column."],
+	"rosa": ["Rosa brought the car.", "Try to keep the paint on it.", "That was new paint."],
+	"cohen": ["Counsel is present.", "Legally, that was excellent.", "Stop making this discoverable."],
+	"professor": ["Class is in session.", "Observe the angle.", "That was not the angle."],
+	"consigliere": ["We have an understanding.", "Make it look inevitable.", "This was not the understanding."],
+	"manny": ["Manny made the rounds.", "The till looked lonely.", "Everybody is suddenly honest."],
+	"eddie": ["Eddie has the wheel.", "Traffic is a suggestion.", "We may need another car."],
+}
+
 ## Wiseguys talk over each other; the mixer does not. One voice channel, and a new
 ## say() takes it from whoever had it.
 const VOICE_PITCH_JITTER := 0.012
@@ -415,6 +429,9 @@ func say(specialist: StringName, mood: StringName = VOICE_DEFAULT_MOOD) -> Audio
 		PITCH_MIN, PITCH_MAX)
 	if _speaker.is_inside_tree():
 		_speaker.play()
+	var lines: Array = VOICE_SUBTITLES.get(String(specialist), [])
+	if index >= 0 and index < lines.size() and Presentation != null and Presentation.fx != null:
+		Presentation.fx.subtitle(String(lines[index]), specialist)
 	return _speaker
 
 

@@ -12,6 +12,14 @@ var haptics_enabled := true
 var subtitles_enabled := true
 
 
+func motion_scale() -> float:
+	return 0.0 if reduced_motion else 1.0
+
+
+func flash_scale() -> float:
+	return 0.25 if reduced_flash else 1.0
+
+
 func request(kind: StringName, payload: Dictionary = {}) -> bool:
 	if kind == &"":
 		return false

@@ -2,6 +2,7 @@ extends Node
 ## Process-wide presentation services. No physics or economy code depends on this node.
 
 const GAMEPLAY_FEEDBACK := preload("res://game/presentation/gameplay_feedback.gd")
+const SUBTITLE_LAYER := preload("res://game/presentation/subtitle_layer.gd")
 
 const PHASE_ONE_ART := {
 	&"table.backglass.eastport": preload("res://assets/art/eastport/backglass.png"),
@@ -25,8 +26,11 @@ var art := ArtCatalog.new()
 var safe := PresentationSafeArea.new()
 var fx := EffectBus.new()
 var budget := PresentationBudget.new()
+var settings := PresentationSettings.new()
 var feedback_layer: CanvasLayer = null
 var feedback: Control = null
+var subtitle_layer: CanvasLayer = null
+var subtitles: Control = null
 
 var _last_impact_position := Vector2(-1.0, -1.0)
 var _mode_active: Dictionary = {}
@@ -44,6 +48,7 @@ func _ready() -> void:
 	add_child(safe)
 	add_child(fx)
 	add_child(budget)
+	settings.load_into(fx)
 	feedback_layer = CanvasLayer.new()
 	feedback_layer.name = "GameplayFeedbackLayer"
 	feedback_layer.layer = 50
@@ -52,6 +57,14 @@ func _ready() -> void:
 	feedback.name = "GameplayFeedback"
 	feedback.configure(fx, budget, safe)
 	feedback_layer.add_child(feedback)
+	subtitle_layer = CanvasLayer.new()
+	subtitle_layer.name = "SubtitleLayer"
+	subtitle_layer.layer = 70
+	add_child(subtitle_layer)
+	subtitles = SUBTITLE_LAYER.new()
+	subtitles.name = "Subtitles"
+	subtitles.configure(fx, safe)
+	subtitle_layer.add_child(subtitles)
 	_connect_gameplay_events()
 
 
@@ -91,6 +104,14 @@ func _connect_gameplay_events() -> void:
 		if Game.state == &"night":
 			fx.request(&"rank", {"rank": rank, "title": Headlines.rank_title(rank)})
 			fx.haptic(&"rank", 0.88))
+	Events.upgrade_purchased.connect(func(id: String, level: int) -> void:
+		if level != 1:
+			return
+		var definition := Upgrades.shared().def(id)
+		var specialist: Dictionary = definition.get("specialist", {})
+		var speaker := StringName(String(specialist.get("id", "")))
+		if not speaker.is_empty() and AudioDirector.SPECIALISTS.has(String(speaker)):
+			AudioDirector.say(speaker, &"greeting"))
 	Events.ball_drained.connect(func(ball: Node2D) -> void:
 		var at := _screen_position(ball)
 		fx.request(&"drain", {"screen_position": at})
@@ -113,6 +134,13 @@ func _connect_gameplay_events() -> void:
 	Events.tilted.connect(func() -> void:
 		fx.request(&"mode", {"id": &"tilt", "title": "TILT", "active": true})
 		fx.haptic(&"drain", 0.82))
+	Events.tilt_warning.connect(func(count: int, max_count: int) -> void:
+		fx.request(&"warning", {"title": "INSPECTOR WARNING  %d/%d" % [count, max_count]})
+		fx.haptic(&"warning", 0.58))
+	Game.heat.band_changed.connect(func(band: int) -> void:
+		if band >= 3:
+			fx.request(&"warning", {"title": "HEAT IS CLIMBING"})
+			fx.haptic(&"warning", 0.66))
 	Game.meeting_changed.connect(func(active: bool, _lit: bool) -> void:
 		_on_mode_state(&"meeting", "FAMILY MEETING", {"active": active}))
 	Game.smuggling_changed.connect(func(state: Dictionary) -> void:

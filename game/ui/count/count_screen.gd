@@ -10,6 +10,7 @@ extends CanvasLayer
 
 signal ledger_pressed
 signal next_night_pressed
+signal settings_pressed
 ## The Commission is asking (specs/m2-content.md §5). The next Night is the fight.
 signal boss_pressed
 ## The war room booked a job for the next Night (docs/05 §5): target, approach, inside man.
@@ -284,6 +285,11 @@ func _build() -> void:
 	next.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	next.pressed.connect(func() -> void: next_night_pressed.emit())
 	_buttons.add_child(next)
+
+	var settings_button := PaperKit.button("HOUSE RULES", PaperKit.FONT_SMALL, Feel.COL_BRASS)
+	settings_button.name = "SettingsButton"
+	settings_button.pressed.connect(func() -> void: settings_pressed.emit())
+	outer.add_child(settings_button)
 
 
 ## THE COMMISSION. The ☆ are in the bank and a rival family wants a word: the next Night is
@@ -699,6 +705,9 @@ func _on_bail(guy: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
+	if _reduced_motion() and not finished():
+		skip()
+		return
 	if _headline_revealing:
 		_advance_headline(delta)
 		return

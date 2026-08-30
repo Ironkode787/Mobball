@@ -139,7 +139,8 @@ func _physics_process(delta: float) -> void:
 		lo = hi
 	if target == null or not is_instance_valid(target):
 		var home := clampf(static_center.y, lo, hi)
-		position = position.lerp(Vector2(static_center.x, home),
+		var home_position := Vector2(static_center.x, home)
+		position = home_position if _reduced_motion() else position.lerp(home_position,
 				1.0 - exp(-follow_smooth * delta))
 		return
 	var ball_y := target.global_position.y
@@ -149,7 +150,13 @@ func _physics_process(delta: float) -> void:
 				-LOOKAHEAD_MAX, LOOKAHEAD_MAX)
 	var wanted := clampf(ball_y + lead, look_limit(ball_y, lo, hi), hi)
 	var smooth := follow_smooth_down if wanted > position.y else follow_smooth
-	position = position.lerp(Vector2(static_center.x, wanted), 1.0 - exp(-smooth * delta))
+	var wanted_position := Vector2(static_center.x, wanted)
+	position = wanted_position if _reduced_motion() else position.lerp(wanted_position,
+			1.0 - exp(-smooth * delta))
+
+
+func _reduced_motion() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_motion
 
 
 ## Rule 2 in one number: the highest the camera is allowed to look given where the ball is.

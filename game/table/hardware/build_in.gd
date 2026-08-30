@@ -41,7 +41,7 @@ func _ready() -> void:
 func start(node: Node2D) -> void:
 	if node == null or not is_instance_valid(node):
 		return
-	if not enabled:
+	if not enabled or (Presentation.fx != null and Presentation.fx.reduced_motion):
 		node.modulate.a = 1.0
 		return
 	for i in range(_jobs.size() - 1, -1, -1):

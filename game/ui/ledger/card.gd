@@ -97,6 +97,11 @@ func is_glinting() -> bool:
 
 
 func _process(delta: float) -> void:
+	if Presentation.fx != null and Presentation.fx.reduced_motion:
+		_pulse = 0.0
+		set_process(false)
+		queue_redraw()
+		return
 	_pulse = fmod(_pulse + delta * 1.6, TAU)
 	queue_redraw()
 

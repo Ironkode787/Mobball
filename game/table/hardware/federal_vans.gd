@@ -46,6 +46,11 @@ func is_active() -> bool:
 
 
 func _process(delta: float) -> void:
+	if Presentation.fx != null and Presentation.fx.reduced_flash:
+		if _sweep != 0.0:
+			_sweep = 0.0
+			queue_redraw()
+		return
 	_sweep = fmod(_sweep + delta, SWEEP_PERIOD)
 	queue_redraw()
 
@@ -56,7 +61,8 @@ func _draw() -> void:
 	for i in range(VAN_AT.size()):
 		var at: Vector2 = VAN_AT[i]
 		# the two lights walk in opposite directions, so the block is never dark on one side
-		var phase := _sweep / SWEEP_PERIOD * TAU + (PI if i == 1 else 0.0)
+		var phase := (0.0 if Presentation.fx != null and Presentation.fx.reduced_flash \
+				else _sweep / SWEEP_PERIOD * TAU) + (PI if i == 1 else 0.0)
 		_draw_beam(at + Vector2(0.0, -VAN_SIZE.y * 0.5), sin(phase) * deg_to_rad(SWEEP_DEG))
 		_draw_van(at)
 

@@ -24,6 +24,7 @@ const AUTO_COLLECT_FLASH := 2.5
 ## Where the mode lines hang, and how tall each one is.
 const MODES_TOP := STRIP_H + 16.0
 const MODE_H := 34.0
+const MODE_ROWS := 11
 
 var night_controller: NightController = null
 
@@ -182,7 +183,7 @@ func _apply_safe_area() -> void:
 	_modes.offset_left = m.x + 26.0
 	_modes.offset_right = -(m.z + 26.0)
 	_modes.offset_top = header_bottom + 12.0
-	_modes.offset_bottom = header_bottom + 12.0 + MODE_H * 10.0
+	_modes.offset_bottom = header_bottom + 12.0 + MODE_H * MODE_ROWS
 	_charge.offset_right = -(m.z + 40.0)
 	_charge.offset_top = -(m.w + 46.0)
 	_charge.offset_bottom = -(m.w + 14.0)
@@ -286,7 +287,7 @@ func _build_modes() -> void:
 	_modes.offset_left = 26.0
 	_modes.offset_right = -26.0
 	_modes.offset_top = MODES_TOP
-	_modes.offset_bottom = MODES_TOP + MODE_H * 10.0
+	_modes.offset_bottom = MODES_TOP + MODE_H * MODE_ROWS
 	_modes.add_theme_constant_override("separation", 2)
 	_modes.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_modes)

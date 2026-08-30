@@ -97,9 +97,11 @@ func _draw_lights(size: Vector2) -> void:
 	var dim := Color(Presentation.theme.brass.darkened(0.62), amount * 0.75)
 	for i in 8:
 		var x := size.x * (float(i) + 0.5) / 8.0
-		var pulse := lit if (i % 2 == int(amount * 10.0) % 2) else dim
-		draw_circle(Vector2(x, size.y * 0.12), 10.0 + 3.0 * amount, pulse)
-		draw_circle(Vector2(x, size.y * 0.88), 10.0 + 3.0 * amount, pulse)
+		var static_lights := Presentation.fx != null and Presentation.fx.reduced_flash
+		var pulse := dim if static_lights else (lit if (i % 2 == int(amount * 10.0) % 2) else dim)
+		var radius := 10.0 if static_lights else 10.0 + 3.0 * amount
+		draw_circle(Vector2(x, size.y * 0.12), radius, pulse)
+		draw_circle(Vector2(x, size.y * 0.88), radius, pulse)
 
 
 func _draw_receipt(size: Vector2) -> void:

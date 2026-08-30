@@ -14,7 +14,7 @@ better than a lucky one.**
 | Input | Action | Notes |
 |-------|--------|-------|
 | Touch left / right half (bottom ~70% of screen) | Left / right flipper(s) | Multi-touch; hold to trap. A quick horizontal drag begun in a flipper zone adds one L/R nudge without consuming the hold or release. Upper mini-flippers ride the same sides — one thumb per side, always |
-| Short swipe up on launch lane | Plunger ("The Drop-Off") | Starter hardware offers three coarse pull bands; Real Plunger keeps continuous charge/detents |
+| Pull down / release in launch lane | Plunger ("The Drop-Off") | Starter hardware offers three forgiving pull bands; Real Plunger keeps continuous charge/detents |
 | Flick upper field / tap top corners | **Lean** (nudge) L/R/up | Quick horizontal/upward flicks classify once per touch; corner taps fire immediately. Also accelerometer option. Costs Inspector patience (see §5) |
 | Hold both flippers 1.5s while ball is trapped | **Case the Joint** (aim mode) | Slows time slightly, shows a faint chalk trajectory line if The Planner is hired ([04](04-UPGRADE-TREE.md)) |
 | Two-finger tap | **Union Break** (bullet time, if unlocked) | 3s slow-mo, long cooldown — late-game skill tool |

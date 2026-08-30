@@ -5,6 +5,7 @@ extends RefCounted
 func run(t: TestCtx) -> void:
 	_warnings(t)
 	_decay(t)
+	_decay_is_not_a_warning(t)
 	_reset(t)
 	_defaults(t)
 
@@ -49,6 +50,19 @@ func _decay(t: TestCtx) -> void:
 	t.ok(tilted_meter.tilted, "meter tilted")
 	t.ok(not tilted_meter.advance(100.0), "a tilt never decays away on its own")
 	t.ok(tilted_meter.tilted, "still tilted after a long wait")
+
+
+func _decay_is_not_a_warning(t: TestCtx) -> void:
+	var controller := NudgeController.new()
+	controller.meter = TiltMeter.new(3, 0.1)
+	controller.meter.lean()
+	var warnings: Array[int] = []
+	var heard := func(count: int, _max_count: int) -> void: warnings.append(count)
+	Events.tilt_warning.connect(heard)
+	controller._physics_process(0.11)
+	Events.tilt_warning.disconnect(heard)
+	t.eq(warnings.size(), 0, "suspicion decay never replays a warning banner or haptic")
+	controller.free()
 
 
 func _reset(t: TestCtx) -> void:

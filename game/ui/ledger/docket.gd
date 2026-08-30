@@ -195,7 +195,7 @@ func is_open() -> bool:
 func _slide_to(v: float) -> void:
 	if _tween != null and _tween.is_valid():
 		_tween.kill()
-	if not is_inside_tree():
+	if not is_inside_tree() or (Presentation.fx != null and Presentation.fx.reduced_motion):
 		_set_slide(v)
 		return
 	_tween = create_tween()

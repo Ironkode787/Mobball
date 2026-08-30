@@ -59,7 +59,8 @@ func nudge(dir_name: StringName) -> bool:
 		for b in live:
 			b.kick(dir * Feel.NUDGE_IMPULSE)
 	# camera moves *with* the impulse so the cabinet appears to jump the other way
-	_offset_vel += dir * Feel.NUDGE_VISUAL_OFFSET * sqrt(Feel.NUDGE_SPRING)
+	if Presentation.fx == null or not Presentation.fx.reduced_motion:
+		_offset_vel += dir * Feel.NUDGE_VISUAL_OFFSET * sqrt(Feel.NUDGE_SPRING)
 	AudioDirector.play(&"nudge_thump")
 	Events.nudged.emit(dir)
 
@@ -82,11 +83,19 @@ func clear_tilt() -> void:
 
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
-	if meter.advance(delta):
-		Events.tilt_warning.emit(meter.warnings, meter.max_warnings)
+	# Decay is relief, not a fresh warning. Re-emitting here used to replay the Inspector
+	# banner/haptic as suspicion fell, including a nonsensical 0/3 warning.
+	meter.advance(delta)
 
 
 func _process(delta: float) -> void:
+	if Presentation.fx != null and Presentation.fx.reduced_motion:
+		if _offset != Vector2.ZERO or _offset_vel != Vector2.ZERO:
+			_offset = Vector2.ZERO
+			_offset_vel = Vector2.ZERO
+			_apply_shake()
+			shake_changed.emit(_offset)
+		return
 	if _offset == Vector2.ZERO and _offset_vel == Vector2.ZERO:
 		return
 	var accel := -_offset * Feel.NUDGE_SPRING - _offset_vel * Feel.NUDGE_DAMP

@@ -35,6 +35,19 @@ func _run() -> void:
 	await _frames(40)
 	await _shot("1_attract")
 	_check_visible_buttons_inside_safe(get_tree().root, "ATTRACT")
+	var house_rules := _find_button(get_tree().root, "HOUSE RULES")
+	_check(house_rules != null, "HOUSE RULES is reachable from the front door")
+	if house_rules != null:
+		await _tap(house_rules)
+		await _frames(8)
+		_check(main.get("settings_sheet") != null, "HOUSE RULES opens the real settings sheet")
+		_check_visible_buttons_inside_safe(get_tree().root, "HOUSE RULES")
+		await _shot("1a_house_rules")
+		var done := _find_button(get_tree().root, "DONE")
+		_check(done != null, "settings sheet has a safe DONE control")
+		if done != null:
+			await _tap(done)
+			await _frames(5)
 
 	# ATTRACT → ROLL CALL via a real touch on ROLL CALL, then start the prepared Night.
 	var roll := _find_button(get_tree().root, "ROLL CALL")
@@ -71,6 +84,29 @@ func _run() -> void:
 			"unsafe top glass stays full-bleed instead of becoming black HUD padding")
 	_check(hud_strip.size.y <= GameHUD.COMPACT_STRIP_H + 1.0,
 			"the phone HUD obscures no more than one shallow two-row strip")
+	var coach: Node = main.get("onboarding")
+	_check(coach != null, "the first Night installs the live onboarding coach")
+	if coach != null:
+		var coach_rect: Rect2 = coach.call("card_rect")
+		_check(safe_content.grow(1.0).encloses(coach_rect),
+				"the first-Night coach clears cutouts and curved corners")
+		_check(bool(coach.call("touch_transparent")),
+				"the first-Night coach never intercepts a flipper touch")
+		_check(coach_rect.end.x < InputController.LANE_ZONE_LEFT,
+				"the first-Night coach leaves the shooter lane visible")
+		_check(coach_rect.end.y < 1520.0,
+				"the first-Night coach stays above the flipper control region")
+		await _pull_launch_lane()
+		await _frames(15)
+		_check(coach.call("stage") == &"flip",
+				"the advertised pull-down gesture launches and advances the coach")
+		Events.dirty_earned.emit(BigMoney.of(1.0, 0), &"probe")
+		await _frames(2)
+		_check(coach.call("stage") == &"earn",
+				"the first real earning event advances the coach")
+		_check(not String(coach.call("message")).contains("LUCKY"),
+				"Night 1 never advertises the still-locked laundromat")
+	feedback.call("clear")
 	# Deterministic presentation fixture on the real Night: readable content must stay safe,
 	# while impact rings and edge atmosphere are allowed to bleed beneath rounded glass.
 	Presentation.fx.request(&"impact", {"screen_position": Vector2(536.0, 1040.0),
@@ -85,6 +121,13 @@ func _run() -> void:
 			"hit/combo/currency fixture stays inside the bounded pool")
 	_check(Presentation.budget.count(&"emitters") <= GameplayFeedback.MAX_EFFECTS,
 			"live phone fixture respects the emitter budget")
+	var sensory := SensoryAudit.snapshot(get_tree().root, Presentation.budget)
+	print("  sensory budget: ", sensory["measured"])
+	var hard_violations: Dictionary = sensory["violations"].duplicate(true)
+	hard_violations.erase(&"draw_calls")
+	_check(hard_violations.is_empty(), "live Night stays inside light/emitter/audio budgets")
+	_check(int(sensory["measured"][&"draw_calls"]) > 0,
+			"live renderer publishes a draw-call baseline for the M4 optimization gate")
 	await _shot("2a_feedback_hits")
 	feedback.call("clear")
 	Presentation.fx.request(&"jackpot", {"source": &"slot_reels",
@@ -109,6 +152,13 @@ func _run() -> void:
 	_check(Game.state == &"count", "the Night reached The Count (state=%s)" % Game.state)
 	_check(Presentation.budget.count(&"emitters") == 0,
 			"leaving the Night clears gameplay effects before The Count")
+	AudioDirector.say(&"nussbaum", &"quip")
+	await _frames(3)
+	var subtitle_snap: Dictionary = Presentation.subtitles.call("snapshot")
+	_check(bool(subtitle_snap.get("visible", false)),
+			"real specialist audio renders its authored subtitle")
+	_check(safe_content.grow(1.0).encloses(subtitle_snap.get("rect", Rect2())),
+			"subtitle strip clears asymmetric cutouts and rounded corners")
 	await _shot("3_count")
 	_check_visible_buttons_inside_safe(get_tree().root, "THE COUNT")
 	var count_screen: Node = main.get("count")
@@ -176,6 +226,16 @@ func _run() -> void:
 	_check(bool(table2.call("hardware_present", &"bumper_2")),
 			"RESTART: the bought bumper is back on the fresh table")
 	await _shot("6_restart")
+	var roll_again := _find_button(get_tree().root, "ROLL CALL")
+	if roll_again != null:
+		await _tap(roll_again)
+		await _frames(10)
+	var start_again := _find_button(get_tree().root, "START NIGHT")
+	if start_again != null:
+		await _tap(start_again)
+		await _frames(12)
+	_check(Game.night_no == 2 and main.get("onboarding") == null,
+			"Night 2 starts without replaying the first-Night coach")
 
 	print("DEVICE PROBE: %s" % ("OK" if failures == 0 else "%d FAILURES" % failures))
 	_clean_probe_save()
@@ -202,6 +262,30 @@ func _tap(c: Control) -> void:
 	var up := InputEventScreenTouch.new()
 	up.index = 0
 	up.position = screen_pos
+	up.pressed = false
+	Input.parse_input_event(up)
+	await _frames(6)
+
+
+func _pull_launch_lane() -> void:
+	var xform := get_viewport().get_final_transform()
+	var start := xform * Vector2(1010.0, 1430.0)
+	var finish := xform * Vector2(1010.0, 1730.0)
+	var down := InputEventScreenTouch.new()
+	down.index = 4
+	down.position = start
+	down.pressed = true
+	Input.parse_input_event(down)
+	await _frames(3)
+	var drag := InputEventScreenDrag.new()
+	drag.index = 4
+	drag.position = finish
+	drag.relative = finish - start
+	Input.parse_input_event(drag)
+	await _frames(3)
+	var up := InputEventScreenTouch.new()
+	up.index = 4
+	up.position = finish
 	up.pressed = false
 	Input.parse_input_event(up)
 	await _frames(6)

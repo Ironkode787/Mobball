@@ -19,6 +19,7 @@ const DURATIONS := {
 	&"jackpot": 1.48,
 	&"rank": 1.28,
 	&"boss": 1.18,
+	&"warning": 0.92,
 }
 
 const HAPTIC_DURATIONS := {
@@ -33,6 +34,7 @@ const HAPTIC_DURATIONS := {
 	&"jackpot": 175,
 	&"rank": 135,
 	&"boss": 105,
+	&"warning": 72,
 }
 
 var _bus: EffectBus = null
@@ -236,6 +238,7 @@ func _effect_text(kind: StringName, payload: Dictionary) -> String:
 			var phase := int(payload.get("phase", 1))
 			var phases := maxi(int(payload.get("phases", phase)), phase)
 			return "%s  ·  PHASE %d/%d" % [boss, phase, phases]
+		&"warning": return String(payload.get("title", "WARNING")).to_upper()
 		_: return String(payload.get("title", ""))
 
 
@@ -259,7 +262,7 @@ func _draw() -> void:
 			&"currency": _draw_currency(slot, p, alpha)
 			&"combo": _draw_combo(slot, p, alpha)
 			&"drain": _draw_drain(slot, p, alpha)
-			&"pinch", &"bail", &"mode", &"jackpot", &"rank", &"boss", &"launder":
+			&"pinch", &"bail", &"mode", &"jackpot", &"rank", &"boss", &"launder", &"warning":
 				_draw_banner(slot, p, alpha)
 
 

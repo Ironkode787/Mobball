@@ -7,6 +7,7 @@ extends CanvasLayer
 ## thing on screen — bag-drop sound, count, collect.
 
 signal start_pressed
+signal settings_pressed
 
 ## The attract screen is deliberately a presentation-only layer. The live table remains
 ## behind it (and remains the source of truth for the cabinet), while this little marquee
@@ -39,6 +40,11 @@ class _CabinetReveal extends Control:
 
 	func _reduced_motion() -> bool:
 		return Presentation.fx != null and Presentation.fx.reduced_motion
+
+
+	func _static_bulbs() -> bool:
+		return Presentation.fx != null \
+				and (Presentation.fx.reduced_motion or Presentation.fx.reduced_flash)
 
 
 	func _draw() -> void:
@@ -74,7 +80,7 @@ class _CabinetReveal extends Control:
 	func _draw_bulb(at: Vector2, index: int, reveal: float) -> void:
 		var hot := false
 		var neighbour := false
-		if _reduced_motion():
+		if _static_bulbs():
 			# A static alternating pattern is the reduced-motion equivalent of the chase.
 			hot = posmod(index, 2) == 0
 		else:
@@ -183,6 +189,11 @@ func _ready() -> void:
 	cta.add_child(PaperKit.label("TAKE YOUR PLACE AT FIFTH STREET", PaperKit.FONT_SMALL,
 			Feel.COL_BRASS, HORIZONTAL_ALIGNMENT_CENTER))
 	cta.add_child(start)
+	var settings_button := PaperKit.button("HOUSE RULES", PaperKit.FONT_SMALL, Feel.COL_BRASS)
+	settings_button.name = "SettingsButton"
+	settings_button.custom_minimum_size.y = Presentation.theme.touch_min
+	settings_button.pressed.connect(func() -> void: settings_pressed.emit())
+	cta.add_child(settings_button)
 	col.add_child(cta)
 
 	Game.safe_changed.connect(_on_safe_changed)

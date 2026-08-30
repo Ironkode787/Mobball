@@ -6,6 +6,7 @@ func run(t: TestCtx) -> void:
 	_art_catalog(t)
 	_phase_one_assets(t)
 	_effect_bus(t)
+	_presentation_settings(t)
 	_budget(t)
 	_gameplay_feedback(t)
 	_screen_transitions(t)
@@ -77,6 +78,31 @@ func _effect_bus(t: TestCtx) -> void:
 	t.ok(not bus.haptic(&"flip"), "disabled haptics suppress requests")
 	bus.subtitles_enabled = false
 	t.ok(not bus.subtitle("A line", &"manny"), "disabled subtitles suppress requests")
+	t.near(bus.motion_scale(), 0.0, 0.001, "reduced motion exposes one shared policy scale")
+	t.near(bus.flash_scale(), 0.25, 0.001, "reduced flash exposes one shared policy scale")
+
+
+func _presentation_settings(t: TestCtx) -> void:
+	var path := "user://phase4_presentation_test.cfg"
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+	var bus := EffectBus.new()
+	var settings := PresentationSettings.new(path)
+	t.ok(settings.set_toggle(&"reduced_motion", true, bus),
+			"accessibility toggle persists through ConfigFile")
+	t.ok(settings.set_toggle(&"reduced_flash", true, bus), "reduced flash persists")
+	t.ok(settings.set_toggle(&"haptics_enabled", false, bus), "haptic choice persists")
+	t.ok(settings.set_toggle(&"subtitles_enabled", false, bus), "subtitle choice persists")
+	t.ok(bus.reduced_motion and bus.reduced_flash, "saved sensory choices apply immediately")
+	t.ok(not bus.haptics_enabled and not bus.subtitles_enabled,
+			"saved channel choices apply immediately")
+	var loaded := PresentationSettings.new(path)
+	var loaded_bus := EffectBus.new()
+	loaded.load_into(loaded_bus)
+	t.eq(loaded.snapshot()["reduced_motion"], true, "reduced motion survives process restart")
+	t.eq(loaded.snapshot()["subtitles_enabled"], false, "subtitles survive process restart")
+	t.ok(not loaded.set_toggle(&"unknown", true, loaded_bus), "unknown settings fail closed")
+	DirAccess.remove_absolute(path)
 
 
 func _budget(t: TestCtx) -> void:

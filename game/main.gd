@@ -28,7 +28,9 @@ var attract: AttractScreen = null
 var count: CountScreen = null
 var roll_call: RollCallScreen = null
 var ledger: Node = null
+var settings_sheet: SettingsSheet = null
 var night: NightController = null
+var onboarding: OnboardingCoach = null
 
 const TABLE_SCENE := preload("res://game/table/table_main.tscn")
 const LEDGER_SCENE_PATH := "res://game/ui/ledger/ledger.tscn"
@@ -201,6 +203,7 @@ func _want_attract(on: bool) -> void:
 	attract = AttractScreen.new()
 	attract.name = "Attract"
 	attract.start_pressed.connect(func() -> void: Game.open_roll_call())
+	attract.settings_pressed.connect(_open_settings)
 	add_child(attract)
 
 
@@ -222,6 +225,9 @@ func _want_night(on: bool) -> void:
 	if on == (night != null and is_instance_valid(night)):
 		return
 	if not on:
+		if onboarding != null and is_instance_valid(onboarding):
+			onboarding.queue_free()
+		onboarding = null
 		night.stop()
 		night.queue_free()
 		night = null
@@ -238,6 +244,10 @@ func _want_night(on: bool) -> void:
 		hud.night_controller = night
 		hud.refresh()
 	night.start()
+	if Game.night_no == 1:
+		onboarding = OnboardingCoach.new()
+		onboarding.name = "FirstNightCoach"
+		add_child(onboarding)
 
 
 func _want_count(on: bool) -> void:
@@ -255,7 +265,24 @@ func _want_count(on: bool) -> void:
 	count.heist_pressed.connect(func(target: StringName, approach: StringName,
 			guy: Dictionary) -> void: Game.start_heist_night(target, approach, guy))
 	count.skip_town_pressed.connect(func(keep: Dictionary) -> void: Game.skip_town(keep))
+	count.settings_pressed.connect(_open_settings)
 	add_child(count)
+
+
+func _open_settings() -> void:
+	if settings_sheet != null and is_instance_valid(settings_sheet):
+		return
+	settings_sheet = SettingsSheet.new()
+	settings_sheet.name = "Settings"
+	settings_sheet.closed.connect(_close_settings)
+	add_child(settings_sheet)
+
+
+func _close_settings() -> void:
+	if settings_sheet == null or not is_instance_valid(settings_sheet):
+		return
+	settings_sheet.queue_free()
+	settings_sheet = null
 
 
 ## The Ledger belongs to the meta lane. Until it lands, opening it is a no-op that bounces

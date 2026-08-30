@@ -428,7 +428,9 @@ func _draw() -> void:
 		brass = brass.lerp(Feel.COL_DIRTY, 0.55).darkened(0.25)
 	elif _telegraph > 0.0:
 		# the wrench gag: the bat rattles a warning before the linkage goes
-		brass = brass.lerp(Feel.COL_DIRTY, 0.35 * (0.5 + 0.5 * sin(_clock * 26.0)))
+		var warning_phase := 0.5 if Presentation.fx != null and Presentation.fx.reduced_flash \
+				else 0.5 + 0.5 * sin(_clock * 26.0)
+		brass = brass.lerp(Feel.COL_DIRTY, 0.35 * warning_phase)
 	var body := PackedVector2Array([
 		Vector2(0.0, -rp), Vector2(l, -rt), Vector2(l, rt), Vector2(0.0, rp),
 	])
