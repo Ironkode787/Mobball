@@ -34,6 +34,7 @@ func _spawn_main() -> Node:
 func _run() -> void:
 	await _frames(40)
 	await _shot("1_attract")
+	_check_visible_buttons_inside_safe(get_tree().root, "ATTRACT")
 
 	# ATTRACT → ROLL CALL via a real touch on ROLL CALL, then start the prepared Night.
 	var roll := _find_button(get_tree().root, "ROLL CALL")
@@ -44,6 +45,7 @@ func _run() -> void:
 		await _frames(30)
 	_check(Game.state == &"roll_call", "touch on ROLL CALL opens Roll Call (state=%s)" % Game.state)
 	await _shot("1b_roll_call")
+	_check_visible_buttons_inside_safe(get_tree().root, "ROLL CALL")
 	var start_night := _find_button(get_tree().root, "START NIGHT")
 	_check(start_night != null, "START NIGHT button exists on Roll Call")
 	if start_night != null:
@@ -65,6 +67,7 @@ func _run() -> void:
 		await _frames(90)
 	_check(Game.state == &"count", "the Night reached The Count (state=%s)" % Game.state)
 	await _shot("3_count")
+	_check_visible_buttons_inside_safe(get_tree().root, "THE COUNT")
 
 	# COUNT → LEDGER via a real touch on THE LEDGER. This is the user's bug report.
 	var ledger_btn := _find_button(get_tree().root, "THE LEDGER")
@@ -79,6 +82,7 @@ func _run() -> void:
 			and overlay.get("visible") == true
 	_check(overlay_visible, "the Ledger overlay exists and is visible")
 	await _shot("4_ledger")
+	_check_visible_buttons_inside_safe(get_tree().root, "THE LEDGER")
 
 	# PINCH ZOOM (device request): two fingers diverging over the board must zoom in,
 	# maps-style. Raw ScreenTouch/Drag events through the full pipeline.
@@ -213,8 +217,21 @@ func _check(cond: bool, msg: String) -> void:
 func _check_inside_safe(control: Control, label: String) -> void:
 	var safe := Presentation.safe.content_rect()
 	var rect := control.get_global_rect()
-	_check(safe.encloses(rect), "%s stays inside safe content %s (got %s)" % [
+	# Containers may land on fractional pixels; the one-pixel tolerance is raster rounding,
+	# not permission to put controls under curved glass.
+	_check(safe.grow(1.0).encloses(rect), "%s stays inside safe content %s (got %s)" % [
 			label, safe, rect])
+
+
+func _check_visible_buttons_inside_safe(node: Node, scope: String) -> void:
+	if node is Button and (node as Button).is_visible_in_tree():
+		var button := node as Button
+		var rect := button.get_global_rect()
+		var viewport_rect := get_viewport().get_visible_rect()
+		if rect.size.x > 0.0 and rect.size.y > 0.0 and viewport_rect.intersects(rect):
+			_check_inside_safe(button, "%s / %s" % [scope, button.text])
+	for child in node.get_children():
+		_check_visible_buttons_inside_safe(child, scope)
 
 
 func _shot(name: String) -> void:

@@ -34,7 +34,7 @@ var _font: Font = null
 
 
 func _ready() -> void:
-	_font = get_theme_default_font()
+	_font = Presentation.theme.font_for(&"annotation_bold")
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	custom_minimum_size = Vector2(W, H)
 	size = Vector2(W, H)

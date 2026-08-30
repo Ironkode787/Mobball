@@ -57,7 +57,7 @@ func _ready() -> void:
 	_build_safe(col)
 
 	var start := PaperKit.button("ROLL CALL", PaperKit.FONT_TITLE, Feel.COL_CLEAN)
-	start.custom_minimum_size.y = 78.0
+	start.custom_minimum_size.y = Presentation.theme.touch_min
 	start.pressed.connect(func() -> void: start_pressed.emit())
 	col.add_child(start)
 

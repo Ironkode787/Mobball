@@ -95,7 +95,7 @@ a madlib grammar over the Night's stats), **rap sheet** (stats screen as a case 
 | Marquee / logo | **Limelight** | deco theater marquee |
 | Headlines / numbers | **Six Caps** or **Bebas Neue** | tall condensed tabloid punch |
 | Newspaper masthead | **UnifrakturMaguntia** (or Chomsky, OFL, self-host) | blackletter masthead |
-| Case files / UI labels | **Special Elite** | typewriter |
+| Case files / UI labels | **Courier Prime** | typewriter; repository-local OFL static TTF |
 | Body / small print | **Libre Franklin** | the actual newspaper workhorse |
 | Handwriting (red pen) | **Caveat** | corkboard annotations |
 

@@ -2,6 +2,12 @@ class_name PresentationTheme
 extends Resource
 ## Semantic presentation tokens. Gameplay meaning stays stable across city skins.
 
+const FONT_OSWALD: Font = preload("res://assets/fonts/Oswald-SemiBold.ttf")
+const FONT_FRANKLIN: Font = preload("res://assets/fonts/LibreFranklin-Regular.ttf")
+const FONT_FRANKLIN_SEMIBOLD: Font = preload("res://assets/fonts/LibreFranklin-SemiBold.ttf")
+const FONT_COURIER: Font = preload("res://assets/fonts/CourierPrime-Regular.ttf")
+const FONT_COURIER_BOLD: Font = preload("res://assets/fonts/CourierPrime-Bold.ttf")
+
 @export var ink := Color("12100E")
 @export var newsprint := Color("F2E8D5")
 @export var felt := Color("1E3D2F")
@@ -21,11 +27,17 @@ extends Resource
 @export var touch_min := 96.0
 @export var rule_width := 3.0
 
-@export var display_font: Font = null
-@export var headline_font: Font = null
-@export var ui_font: Font = null
-@export var body_font: Font = null
-@export var annotation_font: Font = null
+@export var display_font: Font = FONT_OSWALD
+@export var headline_font: Font = FONT_OSWALD
+@export var ui_font: Font = FONT_FRANKLIN_SEMIBOLD
+@export var body_font: Font = FONT_FRANKLIN
+@export var annotation_font: Font = FONT_COURIER
+
+@export var size_display := 78
+@export var size_headline := 56
+@export var size_title := 44
+@export var size_body := 34
+@export var size_annotation := 28
 
 
 func color(role: StringName) -> Color:
@@ -46,6 +58,27 @@ func color(role: StringName) -> Color:
 
 func reserved_colors() -> Dictionary:
 	return {&"dirty": dirty, &"clean": clean, &"heat": heat, &"police": police}
+
+
+func font_for(role: StringName) -> Font:
+	match role:
+		&"display": return display_font
+		&"headline": return headline_font
+		&"ui": return ui_font
+		&"body": return body_font
+		&"annotation": return annotation_font
+		&"annotation_bold": return FONT_COURIER_BOLD
+		_: return body_font
+
+
+func size_for(role: StringName) -> int:
+	match role:
+		&"display": return size_display
+		&"headline": return size_headline
+		&"title": return size_title
+		&"body": return size_body
+		&"annotation": return size_annotation
+		_: return size_body
 
 
 static func defaults() -> PresentationTheme:

@@ -4,6 +4,7 @@ extends RefCounted
 func run(t: TestCtx) -> void:
 	_theme_and_city(t)
 	_art_catalog(t)
+	_phase_one_assets(t)
 	_effect_bus(t)
 	_budget(t)
 
@@ -15,6 +16,9 @@ func _theme_and_city(t: TestCtx) -> void:
 	t.eq(theme.color(&"felt"), Feel.COL_FELT, "default felt matches the live table")
 	t.eq(theme.reserved_colors().size(), 4, "four state colors are reserved")
 	t.eq(theme.color(&"not_a_role"), Color.TRANSPARENT, "unknown role is explicit")
+	for role: StringName in [&"display", &"headline", &"ui", &"body", &"annotation"]:
+		t.ok(theme.font_for(role) != null, "%s production font is loaded" % role)
+	t.eq(theme.size_for(&"body"), 34, "body type token")
 	var city := CitySkin.eastport()
 	t.eq(city.id, &"eastport", "default city skin")
 	t.eq(city.felt, Feel.COL_FELT, "city skin begins without a visual jump")
@@ -35,6 +39,22 @@ func _art_catalog(t: TestCtx) -> void:
 	t.eq(catalog.resolve(&"prop.trash_can"), texture, "semantic lookup resolves")
 	catalog.unregister(&"prop.trash_can")
 	t.ok(not catalog.has(&"prop.trash_can"), "unregister restores procedural fallback")
+
+
+func _phase_one_assets(t: TestCtx) -> void:
+	var ids: Array[StringName] = [
+		&"table.backglass.eastport", &"ui.count_room_plate", &"prop.trash_can",
+		&"prop.bicycle_spinner", &"prop.payphone_bank", &"ui.job_board",
+		&"front.laundromat", &"front.pizzeria", &"front.pawn",
+		&"mugshot.starter_01", &"mugshot.starter_02", &"mugshot.starter_03",
+		&"mugshot.starter_04",
+	]
+	for id in ids:
+		t.ok(Presentation.art.has(id), "%s is registered" % id)
+	var touch := PaperKit.button("TEST")
+	t.ok(touch.custom_minimum_size.y >= Presentation.theme.touch_min,
+			"production buttons meet the touch target")
+	touch.free()
 
 
 func _effect_bus(t: TestCtx) -> void:

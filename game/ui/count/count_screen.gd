@@ -67,6 +67,20 @@ func _build() -> void:
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
 
+	var room := TextureRect.new()
+	room.name = "CountRoomPlate"
+	room.texture = Presentation.art.resolve(&"ui.count_room_plate", null, false)
+	room.set_anchors_preset(Control.PRESET_FULL_RECT)
+	room.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	room.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	room.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(room)
+	var paper_wash := ColorRect.new()
+	paper_wash.color = Color(Feel.COL_NEWSPRINT, 0.34)
+	paper_wash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	paper_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(paper_wash)
+
 	_content_margin = MarginContainer.new()
 	_content_margin.name = "SafeContent"
 	_content_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -482,6 +496,7 @@ func _build_roster() -> void:
 		var name_label := PaperKit.label("%s   ·  %s" % [String(guy["name"]), walks],
 				PaperKit.FONT_SMALL, Feel.COL_INK)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		row.add_child(name_label)
 		# Through `Game`, not the Bench: Cohen's discount is the session's, not the roster's.
 		var cost := Game.bail_cost(guy)
@@ -515,6 +530,7 @@ func _build_crew_strip() -> void:
 			who += "  (family meeting)"
 		var name_label := PaperKit.label(who, PaperKit.FONT_SMALL, Feel.COL_INK)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		row.add_child(name_label)
 		var trait_id := String(g.get("trait", ""))
 		row.add_child(PaperKit.label(GuyTraits.label(trait_id).to_upper(),

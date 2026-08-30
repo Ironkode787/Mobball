@@ -52,16 +52,16 @@ func _ready() -> void:
 func _ensure_button() -> void:
 	if _buy != null:
 		return
-	_font = get_theme_default_font()
+	_font = Presentation.theme.font_for(&"annotation_bold")
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_buy = Button.new()
-	_buy.custom_minimum_size = Vector2(340.0, 88.0)
+	_buy.custom_minimum_size = Vector2(340.0, 96.0)
 	_buy.add_theme_font_size_override("font_size", 28)
 	_buy.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	_buy.offset_left = -376.0
 	_buy.offset_right = -36.0
-	_buy.offset_top = -110.0
+	_buy.offset_top = -118.0
 	_buy.offset_bottom = -22.0
 	_buy.pressed.connect(func() -> void: buy_pressed.emit(_selected))
 	LedgerStyle.style_button(_buy, LedgerStyle.BRASS.darkened(0.1), LedgerStyle.INK)

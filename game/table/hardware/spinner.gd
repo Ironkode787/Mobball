@@ -17,6 +17,7 @@ const FRICTION := 25.0
 const MAX_SPEED := 78.0               ## rad/s — about 12 turns/s, 25 segments/s
 const SPEED_PER_PX := 0.055           ## ball speed (px/s) → blade speed (rad/s)
 const MIN_KICK := 6.0
+const CIRCULAR_DECAL: Shader = preload("res://game/presentation/circular_decal.gdshader")
 
 @export var id: StringName = &"spinner_numbers"
 
@@ -30,6 +31,7 @@ var _angle: float = 0.0
 var _vel: float = 0.0
 var _segment: int = 0
 var _ball: Ball = null
+var _decal: Sprite2D = null
 
 
 func configure(p_id: StringName, center: Vector2, p_lane_width: float) -> void:
@@ -40,6 +42,7 @@ func configure(p_id: StringName, center: Vector2, p_lane_width: float) -> void:
 
 
 func _ready() -> void:
+	_build_decal()
 	_area = Area2D.new()
 	_area.name = "Sensor"
 	_area.collision_layer = Feel.LAYER_ZONES
@@ -53,6 +56,21 @@ func _ready() -> void:
 	add_child(_area)
 	_area.body_entered.connect(_on_ball_entered)
 	_area.body_exited.connect(_on_ball_exited)
+
+
+func _build_decal() -> void:
+	var texture := Presentation.art.resolve(&"prop.bicycle_spinner", null, false)
+	if texture == null:
+		return
+	_decal = Sprite2D.new()
+	_decal.name = "BicycleWheelArt"
+	_decal.texture = texture
+	_decal.show_behind_parent = true
+	_decal.scale = Vector2.ONE * (blade_length * 1.45 / float(texture.get_width()))
+	var material := ShaderMaterial.new()
+	material.shader = CIRCULAR_DECAL
+	_decal.material = material
+	add_child(_decal)
 	_apply_collision()
 
 

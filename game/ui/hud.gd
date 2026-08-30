@@ -114,6 +114,12 @@ func _ready() -> void:
 	_charge.step = 0.001
 	_charge.show_percentage = false
 	_charge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var charge_bg := PaperKit.box(Color(Feel.COL_INK, 0.90), Feel.COL_BRASS.darkened(0.45), 2.0)
+	charge_bg.set_corner_radius_all(9)
+	var charge_fill := PaperKit.box(Feel.COL_BRASS, Feel.COL_NEWSPRINT.darkened(0.35), 2.0)
+	charge_fill.set_corner_radius_all(9)
+	_charge.add_theme_stylebox_override("background", charge_bg)
+	_charge.add_theme_stylebox_override("fill", charge_fill)
 	add_child(_charge)
 
 	_build_modes()

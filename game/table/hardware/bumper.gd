@@ -13,17 +13,21 @@ extends StaticBody2D
 ## satellites. Authored geometry is scaled directly so the skirt and visible lid agree.
 @export var size_scale: float = 1.0
 
+const CIRCULAR_DECAL: Shader = preload("res://game/presentation/circular_decal.gdshader")
+
 var _present: bool = true
 var _cooldown: float = 0.0
 var _pulse: float = 0.0
 var _inside: Array[Ball] = []
 var _ring: Area2D = null
+var _decal: Sprite2D = null
 
 
 func _ready() -> void:
 	collision_layer = Feel.LAYER_HARDWARE
 	collision_mask = 0
 	physics_material_override = Feel.make_material(Feel.RUBBER_FRICTION, 0.18)
+	_build_decal()
 
 	var body := CollisionShape2D.new()
 	var circle := CircleShape2D.new()
@@ -47,6 +51,22 @@ func _ready() -> void:
 	ring.body_exited.connect(_on_ball_exited)
 	_ring = ring
 	_apply_collision()
+
+
+func _build_decal() -> void:
+	var texture := Presentation.art.resolve(&"prop.trash_can", null, false)
+	if texture == null:
+		return
+	_decal = Sprite2D.new()
+	_decal.name = "TrashCanArt"
+	_decal.texture = texture
+	_decal.show_behind_parent = true
+	var diameter := Feel.BUMPER_RADIUS * size_scale * 2.12
+	_decal.scale = Vector2.ONE * (diameter / float(texture.get_width()))
+	var material := ShaderMaterial.new()
+	material.shader = CIRCULAR_DECAL
+	_decal.material = material
+	add_child(_decal)
 
 
 func _process(delta: float) -> void:
@@ -122,9 +142,14 @@ func _draw() -> void:
 	if _pulse > 0.0:
 		draw_circle(Vector2.ZERO, r + 15.0,
 				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, _pulse * 0.12))
-	draw_circle(Vector2.ZERO, r, Feel.COL_INK.lightened(0.05))
+	if _decal == null:
+		draw_circle(Vector2.ZERO, r, Feel.COL_INK.lightened(0.05))
 	draw_arc(Vector2.ZERO, r - 3.0, 0.0, TAU, 40,
 			Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _pulse * 0.62), 7.0)
+	if _decal != null:
+		draw_circle(Vector2.ZERO, r * 0.13,
+				Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _pulse * 0.45))
+		return
 	var steel := Feel.COL_NEWSPRINT.darkened(0.62).lerp(Feel.COL_BRASS, 0.20 + _pulse * 0.42)
 	draw_circle(Vector2.ZERO, r * 0.68, steel.darkened(0.26))
 	draw_arc(Vector2.ZERO, r * 0.62, 0.0, TAU, 32, steel, 4.0)

@@ -1,6 +1,6 @@
 class_name PaperKit
 extends RefCounted
-## Paperback-noir UI primitives (docs/07 §1 palette, default font, no art yet).
+## Paperback-noir UI primitives. Typography and controls resolve through Presentation.
 ##
 ## The M1 screens are functional, not finished: newsprint on ink, brass rules, reserved
 ## colors used only for what they mean. Everything is built in code so the .tscn files stay
@@ -24,6 +24,7 @@ static func label(text: String, size: int = FONT_BODY, color: Color = Feel.COL_N
 	var l := Label.new()
 	l.text = text
 	l.horizontal_alignment = align
+	l.add_theme_font_override("font", _font_for_label(size))
 	l.add_theme_color_override("font_color", color)
 	l.add_theme_font_size_override("font_size", size)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -34,6 +35,8 @@ static func label(text: String, size: int = FONT_BODY, color: Color = Feel.COL_N
 static func button(text: String, size: int = FONT_BIG, accent: Color = Feel.COL_BRASS) -> Button:
 	var b := Button.new()
 	b.text = text
+	b.add_theme_font_override("font", Presentation.theme.font_for(
+			&"headline" if size >= FONT_BIG else &"ui"))
 	b.add_theme_font_size_override("font_size", size)
 	b.add_theme_color_override("font_color", Feel.COL_NEWSPRINT)
 	b.add_theme_color_override("font_hover_color", accent)
@@ -43,7 +46,16 @@ static func button(text: String, size: int = FONT_BIG, accent: Color = Feel.COL_
 	b.add_theme_stylebox_override("pressed", box(accent, accent))
 	b.add_theme_stylebox_override("disabled", box(Feel.COL_INK.lightened(0.04), accent.darkened(0.6)))
 	b.custom_minimum_size = Vector2(0.0, 96.0)
+	b.focus_mode = Control.FOCUS_ALL
 	return b
+
+
+static func _font_for_label(size: int) -> Font:
+	if size >= FONT_TITLE:
+		return Presentation.theme.font_for(&"headline")
+	if size <= FONT_SMALL:
+		return Presentation.theme.font_for(&"annotation")
+	return Presentation.theme.font_for(&"body")
 
 
 static func box(fill: Color, border: Color, width: float = RULE) -> StyleBoxFlat:

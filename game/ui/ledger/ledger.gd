@@ -17,7 +17,7 @@ extends Control
 
 signal closed
 
-const HEADER_H := 168.0
+const HEADER_H := 194.0
 
 ## Which page the header is titling and the body is showing.
 const PAGE_BOARD := &"board"
@@ -69,7 +69,7 @@ func _init() -> void:
 
 
 func _ready() -> void:
-	_font = get_theme_default_font()
+	_font = Presentation.theme.font_for(&"headline")
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_build()
@@ -103,20 +103,20 @@ func _apply_safe_area() -> void:
 	_close_btn.offset_left = close_right - 190.0
 	_close_btn.offset_right = close_right
 	_close_btn.offset_top = _safe_margins.y + 26.0
-	_close_btn.offset_bottom = _safe_margins.y + 96.0
+	_close_btn.offset_bottom = _safe_margins.y + 122.0
 	_book_btn.offset_right = _close_btn.offset_left - 20.0
 	_book_btn.offset_left = _book_btn.offset_right - 300.0
 	_book_btn.offset_top = _safe_margins.y + 26.0
-	_book_btn.offset_bottom = _safe_margins.y + 96.0
+	_book_btn.offset_bottom = _safe_margins.y + 122.0
 
 	_zoom_btn.offset_left = _safe_margins.x + 36.0
 	_zoom_btn.offset_right = _zoom_btn.offset_left + 150.0
 	_zoom_btn.offset_bottom = -(_safe_margins.w + 40.0)
-	_zoom_btn.offset_top = _zoom_btn.offset_bottom - 84.0
+	_zoom_btn.offset_top = _zoom_btn.offset_bottom - 96.0
 	_compass.offset_right = -(_safe_margins.z + 36.0)
 	_compass.offset_left = _compass.offset_right - 330.0
 	_compass.offset_bottom = -(_safe_margins.w + 40.0)
-	_compass.offset_top = _compass.offset_bottom - 84.0
+	_compass.offset_top = _compass.offset_bottom - 96.0
 	queue_redraw()
 
 
@@ -208,40 +208,40 @@ func _build() -> void:
 	add_child(_book_page)
 	_book_page.build(book, prestige)
 
-	_close_btn = _button("CLOSE", Vector2(190.0, 74.0), Color(LedgerStyle.DIRTY, 0.85), LedgerStyle.NEWSPRINT)
+	_close_btn = _button("CLOSE", Vector2(190.0, 96.0), Color(LedgerStyle.DIRTY, 0.85), LedgerStyle.NEWSPRINT)
 	_close_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_close_btn.offset_left = -220.0
 	_close_btn.offset_right = -30.0
 	_close_btn.offset_top = 26.0
-	_close_btn.offset_bottom = 96.0
+	_close_btn.offset_bottom = 122.0
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
 
-	_book_btn = _button("BLACK BOOK", Vector2(300.0, 74.0),
+	_book_btn = _button("BLACK BOOK", Vector2(300.0, 96.0),
 		Color(LedgerStyle.branch_color("blackbook"), 0.85), LedgerStyle.NEWSPRINT)
 	_book_btn.add_theme_font_size_override("font_size", 22)
 	_book_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_book_btn.offset_left = -540.0
 	_book_btn.offset_right = -240.0
 	_book_btn.offset_top = 26.0
-	_book_btn.offset_bottom = 96.0
+	_book_btn.offset_bottom = 122.0
 	_book_btn.pressed.connect(_on_turn_page)
 	add_child(_book_btn)
 
-	_zoom_btn = _button("ZOOM", Vector2(150.0, 84.0), Color(LedgerStyle.INK, 0.72), LedgerStyle.BRASS)
+	_zoom_btn = _button("ZOOM", Vector2(150.0, 96.0), Color(LedgerStyle.INK, 0.72), LedgerStyle.BRASS)
 	_zoom_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_zoom_btn.offset_left = 36.0
 	_zoom_btn.offset_right = 186.0
-	_zoom_btn.offset_top = -124.0
+	_zoom_btn.offset_top = -136.0
 	_zoom_btn.offset_bottom = -40.0
 	_zoom_btn.pressed.connect(_on_zoom)
 	add_child(_zoom_btn)
 
-	_compass = _button("NEXT BUY  ▸", Vector2(330.0, 84.0), Color(LedgerStyle.BRASS, 0.92), LedgerStyle.INK)
+	_compass = _button("NEXT BUY  ▸", Vector2(330.0, 96.0), Color(LedgerStyle.BRASS, 0.92), LedgerStyle.INK)
 	_compass.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	_compass.offset_left = -366.0
 	_compass.offset_right = -36.0
-	_compass.offset_top = -124.0
+	_compass.offset_top = -136.0
 	_compass.offset_bottom = -40.0
 	_compass.pressed.connect(_on_compass)
 	add_child(_compass)
@@ -538,15 +538,12 @@ func _draw() -> void:
 	draw_rect(Rect2(left, top + 122.0, rw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
 	draw_string(_font, Vector2(left + 13.0, top + 148.0), rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26, LedgerStyle.INK)
 
-	# The Ledger only takes clean, so clean is the headline and dirty is the reminder.
-	var clean_text := _clean().text()
-	var cw := _font.get_string_size(clean_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42).x
-	var cx := w - _safe_margins.z - 250.0 - cw
-	draw_string(_font, Vector2(cx, top + 148.0), clean_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42, LedgerStyle.CLEAN)
-	draw_string(_font, Vector2(cx, top + 112.0), "CLEAN", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color(LedgerStyle.CLEAN, 0.6))
-	var dirty_text := _dirty().text()
-	var dw := _font.get_string_size(dirty_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22).x
-	draw_string(_font, Vector2(cx - dw - 34.0, top + 148.0), dirty_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22, Color(LedgerStyle.DIRTY, 0.85))
+	# Wallets occupy the quiet strip under the title, never the right-side button zone.
+	var wallet_x := left + rw + 58.0
+	draw_string(_font, Vector2(wallet_x, top + 148.0), "CLEAN  " + _clean().text(),
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 25, LedgerStyle.CLEAN)
+	draw_string(_font, Vector2(wallet_x + 190.0, top + 148.0), "DIRTY  " + _dirty().text(),
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.DIRTY, 0.82))
 
 
 ## The Black Book's header. Same bar, different currency: Juice where clean cash goes, and
@@ -565,16 +562,11 @@ func _draw_book_header(w: float) -> void:
 	draw_string(_font, Vector2(left + 13.0, top + 148.0), city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22,
 		LedgerStyle.INK)
 
-	var juice_text := str(prestige.juice)
-	var jw := _font.get_string_size(juice_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42).x
-	var jx := w - _safe_margins.z - 250.0 - jw
-	draw_string(_font, Vector2(jx, top + 148.0), juice_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 42,
-		LedgerStyle.BRASS)
-	draw_string(_font, Vector2(jx, top + 112.0), "JUICE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18,
-		Color(LedgerStyle.BRASS, 0.6))
+	var jx := left + cw + 58.0
+	draw_string(_font, Vector2(jx, top + 148.0), "JUICE  %d" % prestige.juice,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 25, LedgerStyle.BRASS)
 	var earned := "%d EARNED" % prestige.juice_earned
-	var ew := _font.get_string_size(earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20).x
-	draw_string(_font, Vector2(jx - ew - 34.0, top + 148.0), earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20,
+	draw_string(_font, Vector2(jx + 190.0, top + 148.0), earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19,
 		Color(LedgerStyle.NEWSPRINT, 0.45))
 
 

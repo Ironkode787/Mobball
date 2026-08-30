@@ -59,7 +59,7 @@ func _build() -> void:
 	head.add_child(_title)
 	_shut = Button.new()
 	_shut.text = "×"
-	_shut.custom_minimum_size = Vector2(68.0, 68.0)
+	_shut.custom_minimum_size = Vector2(96.0, 96.0)
 	_shut.add_theme_font_size_override("font_size", 40)
 	LedgerStyle.style_button(_shut, Color(LedgerStyle.INK, 0.10), LedgerStyle.INK)
 	_shut.pressed.connect(func() -> void: dismissed.emit())
@@ -99,7 +99,7 @@ func _build() -> void:
 	foot.add_child(_cost)
 	_buy = Button.new()
 	_buy.text = "BUY"
-	_buy.custom_minimum_size = Vector2(320.0, 92.0)
+	_buy.custom_minimum_size = Vector2(320.0, 96.0)
 	_buy.add_theme_font_size_override("font_size", 30)
 	LedgerStyle.style_button(_buy, LedgerStyle.CLEAN.darkened(0.15), LedgerStyle.INK)
 	_buy.pressed.connect(func() -> void: buy_pressed.emit(node_id))
@@ -230,6 +230,8 @@ func _draw() -> void:
 func _label(text: String, px: int, col: Color) -> Label:
 	var l := Label.new()
 	l.text = text
+	l.add_theme_font_override("font", Presentation.theme.font_for(
+			&"headline" if px >= 38 else (&"annotation" if px <= 20 else &"body")))
 	l.add_theme_font_size_override("font_size", px)
 	l.add_theme_color_override("font_color", col)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE

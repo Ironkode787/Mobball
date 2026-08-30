@@ -95,7 +95,7 @@ func _process(delta: float) -> void:
 func _ensure_layers() -> void:
 	if _sheet != null:
 		return
-	_font = get_theme_default_font()
+	_font = Presentation.theme.font_for(&"headline")
 	clip_contents = true
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_ground = Painter.new()

@@ -1,12 +1,32 @@
 extends Node
 ## Process-wide presentation services. No physics or economy code depends on this node.
 
+const PHASE_ONE_ART := {
+	&"table.backglass.eastport": preload("res://assets/art/eastport/backglass.png"),
+	&"ui.count_room_plate": preload("res://assets/art/eastport/count_room.png"),
+	&"prop.trash_can": preload("res://assets/art/eastport/trash_can_bumper.png"),
+	&"prop.bicycle_spinner": preload("res://assets/art/eastport/bicycle_spinner.png"),
+	&"prop.payphone_bank": preload("res://assets/art/eastport/payphone.png"),
+	&"ui.job_board": preload("res://assets/art/eastport/job_board.png"),
+	&"front.laundromat": preload("res://assets/art/eastport/laundromat.png"),
+	&"front.pizzeria": preload("res://assets/art/eastport/pizzeria.png"),
+	&"front.pawn": preload("res://assets/art/eastport/pawn_shop.png"),
+	&"mugshot.starter_01": preload("res://assets/art/portraits/starter_01.png"),
+	&"mugshot.starter_02": preload("res://assets/art/portraits/starter_02.png"),
+	&"mugshot.starter_03": preload("res://assets/art/portraits/starter_03.png"),
+	&"mugshot.starter_04": preload("res://assets/art/portraits/starter_04.png"),
+}
+
 var theme := PresentationTheme.defaults()
 var city := CitySkin.eastport()
 var art := ArtCatalog.new()
 var safe := PresentationSafeArea.new()
 var fx := EffectBus.new()
 var budget := PresentationBudget.new()
+
+
+func _init() -> void:
+	_register_phase_one_art()
 
 
 func _ready() -> void:
@@ -17,6 +37,11 @@ func _ready() -> void:
 	add_child(fx)
 	add_child(budget)
 	_connect_gameplay_events()
+
+
+func _register_phase_one_art() -> void:
+	for id: StringName in PHASE_ONE_ART:
+		art.register(id, PHASE_ONE_ART[id] as Texture2D)
 
 
 func set_city(next: CitySkin) -> void:

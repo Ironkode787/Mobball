@@ -74,6 +74,14 @@ func _build() -> void:
 	scroll.add_child(body)
 
 	body.add_child(PaperKit.label("TONIGHT'S WORK", PaperKit.FONT_BIG, Feel.COL_BRASS))
+	var board_plate := TextureRect.new()
+	board_plate.name = "JobBoardPlate"
+	board_plate.texture = Presentation.art.resolve(&"ui.job_board", null, false)
+	board_plate.custom_minimum_size = Vector2(0.0, 230.0)
+	board_plate.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	board_plate.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	board_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(board_plate)
 	for job: Dictionary in Game.jobs.active_jobs():
 		body.add_child(_job_slip(job))
 	body.add_child(PaperKit.rule(Feel.COL_BRASS.darkened(0.4)))
@@ -127,6 +135,7 @@ func _build_crew() -> void:
 		var guy: Dictionary = available[i]
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
+		row.add_child(_make_portrait(i))
 		var preview := _make_preview(guy)
 		row.add_child(preview)
 		var info := VBoxContainer.new()
@@ -152,6 +161,18 @@ func _build_crew() -> void:
 		row.add_child(choose)
 		_crew.add_child(row)
 	_refresh()
+
+
+func _make_portrait(index: int) -> TextureRect:
+	var portrait := TextureRect.new()
+	portrait.name = "Mugshot"
+	portrait.texture = Presentation.art.resolve(StringName("mugshot.starter_%02d" %
+			(posmod(index, 4) + 1)), null, false)
+	portrait.custom_minimum_size = Vector2(94.0, 118.0)
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return portrait
 
 
 func _make_preview(guy: Dictionary) -> Control:

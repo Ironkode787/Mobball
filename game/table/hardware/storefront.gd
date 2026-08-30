@@ -239,7 +239,16 @@ func _draw() -> void:
 			Vector2(w * 2.0 + 20.0, DOOR_DEPTH + 78.0))
 	draw_rect(Rect2(facade.position + Vector2(7.0, 9.0), facade.size),
 			Color(0.0, 0.0, 0.0, 0.34))
-	draw_rect(facade, Feel.COL_INK.lightened(0.08))
+	var art_id := &"front.laundromat"
+	if String(id).contains("pizzeria"):
+		art_id = &"front.pizzeria"
+	elif String(id).contains("pawn"):
+		art_id = &"front.pawn"
+	var facade_art := Presentation.art.resolve(art_id, null, false)
+	if facade_art != null:
+		draw_texture_rect(facade_art, facade, false, Color(1.0, 1.0, 1.0, 0.88))
+	else:
+		draw_rect(facade, Feel.COL_INK.lightened(0.08))
 	draw_rect(facade, Feel.COL_BRASS.darkened(0.58), false, 3.0)
 	draw_line(Vector2(facade.position.x - 5.0, facade.position.y),
 			Vector2(facade.end.x + 5.0, facade.position.y), Feel.COL_BRASS.darkened(0.25), 7.0)
@@ -255,7 +264,7 @@ func _draw() -> void:
 		sign_col = sign_col.darkened(0.6)
 	draw_rect(sign_box, sign_col.darkened(0.66))
 	draw_rect(sign_box, sign_col, false, 3.0)
-	var font := ThemeDB.fallback_font
+	var font := Presentation.theme.font_for(&"headline")
 	if font != null:
 		draw_string(font, sign_box.position + Vector2(0.0, 25.0), String(sign_text),
 				HORIZONTAL_ALIGNMENT_CENTER, sign_box.size.x, 18, sign_col.lightened(0.32))

@@ -167,8 +167,12 @@ func _draw() -> void:
 	var sid := String(id)
 	if sid.begins_with("wire_"):
 		# Three payphones, complete with receiver hooks, instead of three anonymous bars.
-		var booth := Rect2(Vector2(-half * 0.64, -30.0), Vector2(half * 1.28, 27.0))
-		draw_rect(booth, Feel.COL_INK.lightened(0.06))
+		var booth := Rect2(Vector2(-half * 0.64, -54.0), Vector2(half * 1.28, 51.0))
+		var phone_art := Presentation.art.resolve(&"prop.payphone_bank", null, false)
+		if phone_art != null:
+			draw_texture_rect(phone_art, booth, false, Color(1.0, 1.0, 1.0, 0.92))
+		else:
+			draw_rect(booth, Feel.COL_INK.lightened(0.06))
 		draw_rect(booth, face.darkened(0.15), false, 3.0)
 		draw_arc(Vector2(0.0, -16.0), 9.0, 0.15, PI - 0.15, 10, face, 4.0)
 		draw_line(Vector2(-10.0, -15.0), Vector2(-14.0, -8.0), face, 4.0)

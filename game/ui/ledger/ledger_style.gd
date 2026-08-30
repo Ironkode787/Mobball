@@ -236,6 +236,7 @@ static func _at_level(effect: Dictionary, level: int) -> Dictionary:
 ## Godot's default button theme is a grey box; every button on this screen is repainted
 ## from the palette instead, in one place.
 static func style_button(b: Button, bg: Color, fg: Color) -> void:
+	b.add_theme_font_override("font", Presentation.theme.font_for(&"ui"))
 	for state: String in ["normal", "hover", "pressed", "disabled", "focus"]:
 		var sb := StyleBoxFlat.new()
 		var c := bg

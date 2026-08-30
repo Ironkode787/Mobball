@@ -1588,7 +1588,7 @@ func _draw_boss_meter() -> void:
 	draw_rect(Rect2(r.position, Vector2(r.size.x * _boss_meter_fill, r.size.y)),
 			ClubDeck.COL_VIOLET.lerp(Feel.COL_CLEAN, 0.35))
 	draw_rect(r, Feel.COL_BRASS.darkened(0.3), false, 3.0)
-	var font := ThemeDB.fallback_font
+	var font := Presentation.theme.font_for(&"annotation_bold")
 	if font != null:
 		# Unclipped on purpose: a truncated total ("$1.2" for $1.29M) is worse than a label that
 		# runs a little wide on the felt.
@@ -1855,6 +1855,10 @@ func _draw_backglass() -> void:
 		Vector2(816.0, 400.0), Vector2(164.0, 400.0),
 	])
 	draw_colored_polygon(plate, Color("17120F"))
+	var backglass := Presentation.art.resolve(&"table.backglass.eastport", null, false)
+	if backglass != null:
+		draw_texture_rect(backglass, Rect2(Vector2(164.0, 136.0), Vector2(652.0, 264.0)),
+				false, Color(1.0, 1.0, 1.0, 0.92))
 	draw_polyline(PackedVector2Array([
 		Vector2(218.0, 136.0), Vector2(762.0, 136.0),
 		Vector2(816.0, 400.0), Vector2(164.0, 400.0), Vector2(218.0, 136.0),
@@ -1867,7 +1871,7 @@ func _draw_backglass() -> void:
 	draw_arc(fan_at, 236.0, PI + 0.18, TAU - 0.18, 32,
 			Feel.COL_BRASS.darkened(0.55), 3.0)
 
-	var font := ThemeDB.fallback_font
+	var font := Presentation.theme.font_for(&"headline")
 	if font != null:
 		draw_string(font, Vector2(218.0, 274.0), "K I N G P I N",
 				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 54, Feel.COL_BRASS)
@@ -1887,7 +1891,7 @@ func _draw_backglass() -> void:
 
 
 func _draw_shot_labels() -> void:
-	var font := ThemeDB.fallback_font
+	var font := Presentation.theme.font_for(&"annotation_bold")
 	if font == null:
 		return
 	# Labels live in dead felt, never over the switch they describe. Their orientation makes
