@@ -12,7 +12,11 @@ extends RefCounted
 ## lane's Black Book, which outlives a career). Every one of them defaults to empty, so a v1
 ## file loads as a career that simply has not reached the endgame yet — which is exactly what
 ## it is. Nothing had to move, so `migrate` only stamps the version forward.
-const VERSION := 2
+## v3 (M5): new writes carry a SHA-256 integrity field. Older saves remain readable and are
+## upgraded on their next ordinary save; a damaged/tampered v3 candidate falls through to
+## the rolling backups exactly like malformed JSON.
+const VERSION := 3
+const FORMAT := "kingpin.save.envelope"
 const DEFAULT_PATH := "user://save1.json"
 
 var path: String = DEFAULT_PATH
@@ -49,16 +53,26 @@ func write(payload: Dictionary) -> bool:
 	var d := payload.duplicate(true)
 	d["version"] = VERSION
 	d["saved_at"] = Time.get_unix_time_from_system()
+	# Keep the historical JSON precision so a v1/v2 career round-trips identically. Integrity
+	# hashes the exact serialized payload string, so it does not require numeric re-canonicalizing.
+	var payload_json := JSON.stringify(d, "\t")
+	var envelope := {
+		"format": FORMAT,
+		"version": VERSION,
+		"checksum": payload_json.sha256_text(),
+		"payload_json": payload_json,
+	}
 
 	var tmp := temp_path()
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		last_error = "cannot open %s (%d)" % [tmp, FileAccess.get_open_error()]
 		return false
-	f.store_string(JSON.stringify(d, "\t"))
+	f.store_string(JSON.stringify(envelope, "\t", true, true))
 	f.close()
 
-	if not (_parse(_read_text(tmp)) is Dictionary):
+	var verify: Variant = _parse(_read_text(tmp))
+	if not (verify is Dictionary) or _decode_candidate(verify as Dictionary).is_empty():
 		last_error = "temp file did not read back as JSON"
 		return false
 
@@ -84,8 +98,8 @@ func read() -> Dictionary:
 		var parsed: Variant = _parse(_read_text(candidate))
 		if not (parsed is Dictionary):
 			continue
-		var d: Dictionary = parsed
-		if not d.has("version"):
+		var d := _decode_candidate(parsed as Dictionary)
+		if d.is_empty():
 			continue
 		if candidate != path:
 			salvaged_from = candidate
@@ -144,6 +158,23 @@ static func _parse(text: String) -> Variant:
 	if json.parse(text) != OK:
 		return null
 	return json.data
+
+
+static func _decode_candidate(raw: Dictionary) -> Dictionary:
+	if String(raw.get("format", "")) == FORMAT:
+		var payload_json := String(raw.get("payload_json", ""))
+		var expected := String(raw.get("checksum", ""))
+		if payload_json.is_empty() or expected.is_empty() or payload_json.sha256_text() != expected:
+			return {}
+		var decoded: Variant = _parse(payload_json)
+		if not (decoded is Dictionary) or not (decoded as Dictionary).has("version"):
+			return {}
+		return decoded as Dictionary
+	# v1/v2 were plain dictionaries without integrity metadata. They remain readable and are
+	# wrapped the next time the game saves. A plain v3 must never bypass the checksum envelope.
+	if not raw.has("version") or int(raw.get("version", 0)) >= 3:
+		return {}
+	return raw
 
 
 static func _read_text(p: String) -> String:

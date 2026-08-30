@@ -484,6 +484,8 @@ func _ready() -> void:
 ##   KINGPIN_TABLE_DEBUG=1                        every piece on
 ##   KINGPIN_TABLE_HARDWARE=rollovers,wire_bank   just these, on top of what Stats says
 func _read_env_hook() -> void:
+	if not ReleaseChannel.allow_development_hooks():
+		return
 	if OS.get_environment("KINGPIN_TABLE_DEBUG") == "1":
 		debug_all_hardware = true
 	var forced := OS.get_environment("KINGPIN_TABLE_HARDWARE")
@@ -887,7 +889,8 @@ func _build_construction() -> void:
 	construction = BuildIn.new()
 	construction.name = "Construction"
 	construction.enabled = DisplayServer.get_name() != "headless" \
-			and OS.get_environment("KINGPIN_NO_BUILD_ANIM") != "1"
+			and (not ReleaseChannel.allow_development_hooks() \
+			or OS.get_environment("KINGPIN_NO_BUILD_ANIM") != "1")
 	add_child(construction)
 
 

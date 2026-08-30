@@ -633,7 +633,8 @@ func _dirty() -> BigMoney:
 func _is_standalone() -> bool:
 	if get_tree().current_scene == self:
 		return true
-	return OS.get_environment("SHOT_SCENE").ends_with("ledger.tscn")
+	return ReleaseChannel.allow_development_hooks() \
+			and OS.get_environment("SHOT_SCENE").ends_with("ledger.tscn")
 
 
 ## A plausible mid-R2 career, so the preview shows owned, affordable, locked and face-down
@@ -657,6 +658,8 @@ func _seed_preview() -> void:
 
 ## Framing hooks for tools/shot.sh, so evidence renders need no code edits. Preview only.
 func _apply_shot_framing() -> void:
+	if not ReleaseChannel.allow_development_hooks():
+		return
 	# SHOT_CATALOG renders a candidate content file instead of the shipped one — how a draft
 	# of the T4-T5 tier or a new specialist gets looked at before it is committed.
 	var alt := OS.get_environment("SHOT_CATALOG")

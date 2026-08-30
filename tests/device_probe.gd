@@ -42,6 +42,20 @@ func _run() -> void:
 		await _frames(8)
 		_check(main.get("settings_sheet") != null, "HOUSE RULES opens the real settings sheet")
 		_check_visible_buttons_inside_safe(get_tree().root, "HOUSE RULES")
+		var sheet: Node = main.get("settings_sheet")
+		var telemetry_control: Button = sheet.call("telemetry_button") if sheet != null else null
+		_check(telemetry_control != null and telemetry_control.custom_minimum_size.y >=
+				Presentation.theme.touch_min,
+				"optional beta telemetry has a full touch target inside the settings scroll")
+		if sheet != null:
+			sheet.call("_open_credits")
+			await _frames(5)
+			var credits_done := _find_button(get_tree().root, "BACK TO HOUSE RULES")
+			_check(credits_done != null, "THE USUAL SUSPECTS opens from House Rules")
+			if credits_done != null:
+				_check_inside_safe(credits_done, "credits back control")
+				await _tap(credits_done)
+				await _frames(3)
 		await _shot("1a_house_rules")
 		var done := _find_button(get_tree().root, "DONE")
 		_check(done != null, "settings sheet has a safe DONE control")

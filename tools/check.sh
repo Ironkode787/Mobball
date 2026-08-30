@@ -6,9 +6,10 @@ GODOT="${GODOT:-/workspace/tools/godot/godot}"
 
 echo "== import =="
 IMPORT_OUT="$("$GODOT" --headless --path . --import 2>&1)"
-if echo "$IMPORT_OUT" | grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed" >/dev/null; then
+IMPORT_RC=$?
+if [ $IMPORT_RC -ne 0 ] || echo "$IMPORT_OUT" | grep -E "SCRIPT ERROR|Parse Error|ERROR: Failed" >/dev/null; then
 	echo "$IMPORT_OUT" | grep -E "SCRIPT ERROR|Parse Error|ERROR" | head -40
-	echo "IMPORT FAILED"
+	echo "IMPORT FAILED (rc=$IMPORT_RC)"
 	exit 1
 fi
 echo "import ok"

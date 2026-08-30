@@ -90,6 +90,8 @@ func _physical_safe_rect(window_size: Vector2i) -> Rect2i:
 
 
 func _parse_environment_override() -> void:
+	if not ReleaseChannel.allow_development_hooks():
+		return
 	var raw := OS.get_environment("KINGPIN_SAFE_INSETS")
 	if raw.is_empty():
 		return

@@ -12,10 +12,10 @@ workstreams live in `specs/`.
 - Tests live in `tests/test_*.gd`; each defines `func run(t: TestCtx) -> void` and uses
   `t.ok / t.eq / t.near / t.almost`. Run alone via
   `/workspace/tools/godot/godot --headless --path . --script tests/run_tests.gd`.
-- Shipping an APK: `bash tools/ship.sh` (gate, then export). It signs with the committed
-  debug key at `tools/android/debug.keystore` — never regenerate it, or the next APK stops
-  installing over the last one and the phone's save is lost on the forced uninstall. A store
-  release needs its own private key, not this one.
+- Shipping the closed beta: `bash tools/ship.sh`. It runs the source and device gates, creates
+  a signed Play AAB with the operator-supplied upload key, then installs a Bundletool-generated
+  universal APK on the connected release-test device for a packaged-runtime smoke test. The
+  build has no debug-key fallback; see `release/CLOSED_BETA.md` for required credentials.
 
 ## Code style
 

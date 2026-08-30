@@ -10,6 +10,7 @@ func run(t: TestCtx) -> void:
 	_round_trip(t, save)
 	_backups(t, save)
 	_salvage(t, save)
+	_integrity(t, save)
 	_migration(t)
 	_numbers(t)
 	save.erase()
@@ -52,6 +53,20 @@ func _salvage(t: TestCtx, save: SaveGame) -> void:
 
 	t.ok(save.write({"n": 5}), "writing over a damaged save works")
 	t.eq(int(save.read().get("n", 0)), 5, "and the new file is the one that loads")
+
+
+func _integrity(t: TestCtx, save: SaveGame) -> void:
+	t.ok(save.write({"n": 6, "respect": 30}), "checksummed save writes")
+	var primary: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(save.path))
+	t.ok(not String(primary.get("checksum", "")).is_empty(), "v3 save carries integrity data")
+	primary["payload_json"] = String(primary["payload_json"]).replace(
+			"\"respect\": 30", "\"respect\": 999999")
+	var file := FileAccess.open(save.path, FileAccess.WRITE)
+	file.store_string(JSON.stringify(primary))
+	file.close()
+	var fallback := save.read()
+	t.eq(int(fallback.get("n", 0)), 5, "tampered primary falls back to the last valid save")
+	t.eq(save.salvaged_from, save.backup1(), "integrity salvage identifies its backup")
 
 
 func _migration(t: TestCtx) -> void:

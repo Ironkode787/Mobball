@@ -32,6 +32,7 @@ NC and ND material is not accepted.
 | `fonts/OFL-Oswald.txt` | license text | Google Fonts repository | SIL Open Font License 1.1 | 2026-08-30 | Oswald upstream `OFL.txt` | renamed; trailing whitespace normalized | n/a | text preserved |
 | `fonts/OFL-LibreFranklin.txt` | license text | Libre Franklin repository | SIL Open Font License 1.1 | 2026-08-30 | Libre Franklin upstream `OFL.txt` | renamed; trailing whitespace normalized | n/a | text preserved |
 | `fonts/OFL-CourierPrime.txt` | license text | Courier Prime repository | SIL Open Font License 1.1 | 2026-08-30 | Courier Prime upstream `OFL.txt` | renamed; trailing whitespace normalized | n/a | text preserved |
+| `../release/store/feature_graphic.png` | Google Play feature graphic | built-in ImageGen + deterministic title overlay | project-owned generated art; Oswald OFL | 2026-08-30 | [Phase 5 store prompt](../release/store/FEATURE_PROMPTS.md) | center crop to 1024×500; exact title overlaid by `tools/make_store_art.ps1` | no | approved; no fake UI or generated lettering |
 
 ## Generated-asset review checklist
 

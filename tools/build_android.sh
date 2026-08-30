@@ -72,8 +72,18 @@ EOF
 
 echo "== exporting =="
 mkdir -p build
-"$GODOT" --headless --path . --export-debug "Android" build/kingpin-debug.apk 2>&1 \
-	| grep -E "ERROR|error" | grep -v "icon" || true
+rm -f build/kingpin-debug.apk
+set +e
+"$GODOT" --headless --path . --export-debug "Android Development" build/kingpin-debug.apk \
+	>build/android-debug-export.log 2>&1
+EXPORT_RC=$?
+set -e
+if [ $EXPORT_RC -ne 0 ]; then
+	tail -80 build/android-debug-export.log
+	echo "EXPORT FAILED (rc=$EXPORT_RC)" >&2
+	exit $EXPORT_RC
+fi
+grep -E "ERROR|error" build/android-debug-export.log | grep -v "icon" || true
 [ -s build/kingpin-debug.apk ] || { echo "EXPORT FAILED"; exit 1; }
 apksigner verify build/kingpin-debug.apk && echo "signature ok"
 
