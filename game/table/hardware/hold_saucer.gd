@@ -144,19 +144,106 @@ func is_hardware_active() -> bool:
 	return _present
 
 
+func visual_state() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if _cool > 0.0:
+		return TableVisualState.VisualState.DISABLED
+	if _held:
+		return TableVisualState.VisualState.ACTIVE
+	if _glow > 0.02:
+		return TableVisualState.VisualState.COMPLETED
+	return TableVisualState.VisualState.ARMED
+
+
+func visual_modifiers() -> Dictionary:
+	return {
+		&"cooldown": _cool > 0.0,
+		&"held": _held,
+		&"marked": _step > 0,
+		&"pulse": _glow > 0.02,
+	}
+
+
+func visual_token() -> Dictionary:
+	return TableVisualState.state_token(visual_state(), visual_modifiers())
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _draw_hatch(center: Vector2, radius: float, color: Color) -> void:
+	for i in range(5):
+		var y := -radius * 0.64 + float(i) * radius * 0.32
+		draw_line(center + Vector2(-radius * 0.62, y), center + Vector2(radius * 0.62, y), color, 2.0)
+
+
+func _draw_state_cue(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	if mark == "held_ring":
+		draw_arc(center, radius, 0.0, TAU, 20, color, 4.0)
+		draw_circle(center, radius * 0.24, color)
+	elif mark == "cooldown_clock":
+		draw_arc(center, radius, -PI * 0.5, PI, 18, color, 3.0)
+		draw_line(center, center + Vector2(0.0, -radius * 0.52), color, 2.0)
+		draw_line(center, center + Vector2(radius * 0.34, radius * 0.2), color, 2.0)
+	elif mark == "marked_stamp":
+		draw_rect(Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), color, false, 3.0)
+		draw_line(center + Vector2(-radius * 0.5, 0.0), center + Vector2(-radius * 0.08, radius * 0.42), color, 3.0)
+		draw_line(center + Vector2(-radius * 0.08, radius * 0.42), center + Vector2(radius * 0.55, -radius * 0.48), color, 3.0)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+	if String(token["pattern"]) == "cooldown_dash" or String(token["pattern"]) == "offline_hatch":
+		_draw_hatch(center, radius, color)
+
+
 func _draw() -> void:
-	var lit := Feel.COL_BRASS.darkened(0.55).lerp(Feel.COL_NEWSPRINT, _glow * 0.7)
-	draw_circle(Vector2.ZERO, radius, Feel.COL_INK.darkened(0.4))
-	draw_arc(Vector2.ZERO, radius - 3.0, 0.0, TAU, 28, lit, 5.0)
+	var token := visual_token()
+	var state := String(token["state"])
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var neon := _ambient(&"earned_neon", Feel.COL_NEON_ROSE)
+	var lit := brass.darkened(0.48).lerp(paper, _glow * 0.72)
+	var state_col := brass if state == "armed" else paper
+	if state == "active":
+		state_col = neon
+	if state == "disabled":
+		state_col = paper.darkened(0.36)
+	draw_circle(Vector2.ZERO, radius + 9.0, Color(ink.r, ink.g, ink.b, 0.60))
+	draw_circle(Vector2.ZERO, radius, ink.darkened(0.36))
+	draw_circle(Vector2.ZERO, radius * 0.68, Color(ink.r, ink.g, ink.b, 0.75))
+	draw_arc(Vector2.ZERO, radius - 3.0, 0.0, TAU, 32, lit, 6.0)
+	draw_arc(Vector2.ZERO, radius * 0.70, 0.0, TAU, 28, brass.darkened(0.30), 2.0)
 	if steps.is_empty():
 		draw_line(Vector2(-radius * 0.4, 0.0), Vector2(radius * 0.4, 0.0), lit, 4.0)
-		return
-	# the multiplier ladder: one pip per rung, filled up to where the hold has got to
-	for i in range(steps.size()):
-		var a := -PI * 0.5 + float(i) * TAU / float(steps.size())
-		var p := Vector2(cos(a), sin(a)) * (radius * 0.55)
-		var on := _held and i <= _step
-		draw_circle(p, 7.0, lit if on else Feel.COL_INK.lightened(0.25))
-	if _held:
-		draw_arc(Vector2.ZERO, radius * 0.24, 0.0, TAU, 16,
-				Feel.COL_NEWSPRINT.darkened(0.1), 4.0)
+		draw_line(Vector2(0.0, -radius * 0.4), Vector2(0.0, radius * 0.4), lit, 4.0)
+	else:
+		# The multiplier ladder is a fixed visual track; the live step is a fill, not a color-only cue.
+		for i in range(steps.size()):
+			var a := -PI * 0.5 + float(i) * TAU / float(steps.size())
+			var p := Vector2(cos(a), sin(a)) * (radius * 0.55)
+			var on := _held and i <= _step
+			var pip := lit if on else brass.darkened(0.55)
+			draw_circle(p, 8.0, pip)
+			draw_arc(p, 8.0, 0.0, TAU, 12, paper.darkened(0.18), 2.0)
+			if on:
+				draw_line(p + Vector2(-4.0, 0.0), p + Vector2(4.0, 0.0), ink, 2.0)
+		var value := multiplier()
+		var font := Presentation.theme.font_for(&"annotation")
+		if font != null:
+			draw_string(font, Vector2(-radius, 5.0), "x%.1f" % value,
+					HORIZONTAL_ALIGNMENT_CENTER, radius * 2.0, 16, paper)
+	# The arrow is a fixed eject affordance and does not imply a new collision route.
+	var arrow := eject_dir.normalized() * (radius + 14.0)
+	draw_line(eject_dir.normalized() * (radius - 2.0), arrow, state_col, 3.0)
+	draw_line(arrow, arrow - eject_dir.normalized().rotated(0.52) * 11.0, state_col, 3.0)
+	draw_line(arrow, arrow - eject_dir.normalized().rotated(-0.52) * 11.0, state_col, 3.0)
+	if state == "disabled":
+		_draw_hatch(Vector2.ZERO, radius * 0.66, Color(paper.r, paper.g, paper.b, 0.20))
+	_draw_state_cue(Vector2(0.0, -radius - 14.0), 11.0, token, state_col)

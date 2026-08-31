@@ -118,16 +118,76 @@ func _physics_process(delta: float) -> void:
 	queue_redraw()
 
 
+func visual_state() -> int:
+	if not active:
+		return TableVisualState.VisualState.DISABLED
+	if _telegraphing or _flash > 0.02:
+		return TableVisualState.VisualState.DANGER
+	return TableVisualState.VisualState.IDLE
+
+
+func visual_modifiers() -> Dictionary:
+	return {
+		&"telegraph": _telegraphing,
+		&"flash": _flash > 0.02,
+		&"raid_phase": active,
+	}
+
+
+func visual_token() -> Dictionary:
+	return TableVisualState.state_token(visual_state(), visual_modifiers())
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _draw_hatch(center: Vector2, radius: float, color: Color) -> void:
+	for i in range(8):
+		var a := float(i) * TAU / 8.0 + 0.18
+		var p := Vector2(cos(a), sin(a)) * radius
+		draw_line(center + p * 0.38, center + p * 0.82, color, 3.0)
+
+
+func _draw_state_cue(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	if mark == "telegraph_hatch" or mark == "hazard_hatch":
+		draw_arc(center, radius, 0.0, TAU, 20, color, 4.0)
+		_draw_hatch(center, radius, color)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+
+
 func _draw() -> void:
 	if not active:
 		return
+	var token := visual_token()
 	var warn := 0.0
 	if _telegraphing:
 		var from := _telegraph_at()
 		warn = clampf((_phase - from) / maxf(PERIOD - from, 0.001), 0.0, 1.0)
 	var glow := maxf(warn, _flash)
-	var col := Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.25 + glow * 0.65)
+	var flash_scale := 0.25 if Presentation.fx != null and Presentation.fx.reduced_flash else 1.0
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var col := Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b,
+			0.22 + glow * 0.65 * flash_scale)
+	# The plate anchors the warning to the drain without adding a collider or route.
+	draw_circle(Vector2.ZERO, 24.0, Color(ink.r, ink.g, ink.b, 0.84))
+	draw_arc(Vector2.ZERO, 25.0, 0.0, TAU, 24, brass.darkened(0.36), 4.0)
 	for i in range(3):
 		var r := 34.0 + float(i) * 26.0 + glow * 30.0
 		draw_arc(Vector2.ZERO, r, 0.0, TAU, 28, col, 5.0 - float(i))
-	draw_circle(Vector2.ZERO, 16.0 + glow * 8.0, col)
+	draw_circle(Vector2.ZERO, 16.0 + glow * 8.0 * flash_scale, col)
+	if _telegraphing:
+		_draw_hatch(Vector2.ZERO, 56.0, Color(paper.r, paper.g, paper.b, 0.46))
+	var font := Presentation.theme.font_for(&"annotation")
+	if font != null:
+		draw_string(font, Vector2(-38.0, 78.0), "MAGNET",
+				HORIZONTAL_ALIGNMENT_CENTER, 76.0, 14, paper)
+	_draw_state_cue(Vector2(0.0, -62.0), 11.0, token, Feel.COL_DIRTY)

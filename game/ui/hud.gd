@@ -15,9 +15,14 @@ const STRIP_H := 168.0
 ## Tall phones put the unsafe top glass behind the table art and reserve only this shallow,
 ## two-row panel below it for information. The cutout must not turn into a black spacer.
 const COMPACT_STRIP_H := 104.0
-const COMPACT_MONEY_FONT := 34
+const COMPACT_MONEY_FONT := 27
 const HEAT_W := 470.0
 const HEAT_H := 26.0
+## B4's Federal policy is presentation-only: the Heat dial keeps the model's absolute
+## 0..200 scale when the Federal stage is enabled. Ordinary Heat remains 0..100.
+const FEDERAL_HEAT_PRESENTATION_MAX := Rates.HEAT_FEDERAL_MAX
+const SHOOTER_LANE_LEFT := 940.0
+const FLIPPER_REGION_TOP := 1520.0
 const COMBO_FLASH := 1.1
 ## How long Manny's collect stays on the mode strip.
 const AUTO_COLLECT_FLASH := 2.5
@@ -35,10 +40,16 @@ var _respect: Label = null
 var _guy: Label = null
 var _combo: Label = null
 var _heat: HeatBar = null
-var _charge: ProgressBar = null
+var _charge: PlungerLane = null
 var _star: StarBadge = null
 var _strip: ColorRect = null
 var _rule: ColorRect = null
+var _chrome: HudChrome = null
+var _guy_meta: Label = null
+var _respect_hint: Label = null
+var _respect_meter: RespectMeter = null
+var _objective: Label = null
+var _objective_backdrop: ColorRect = null
 var _combo_left: float = 0.0
 var _modes: VBoxContainer = null
 var _wire: Label = null
@@ -56,40 +67,53 @@ var _ritual: Label = null
 var _flash: String = ""
 var _flash_left: float = 0.0
 var _compact := false
+var _profile_id: StringName = &"standard"
+var _logical_viewport := Vector2.ZERO
+var _safe_content := Rect2()
+var _requested_window := Vector2i.ZERO
+var _actual_window := Vector2i.ZERO
+var _geometry_contract: Dictionary = {}
+var _selected_objective_source: StringName = &"fallback"
+var _priority_trace := PackedStringArray()
 
 
 func _ready() -> void:
 	layer = 10
 	_strip = ColorRect.new()
 	_strip.name = "Strip"
-	_strip.color = Feel.COL_INK
+	_strip.color = Color(Presentation.theme.ink, 0.94)
 	_strip.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_strip.offset_bottom = STRIP_H
 	_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_strip)
 
+	_chrome = HudChrome.new()
+	_chrome.name = "HudChrome"
+	_chrome.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_chrome)
+
 	_rule = ColorRect.new()
-	_rule.color = Feel.COL_BRASS.darkened(0.35)
+	_rule.color = Presentation.theme.brass.darkened(0.35)
 	_rule.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_rule.offset_top = STRIP_H
 	_rule.offset_bottom = STRIP_H + 3.0
 	_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_rule)
 
-	_dirty = _add_label(Vector2(26.0, 14.0), PaperKit.FONT_BIG, Feel.COL_DIRTY)
-	_clean = _add_label(Vector2(26.0, 74.0), PaperKit.FONT_BIG, Feel.COL_CLEAN)
-	_night = _add_label(Vector2(0.0, 14.0), PaperKit.FONT_SMALL, Feel.COL_NEWSPRINT,
+	_dirty = _add_label(Vector2(26.0, 14.0), PaperKit.FONT_BIG, Presentation.theme.dirty)
+	_clean = _add_label(Vector2(26.0, 74.0), PaperKit.FONT_BIG, Presentation.theme.clean)
+	_night = _add_label(Vector2(0.0, 14.0), PaperKit.FONT_SMALL, Presentation.theme.newsprint,
 			HORIZONTAL_ALIGNMENT_RIGHT)
-	_respect = _add_label(Vector2(0.0, 60.0), PaperKit.FONT_BIG, Feel.COL_BRASS,
+	_respect = _add_label(Vector2(0.0, 60.0), PaperKit.FONT_BIG, Presentation.theme.brass,
 			HORIZONTAL_ALIGNMENT_RIGHT)
-	# The star sits AFTER the right-aligned respect text, hard against the strip's right
-	# edge — a fixed mid-strip position collided with the text on phones (device report).
-	_respect.offset_right = -72.0
-	_guy = _add_label(Vector2(26.0, 124.0), PaperKit.FONT_SMALL,
-			Feel.COL_NEWSPRINT.darkened(0.25))
-	# The roster line must never run under the heat bar (bar left edge = 540 - HEAT_W/2).
-	_guy.offset_right = -(1080.0 - (540.0 - HEAT_W * 0.5) + 12.0)
-	_guy.clip_text = true
+	_respect_hint = _add_label(Vector2.ZERO, PaperKit.FONT_SMALL,
+			Presentation.theme.newsprint.darkened(0.22), HORIZONTAL_ALIGNMENT_RIGHT)
+	_guy = _add_label(Vector2(26.0, 124.0), PaperKit.FONT_SMALL, Presentation.theme.newsprint)
+	_guy.clip_text = false
+	_guy_meta = _add_label(Vector2.ZERO, PaperKit.FONT_SMALL,
+			Presentation.theme.newsprint.darkened(0.30))
+	_guy_meta.clip_text = false
 
 	_star = StarBadge.new()
 	_star.position = Vector2(1080.0 - 62.0, 68.0)
@@ -103,7 +127,11 @@ func _ready() -> void:
 	_heat.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_heat)
 
-	_combo = _add_label(Vector2(0.0, 210.0), PaperKit.FONT_HUGE, Feel.COL_BRASS,
+	_respect_meter = RespectMeter.new()
+	_respect_meter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_respect_meter)
+
+	_combo = _add_label(Vector2(0.0, 210.0), PaperKit.FONT_HUGE, Presentation.theme.brass,
 			HORIZONTAL_ALIGNMENT_CENTER)
 	_combo.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_combo.offset_top = 210.0
@@ -113,22 +141,10 @@ func _ready() -> void:
 	# header feel taller even though it was technically outside the strip.
 	_combo.visible = false
 
-	_charge = ProgressBar.new()
-	_charge.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_charge.offset_left = 620.0
-	_charge.offset_right = -40.0
-	_charge.offset_top = -46.0
-	_charge.offset_bottom = -14.0
-	_charge.max_value = 1.0
-	_charge.step = 0.001
-	_charge.show_percentage = false
+	_charge = PlungerLane.new()
+	_charge.name = "PlungerLane"
+	_charge.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_charge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var charge_bg := PaperKit.box(Color(Feel.COL_INK, 0.90), Feel.COL_BRASS.darkened(0.45), 2.0)
-	charge_bg.set_corner_radius_all(9)
-	var charge_fill := PaperKit.box(Feel.COL_BRASS, Feel.COL_NEWSPRINT.darkened(0.35), 2.0)
-	charge_fill.set_corner_radius_all(9)
-	_charge.add_theme_stylebox_override("background", charge_bg)
-	_charge.add_theme_stylebox_override("fill", charge_fill)
 	add_child(_charge)
 
 	_build_modes()
@@ -155,10 +171,40 @@ func _on_safe_margins_changed(_margins: Vector4) -> void:
 func _apply_safe_area() -> void:
 	if _strip == null:
 		return
-	var m := Presentation.safe.margins()
-	var viewport_width := get_viewport().get_visible_rect().size.x
-	var viewport_height := get_viewport().get_visible_rect().size.y
-	_compact = m.y > 48.0 or viewport_height / maxf(viewport_width, 1.0) > 1.65
+	var service_margins := Presentation.safe.margins()
+	var logical_rect := get_viewport().get_visible_rect()
+	_logical_viewport = logical_rect.size
+	# PresentationSafeArea lives on the process-wide root, while evidence fixtures may host
+	# this HUD in a SubViewport. Intersecting with this HUD's logical viewport preserves the
+	# service's cutout margins without importing a host-clamped width into local geometry.
+	_safe_content = Presentation.safe.content_rect().intersection(logical_rect)
+	if _safe_content.size.x <= 0.0 or _safe_content.size.y <= 0.0:
+		# The safe service falls back to guarded margins for an unready viewport. Keep a
+		# positive contract while the first resize settles, then refresh on its signal.
+		_safe_content = Rect2(Vector2(service_margins.x, service_margins.y), Vector2(
+				maxf(_logical_viewport.x - service_margins.x - service_margins.z, 1.0),
+				maxf(_logical_viewport.y - service_margins.y - service_margins.w, 1.0)))
+	var m := Vector4(_safe_content.position.x, _safe_content.position.y,
+			maxf(_logical_viewport.x - _safe_content.end.x, 0.0),
+			maxf(_logical_viewport.y - _safe_content.end.y, 0.0))
+	_actual_window = DisplayServer.window_get_size()
+	if _actual_window.x <= 0 or _actual_window.y <= 0:
+		_actual_window = Vector2i(maxi(1, int(_logical_viewport.x)),
+				maxi(1, int(_logical_viewport.y)))
+	_requested_window = _requested_capture_size(_actual_window)
+	var window_width := float(_actual_window.x)
+	# The project keeps a 1080x1920 logical canvas on every phone. Profile selection therefore
+	# uses the physical window width, while layout uses the actual logical viewport and safe
+	# content rectangle. In particular, host-clamped height never silently changes profile.
+	var requested_profile := OS.get_environment("KINGPIN_HUD_PROFILE").to_lower()
+	if ReleaseChannel.allow_development_hooks() \
+			and (requested_profile == "compact" or requested_profile == "standard"):
+		_compact = requested_profile == "compact"
+	else:
+		_compact = window_width < 720.0
+	_profile_id = &"compact" if _compact else &"standard"
+	var profile := Presentation.theme.layout_profile(_profile_id)
+	var viewport_width := _logical_viewport.x
 	var content_h := COMPACT_STRIP_H if _compact else STRIP_H
 	var header_bottom := content_h + m.y
 	# On cutout phones the unsafe cap is useful full-bleed playfield, not HUD padding. Only
@@ -166,7 +212,10 @@ func _apply_safe_area() -> void:
 	# opaque. Desktop keeps the authored cabinet strip.
 	_strip.offset_top = m.y if _compact else 0.0
 	_strip.offset_bottom = header_bottom
-	_strip.color = Color(Feel.COL_INK, 0.88) if _compact else Feel.COL_INK
+	_strip.color = Color(Presentation.theme.ink, 0.90) if _compact else Color(Presentation.theme.ink, 0.96)
+	_chrome.offset_top = _strip.offset_top
+	_chrome.offset_bottom = _strip.offset_bottom
+	_chrome.configure(_compact, m, profile)
 	_rule.offset_top = header_bottom
 	_rule.offset_bottom = header_bottom + 3.0
 
@@ -182,92 +231,231 @@ func _apply_safe_area() -> void:
 	_combo.offset_bottom = m.y + 320.0
 	_modes.offset_left = m.x + 26.0
 	_modes.offset_right = -(m.z + 26.0)
-	_modes.offset_top = header_bottom + 12.0
-	_modes.offset_bottom = header_bottom + 12.0 + MODE_H * MODE_ROWS
-	_charge.offset_right = -(m.z + 40.0)
-	_charge.offset_top = -(m.w + 46.0)
-	_charge.offset_bottom = -(m.w + 14.0)
+	_modes.offset_top = header_bottom + (8.0 if _compact else 12.0)
+	_modes.offset_bottom = _modes.offset_top + (48.0 if _compact else 56.0)
+	_objective_backdrop.offset_left = m.x + 18.0
+	_objective_backdrop.offset_right = -(m.z + 18.0)
+	_objective_backdrop.offset_top = _modes.offset_top - 4.0
+	_objective_backdrop.offset_bottom = _modes.offset_bottom + 2.0
+	# Keep the readable copy itself inside the reserved band. It is a direct HUD child rather
+	# than a VBox row so a long producer string cannot turn its minimum width into a one-pixel
+	# column or its wrapped minimum height into an unbounded stack.
+	_objective.offset_left = m.x + 26.0
+	_objective.offset_right = -(m.z + 26.0)
+	_objective.offset_top = _modes.offset_top + 4.0
+	_objective.offset_bottom = _modes.offset_bottom - 2.0
+	_charge.offset_right = -(m.z + (18.0 if _compact else 28.0))
+	_charge.offset_left = -(m.z + (18.0 if _compact else 28.0) + (44.0 if _compact else 176.0))
+	_charge.offset_top = -(m.w + (224.0 if _compact else 320.0))
+	_charge.offset_bottom = -(m.w + 12.0)
+	_charge.configure(_compact)
+	_update_geometry_contract(m, profile, header_bottom)
+
+
+func _requested_capture_size(actual: Vector2i) -> Vector2i:
+	# Capture fixtures may state their requested physical size without changing the runtime
+	# window. This keeps host-clamped diagnostics honest and defaults to the actual window.
+	var raw := OS.get_environment("KINGPIN_REQUESTED_SIZE")
+	if raw.is_empty():
+		raw = OS.get_environment("KINGPIN_CAPTURE_REQUESTED_SIZE")
+	if raw.is_empty():
+		return actual
+	var parts := raw.to_lower().replace(" ", "").split("x")
+	if parts.size() != 2:
+		return actual
+	var width := int(parts[0])
+	var height := int(parts[1])
+	return Vector2i(width, height) if width > 0 and height > 0 else actual
+
+
+func _update_geometry_contract(m: Vector4, profile: Dictionary, header_bottom: float) -> void:
+	if _strip == null or _charge == null:
+		return
+	var strip := _strip.get_rect()
+	var lane := Rect2(SHOOTER_LANE_LEFT, 0.0, maxf(_logical_viewport.x - SHOOTER_LANE_LEFT, 0.0),
+			_logical_viewport.y)
+	var flipper := Rect2(0.0, FLIPPER_REGION_TOP, _logical_viewport.x,
+			maxf(_logical_viewport.y - FLIPPER_REGION_TOP, 0.0))
+	var clean_x := maxf(m.x, 48.0) + 176.0
+	var anchors := {
+			"safe_content": _safe_content,
+			"strip": strip,
+			"strip_bounds": strip,
+			"header_bottom": header_bottom,
+			"guy": _global_control_rect(_guy),
+			"heat": _global_control_rect(_heat),
+			"respect": _global_control_rect(_respect),
+			"objective": _global_control_rect(_objective_backdrop),
+			"objective_label": _global_control_rect(_objective),
+			"plunger": _global_control_rect(_charge),
+			"shooter_lane": lane,
+			"lane_clearance": lane,
+			"flipper_region": flipper,
+			"flipper_clearance": flipper,
+			"clean_destination": Vector2(clean_x, _clean.get_rect().get_center().y),
+	}
+	_geometry_contract = {
+			"profile": _profile_id,
+			"profile_config": profile.duplicate(true),
+			"requested_physical_size": _requested_window,
+			"actual_physical_size": _actual_window,
+			"logical_viewport": _logical_viewport,
+			"safe_margins": m,
+			"safe_content": _safe_content,
+			"anchors": anchors,
+			"federal_heat_policy": &"absolute_0_200",
+			"federal_heat_max": FEDERAL_HEAT_PRESENTATION_MAX,
+			"shooter_lane_left": SHOOTER_LANE_LEFT,
+			"flipper_region_top": FLIPPER_REGION_TOP,
+			"clean_destination_x": clean_x,
+	}
+
+
+func _global_control_rect(control: Control) -> Rect2:
+	return control.get_global_rect() if control != null else Rect2()
 
 
 func _apply_compact_layout(m: Vector4, viewport_width: float, _header_bottom: float) -> void:
 	var safe_w := maxf(viewport_width - m.x - m.z, 1.0)
-	var first_end := m.x + safe_w * 0.265
-	var second_start := m.x + safe_w * 0.285
-	var second_end := m.x + safe_w * 0.54
-	var status_start := m.x + safe_w * 0.55
+	var left := m.x + 12.0
+	var right := viewport_width - m.z - 12.0
+	# Keep the visible Clean value over the same horizontal destination used by the
+	# gameplay feedback flight. The producer/arithmetic remains owned by gameplay;
+	# this only makes the presentation land on the value the player reads.
+	var clean_destination := maxf(m.x, 48.0) + 176.0
+	var second_start := clampf(clean_destination, left + 132.0, right - 168.0)
+	var first_end := second_start - 14.0
+	var second_end := minf(second_start + 164.0, m.x + safe_w * 0.575)
+	var status_start := m.x + safe_w * 0.595
 	_dirty.add_theme_font_size_override("font_size", COMPACT_MONEY_FONT)
-	_dirty.offset_left = m.x + 18.0
+	_dirty.offset_left = left
 	_dirty.offset_right = -(viewport_width - first_end)
-	_dirty.offset_top = m.y + 4.0
-	_dirty.offset_bottom = m.y + 54.0
-	_dirty.clip_text = true
+	_dirty.offset_top = m.y + 5.0
+	_dirty.offset_bottom = m.y + 42.0
+	_dirty.clip_text = false
 	_clean.add_theme_font_size_override("font_size", COMPACT_MONEY_FONT)
 	_clean.offset_left = second_start
 	_clean.offset_right = -(viewport_width - second_end)
-	_clean.offset_top = m.y + 4.0
-	_clean.offset_bottom = m.y + 54.0
-	_clean.clip_text = true
+	_clean.offset_top = m.y + 5.0
+	_clean.offset_bottom = m.y + 42.0
+	_clean.clip_text = false
 	_night.offset_left = status_start
-	_night.offset_right = -(m.z + 18.0)
-	_night.offset_top = m.y + 10.0
-	_night.offset_bottom = m.y + 48.0
-	_night.clip_text = true
+	_night.offset_right = -(m.z + 12.0)
+	_night.offset_top = m.y + 8.0
+	_night.offset_bottom = m.y + 38.0
+	_night.add_theme_font_size_override("font_size", 18)
+	_night.clip_text = false
 
-	_guy.offset_left = m.x + 18.0
-	_guy.offset_right = -(viewport_width - (m.x + safe_w * 0.29))
-	_guy.offset_top = m.y + 58.0
-	_guy.offset_bottom = m.y + 96.0
-	var heat_x := m.x + safe_w * 0.31
-	var heat_w := clampf(safe_w * 0.34, 220.0, HEAT_W)
-	_heat.position = Vector2(heat_x, m.y + 67.0)
-	_heat.size = Vector2(heat_w, 18.0)
-	_respect.add_theme_font_size_override("font_size", PaperKit.FONT_SMALL)
-	_respect.offset_left = m.x + safe_w * 0.66
-	_respect.offset_right = -(m.z + 48.0)
-	_respect.offset_top = m.y + 54.0
-	_respect.offset_bottom = m.y + 98.0
-	_respect.clip_text = true
+	_guy.offset_left = left
+	_guy.offset_right = -(m.x + safe_w * 0.43)
+	_guy.offset_top = m.y + 53.0
+	_guy.offset_bottom = m.y + 78.0
+	# Label's font minimum is taller than the compact header slot on this renderer. Pin the
+	# actual control to the accepted 25 px Guy row instead of letting that minimum overlap the
+	# metadata row below it.
+	_guy.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_guy.position = Vector2(left, m.y + 53.0)
+	_guy.add_theme_font_size_override("font_size", 17)
+	_guy.add_theme_constant_override("line_spacing", 0)
+	_guy.size = Vector2(maxf(viewport_width - (m.x + safe_w * 0.43) - left, 1.0), 25.0)
+	_guy_meta.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_guy_meta.position = Vector2(left, m.y + 76.0)
+	_guy_meta.add_theme_font_size_override("font_size", 15)
+	_guy_meta.add_theme_constant_override("line_spacing", 0)
+	_guy_meta.size = Vector2(maxf(viewport_width - (m.x + safe_w * 0.43) - left, 1.0), 23.0)
+	var heat_x := m.x + safe_w * 0.455
+	var heat_w := clampf(safe_w * 0.305, 106.0, 148.0)
+	_heat.position = Vector2(heat_x, m.y + 55.0)
+	_heat.size = Vector2(heat_w, 43.0)
+	_heat.configure(true)
+	var respect_x := m.x + safe_w * 0.78
+	_respect.add_theme_font_size_override("font_size", 17)
+	_respect.offset_left = respect_x
+	_respect.offset_right = -(m.z + 34.0)
+	_respect.offset_top = m.y + 53.0
+	_respect.offset_bottom = m.y + 77.0
+	_respect.clip_text = false
+	_respect_hint.add_theme_font_size_override("font_size", 14)
+	_respect_hint.offset_left = respect_x
+	_respect_hint.offset_right = -(m.z + 34.0)
+	_respect_hint.offset_top = m.y + 75.0
+	_respect_hint.offset_bottom = m.y + 98.0
+	_respect_hint.clip_text = false
+	_respect_meter.position = Vector2(respect_x, m.y + 96.0)
+	_respect_meter.size = Vector2(maxf(40.0, right - 34.0 - respect_x), 5.0)
+	_respect_meter.configure(true)
 	_star.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_star.offset_left = -(m.z + 42.0)
-	_star.offset_right = -(m.z + 16.0)
-	_star.offset_top = m.y + 61.0
-	_star.offset_bottom = m.y + 87.0
+	_star.offset_left = -(m.z + 29.0)
+	_star.offset_right = -(m.z + 7.0)
+	_star.offset_top = m.y + 54.0
+	_star.offset_bottom = m.y + 76.0
 
 
 func _apply_standard_layout(m: Vector4, viewport_width: float) -> void:
+	var safe_w := maxf(viewport_width - m.x - m.z, 1.0)
+	var left := m.x + 26.0
+	# GameplayFeedback.destination_for() intentionally stays untouched. Match its
+	# preserved x destination here so the incoming Clean amount resolves to the
+	# value instead of an unrelated gap in the header.
+	var clean_destination := maxf(m.x, 48.0) + 176.0
+	var clean_start := clampf(clean_destination, left + 178.0, viewport_width - m.z - 270.0)
+	var dirty_end := clean_start - 16.0
+	var status_start := m.x + safe_w * 0.69
+	var clean_end := minf(clean_start + 250.0, status_start - 28.0)
 	_dirty.add_theme_font_size_override("font_size", PaperKit.FONT_BIG)
 	_clean.add_theme_font_size_override("font_size", PaperKit.FONT_BIG)
-	_respect.add_theme_font_size_override("font_size", PaperKit.FONT_BIG)
+	_respect.add_theme_font_size_override("font_size", 28)
 
-	_dirty.offset_left = m.x + 26.0
-	_dirty.offset_right = -(m.z + 26.0)
+	_dirty.offset_left = left
+	_dirty.offset_right = -(viewport_width - dirty_end)
 	_dirty.offset_top = m.y + 14.0
-	_dirty.offset_bottom = m.y + 14.0 + PaperKit.FONT_BIG + 12.0
-	_clean.offset_left = m.x + 26.0
-	_clean.offset_right = -(m.z + 26.0)
-	_clean.offset_top = m.y + 74.0
-	_clean.offset_bottom = m.y + 74.0 + PaperKit.FONT_BIG + 12.0
-	_night.offset_left = m.x
+	_dirty.offset_bottom = m.y + 60.0
+	_clean.offset_left = clean_start
+	_clean.offset_right = -(viewport_width - clean_end)
+	_clean.offset_top = m.y + 14.0
+	_clean.offset_bottom = m.y + 60.0
+	_night.offset_left = status_start
 	_night.offset_right = -(m.z + 26.0)
-	_night.offset_top = m.y + 14.0
-	_night.offset_bottom = m.y + 14.0 + PaperKit.FONT_SMALL + 12.0
-	_respect.offset_left = m.x
-	_respect.offset_right = -(m.z + 72.0)
-	_respect.offset_top = m.y + 60.0
-	_respect.offset_bottom = m.y + 60.0 + PaperKit.FONT_BIG + 12.0
+	_night.offset_top = m.y + 18.0
+	_night.offset_bottom = m.y + 48.0
+	_night.add_theme_font_size_override("font_size", 24)
+	_respect.offset_left = viewport_width * 0.75
+	_respect.offset_right = -(m.z + 66.0)
+	_respect.offset_top = m.y + 84.0
+	_respect.offset_bottom = m.y + 120.0
+	_respect_hint.add_theme_font_size_override("font_size", 20)
+	_respect_hint.offset_left = viewport_width * 0.75
+	_respect_hint.offset_right = -(m.z + 66.0)
+	_respect_hint.offset_top = m.y + 117.0
+	_respect_hint.offset_bottom = m.y + 148.0
 
 	_star.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	_star.offset_left = -(m.z + 62.0)
-	_star.offset_right = -(m.z + 28.0)
-	_star.offset_top = m.y + 68.0
-	_star.offset_bottom = m.y + 102.0
+	_star.offset_left = -(m.z + 54.0)
+	_star.offset_right = -(m.z + 20.0)
+	_star.offset_top = m.y + 86.0
+	_star.offset_bottom = m.y + 120.0
 
-	var heat_x := m.x + (viewport_width - m.x - m.z - HEAT_W) * 0.5
-	_heat.position = Vector2(heat_x, m.y + 128.0)
+	var heat_x := viewport_width * 0.37
+	var heat_w := minf(HEAT_W, viewport_width * 0.34)
+	_heat.position = Vector2(heat_x, m.y + 92.0)
+	_heat.size = Vector2(heat_w, 56.0)
+	_heat.configure(false)
 	_guy.offset_left = m.x + 26.0
-	_guy.offset_right = -(viewport_width - (heat_x - 12.0))
-	_guy.offset_top = m.y + 124.0
-	_guy.offset_bottom = m.y + 124.0 + PaperKit.FONT_SMALL + 12.0
+	# _guy is TOP_WIDE anchored, so offset_right is measured from the viewport's
+	# right edge. Keep the identity's actual right edge before the Heat module; the
+	# existing fit pass then preserves long names without crossing that boundary.
+	_guy.offset_right = -(viewport_width - (heat_x - 28.0))
+	_guy.offset_top = m.y + 88.0
+	_guy.offset_bottom = m.y + 124.0
+	_guy.add_theme_font_size_override("font_size", 27)
+	_guy_meta.offset_left = m.x + 26.0
+	_guy_meta.offset_right = -(viewport_width - (heat_x - 28.0))
+	_guy_meta.offset_top = m.y + 120.0
+	_guy_meta.offset_bottom = m.y + 150.0
+	_guy_meta.add_theme_font_size_override("font_size", 20)
+	_respect_meter.position = Vector2(viewport_width * 0.75, m.y + 150.0)
+	_respect_meter.size = Vector2(maxf(80.0, viewport_width * 0.18), 7.0)
+	_respect_meter.configure(false)
 
 
 func compact_layout() -> bool:
@@ -276,6 +464,75 @@ func compact_layout() -> bool:
 
 func strip_rect() -> Rect2:
 	return _strip.get_rect() if _strip != null else Rect2()
+
+
+## B5 consumes this stable profile identifier; it is selected from the physical width only.
+func hud_profile() -> StringName:
+	return _profile_id
+
+
+func profile_id() -> StringName:
+	return _profile_id
+
+
+## These accessors intentionally report logical coordinates, not the host window's raster size.
+func logical_viewport_size() -> Vector2:
+	return _logical_viewport
+
+
+func safe_content_rect() -> Rect2:
+	return _safe_content
+
+
+func requested_physical_size() -> Vector2i:
+	return _requested_window
+
+
+func requested_window_size() -> Vector2i:
+	return _requested_window
+
+
+func actual_physical_size() -> Vector2i:
+	return _actual_window
+
+
+func actual_window_size() -> Vector2i:
+	return _actual_window
+
+
+func geometry_contract() -> Dictionary:
+	return _geometry_contract.duplicate(true)
+
+
+func hud_geometry() -> Dictionary:
+	return geometry_contract()
+
+
+func geometry_snapshot() -> Dictionary:
+	return geometry_contract()
+
+
+func coach_anchors() -> Dictionary:
+	var anchors: Variant = _geometry_contract.get("anchors", {})
+	return (anchors as Dictionary).duplicate(true) if anchors is Dictionary else {}
+
+
+func objective_source() -> StringName:
+	return _selected_objective_source
+
+
+func priority_trace() -> PackedStringArray:
+	return _priority_trace
+
+
+func heat_display_state() -> Dictionary:
+	var federal := Game.heat != null and Game.heat.federal_enabled
+	return {
+			"value": Game.heat.value if Game.heat != null else 0.0,
+			"max": FEDERAL_HEAT_PRESENTATION_MAX if federal else Rates.HEAT_MAX,
+			"policy": &"absolute_0_200" if federal else &"ordinary_0_100",
+			"federal": federal,
+	}
 
 
 ## The mode lines. Nothing is laid out per-mode: they stack, and a line with no text takes
@@ -290,26 +547,44 @@ func _build_modes() -> void:
 	_modes.offset_bottom = MODES_TOP + MODE_H * MODE_ROWS
 	_modes.add_theme_constant_override("separation", 2)
 	_modes.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_modes.z_index = 1
 	add_child(_modes)
+	_objective = PaperKit.type_label("OBJECTIVE  ·  KEEP THE BALL IN PLAY", &"caption",
+			Presentation.theme.newsprint)
+	_objective.name = "Objective"
+	_objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_objective.clip_text = false
+	_objective.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_objective.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_objective.z_index = 1
+	_objective_backdrop = ColorRect.new()
+	_objective_backdrop.name = "ObjectiveBackdrop"
+	_objective_backdrop.color = Color(Presentation.theme.ink, 0.76)
+	_objective_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_objective_backdrop.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	add_child(_objective_backdrop)
+	add_child(_objective)
 
 	# The Commission goes first: while a fight is on, it is the only thing on the table.
-	_boss = _add_mode(Feel.COL_DIRTY)
-	_meeting = _add_mode(Feel.COL_BRASS)
-	_collect = _add_mode(Feel.COL_CLEAN)
-	_wire = _add_mode(Feel.COL_NEWSPRINT.darkened(0.2))
-	_casino = _add_mode(Color("FF2E63"))
+	_boss = _add_mode(Presentation.theme.dirty)
+	_meeting = _add_mode(Presentation.theme.brass)
+	_collect = _add_mode(Presentation.theme.clean)
+	_wire = _add_mode(Presentation.theme.newsprint.darkened(0.2))
+	_casino = _add_mode(Presentation.theme.neon_rose)
 	# M3. The endgame lines sit under the M2 ones, in the order they matter when several are
 	# live at once: the Feds first (they are the whole Night), then the crown, then the job.
-	_federal = _add_mode(Color("6EA8FF"))
-	_empire = _add_mode(Color("FFD166"))
-	_heist = _add_mode(Color("9BE7A0"))
-	_docks = _add_mode(Color("C98A5E"))
-	_city = _add_mode(Color("E0C36B"))
-	_ritual = _add_mode(Feel.COL_BRASS.lightened(0.15))
+	_federal = _add_mode(Presentation.theme.police)
+	_empire = _add_mode(Presentation.theme.brass.lightened(0.08))
+	_heist = _add_mode(Presentation.theme.neon_teal)
+	_docks = _add_mode(Presentation.theme.brass.darkened(0.10))
+	_city = _add_mode(Presentation.theme.brass.lightened(0.18))
+	_ritual = _add_mode(Presentation.theme.brass.lightened(0.15))
 
 
 func _add_mode(color: Color) -> Label:
-	var l := PaperKit.label("", PaperKit.FONT_SMALL, color)
+	var l := PaperKit.type_label("", &"caption", color)
+	l.add_theme_font_size_override("font_size", 20)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.visible = false
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_modes.add_child(l)
@@ -326,7 +601,16 @@ static func _set_mode(l: Label, text: String) -> void:
 
 func _add_label(at: Vector2, size: int, color: Color,
 		align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
-	var l := PaperKit.label("", size, color, align)
+	var role: StringName = &"metadata"
+	if size >= PaperKit.FONT_HUGE:
+		role = &"hero"
+	elif size >= PaperKit.FONT_BIG:
+		role = &"primary_value"
+	elif size >= PaperKit.FONT_BODY:
+		role = &"body"
+	var l := PaperKit.type_label("", role, color, align)
+	l.add_theme_font_size_override("font_size", size)
+	l.autowrap_mode = TextServer.AUTOWRAP_OFF
 	l.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	l.offset_left = at.x
 	l.offset_right = -26.0
@@ -366,17 +650,83 @@ func _process(delta: float) -> void:
 func _update_modes() -> void:
 	if _modes == null:
 		return
-	_set_mode(_boss, _boss_text())
-	_set_mode(_meeting, _meeting_text())
-	_set_mode(_collect, _collection_text())
-	_set_mode(_wire, _wire_text())
-	_set_mode(_casino, _casino_text())
-	_set_mode(_federal, _federal_text())
-	_set_mode(_empire, _empire_text())
-	_set_mode(_heist, _heist_text())
-	_set_mode(_docks, _docks_text())
-	_set_mode(_city, _city_text())
-	_set_mode(_ritual, _ritual_text())
+	# Keep every producer live and model-backed, but give the player one readable objective. The
+	# priority order is the deterministic ownership contract: a live boss owns the line before
+	# the meeting, then collection, wire, casino, endgame, job, and the ritual fallback.
+	var modes: Array[Dictionary] = [
+		{"id": &"boss", "label": _boss, "text": _boss_text()},
+		{"id": &"meeting", "label": _meeting, "text": _meeting_text()},
+		{"id": &"collection", "label": _collect, "text": _collection_text()},
+		{"id": &"wire", "label": _wire, "text": _wire_text()},
+		{"id": &"casino", "label": _casino, "text": _casino_text()},
+		{"id": &"federal", "label": _federal, "text": _federal_text()},
+		{"id": &"empire", "label": _empire, "text": _empire_text()},
+		{"id": &"heist", "label": _heist, "text": _heist_text()},
+		{"id": &"docks", "label": _docks, "text": _docks_text()},
+		{"id": &"city", "label": _city, "text": _city_text()},
+		{"id": &"ritual", "label": _ritual, "text": _ritual_text()},
+	]
+	var objective_text := ""
+	_priority_trace = PackedStringArray()
+	_selected_objective_source = &"fallback"
+	for mode: Dictionary in modes:
+		var label := mode["label"] as Label
+		var text := String(mode["text"])
+		var source := StringName(mode["id"])
+		_priority_trace.append("%s:%s" % [String(source), "active" if not text.is_empty() else "idle"])
+		_set_mode(label, text)
+		if objective_text.is_empty() and not text.is_empty():
+			objective_text = _short_objective(text)
+			_selected_objective_source = source
+		# Producer labels remain a compatibility/debug surface but are not equal-weight rows.
+		label.visible = false
+	if objective_text.is_empty():
+		objective_text = _job_objective()
+		_priority_trace.append("job:%s" % ("active" if not objective_text.is_empty() else "idle"))
+	_objective.text = "OBJECTIVE  ·  " + objective_text
+	_objective.visible = true
+	_objective.add_theme_font_size_override("font_size", 17 if _compact else 22)
+	_objective.custom_minimum_size.y = 42.0 if _compact else 50.0
+	_objective.clip_text = false
+	_fit_objective()
+
+
+func _short_objective(text: String) -> String:
+	var parts := text.split("   ·   ")
+	if parts.size() <= 2:
+		return " ".join(text.split(" ", false))
+	# Keep the name and the actionable counter/clock; long flavor stays in the source producer.
+	return "%s  ·  %s" % [" ".join(String(parts[0]).split(" ", false)),
+			" ".join(String(parts[1]).split(" ", false))]
+
+
+func _fit_objective() -> void:
+	if _objective == null:
+		return
+	var available := maxf(_objective_backdrop.size.x - 24.0, 120.0) \
+			if _objective_backdrop != null else maxf(_logical_viewport.x - 72.0, 120.0)
+	var preferred := 17 if _compact else 22
+	var minimum := 12 if _compact else 15
+	var font := _objective.get_theme_font(&"font")
+	var px := preferred
+	# Two lines are reserved by the objective band. Fit against that reservation without
+	# ellipsizing; the copy remains complete and wraps at word boundaries.
+	while px > minimum and font.get_string_size(_objective.text, HORIZONTAL_ALIGNMENT_LEFT,
+			-1.0, px).x > available * 1.85:
+		px -= 1
+	_objective.add_theme_font_size_override("font_size", px)
+
+
+func _job_objective() -> String:
+	var active := Game.jobs.active_jobs()
+	if active.is_empty():
+		return "KEEP THE BALL IN PLAY"
+	var job: Dictionary = active[0]
+	var name := String(job.get("name", "TONIGHT'S WORK"))
+	var description := String(job.get("desc", "KEEP THE BALL IN PLAY"))
+	if description.is_empty():
+		return name
+	return "%s  ·  %s" % [name, description]
 
 
 ## The fight, when there is one: who, which phase, and what he is doing to you right now.
@@ -550,13 +900,18 @@ func _ritual_text() -> String:
 func _update_guy() -> void:
 	if _guy == null:
 		return
-	var text := ""
+	var name := "NO GUY ON"
+	var next := "WAITING FOR THE TABLE"
 	if night_controller != null and is_instance_valid(night_controller) and night_controller.running:
 		var guy := night_controller.current_guy()
 		if not guy.is_empty():
-			text = "%s   ·   %d up next" % [String(guy["name"]), night_controller.guys_left()]
-	if text != _guy.text:
-		_guy.text = text
+			name = "GUY  " + String(guy["name"])
+			next = "%d UP NEXT" % night_controller.guys_left()
+	if name != _guy.text:
+		_guy.text = name
+	_fit_text_font(_guy, _guy.text, 17 if _compact else 27, 11 if _compact else 16)
+	if _guy_meta != null and next != _guy_meta.text:
+		_guy_meta.text = next
 
 
 # --- model signals ------------------------------------------------------------
@@ -564,10 +919,14 @@ func _update_guy() -> void:
 
 func _on_dirty(v: BigMoney) -> void:
 	_dirty.text = "DIRTY  " + v.text()
+	_fit_text_font(_dirty, _dirty.text, COMPACT_MONEY_FONT if _compact else PaperKit.FONT_BIG,
+			15 if _compact else 24)
 
 
 func _on_clean(v: BigMoney) -> void:
 	_clean.text = "CLEAN  " + v.text()
+	_fit_text_font(_clean, _clean.text, COMPACT_MONEY_FONT if _compact else PaperKit.FONT_BIG,
+			15 if _compact else 24)
 
 
 func _on_heat(v: float) -> void:
@@ -577,11 +936,16 @@ func _on_heat(v: float) -> void:
 
 func _on_respect(total: int) -> void:
 	var next := Game.respect_to_next_rank()
-	if next > 0:
-		_respect.text = ("%d  ·  %d TO R%d" % [total, next, Game.rank + 1]) if _compact \
-				else "%d   (%d to %s)" % [total, next, Headlines.rank_title(Game.rank + 1)]
-	else:
-		_respect.text = str(total)
+	_respect.text = "RESPECT %d" % total
+	_respect_hint.text = ("%d TO R%d" % [next, Game.rank + 1]) if next > 0 else "MAX RANK"
+	var threshold := Game.rank_threshold(Game.rank)
+	var next_threshold := Game.rank_threshold(Game.rank + 1)
+	var interval := maxi(next_threshold - threshold, 1)
+	var progress := 1.0 if next <= 0 else clampf(float(total - threshold) / float(interval), 0.0, 1.0)
+	_respect_meter.set_progress(progress)
+	_fit_text_font(_respect, _respect.text, 17 if _compact else 28, 12 if _compact else 16)
+	_fit_text_font(_respect_hint, _respect_hint.text, 14 if _compact else 20,
+			11 if _compact else 14)
 
 
 func _on_rank(_rank: int) -> void:
@@ -591,6 +955,7 @@ func _on_rank(_rank: int) -> void:
 
 func _on_night(n: int) -> void:
 	_night.text = "NIGHT %d   ·   %s" % [n, Game.rank_title()]
+	_fit_text_font(_night, _night.text, 18 if _compact else 24, 13 if _compact else 17)
 
 
 func _on_guy_changed(_guy: Dictionary) -> void:
@@ -616,42 +981,239 @@ func _on_combo(count: int) -> void:
 
 func _on_charge(power: float) -> void:
 	if _charge != null:
-		_charge.value = power
+		_charge.set_charge(power)
 
 
-## The Heat dial with its band edges marked, so "surf at 90" is a readable instruction
-## rather than a number to memorise (docs/03 §4).
+func _fit_text_font(label: Label, text: String, preferred: int, minimum: int) -> void:
+	if label == null:
+		return
+	var available := maxf(label.size.x - 2.0, 1.0)
+	var font := label.get_theme_font(&"font")
+	var px := preferred
+	while px > minimum and font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, px).x > available:
+		px -= 1
+	label.add_theme_font_size_override("font_size", px)
+
+
+## The compact chrome gives the two information bands a shared baseline without owning any
+## gameplay state. Values and labels remain separate controls above this decoration.
+class HudChrome:
+	extends Control
+
+	var compact := false
+	var margins := Vector4.ZERO
+	var profile: Dictionary = {}
+
+	func configure(is_compact: bool, safe_margins: Vector4, layout_profile: Dictionary) -> void:
+		compact = is_compact
+		margins = safe_margins
+		profile = layout_profile
+		queue_redraw()
+
+	func _draw() -> void:
+		if size.x <= 0.0 or size.y <= 0.0:
+			return
+		var inner_left := margins.x
+		var inner_right := size.x - margins.z
+		var divider_y := (margins.y + 48.0) if compact else (margins.y + 72.0)
+		var brass := Presentation.theme.brass
+		var newsprint := Presentation.theme.newsprint
+		draw_line(Vector2(inner_left, margins.y + 1.0), Vector2(inner_right, margins.y + 1.0),
+			Color(brass, 0.55), 2.0)
+		draw_line(Vector2(inner_left, divider_y), Vector2(inner_right, divider_y),
+			Color(brass, 0.28), 1.0)
+		if compact:
+			var safe_w := maxf(inner_right - inner_left, 1.0)
+			for ratio: float in [0.20, 0.595, 0.78]:
+				var x := inner_left + safe_w * ratio
+				draw_line(Vector2(x, margins.y + 10.0), Vector2(x, divider_y - 9.0),
+					Color(newsprint, 0.14), 1.0)
+		else:
+			for ratio: float in [0.20, 0.68, 0.75]:
+				var x := inner_left + (inner_right - inner_left) * ratio
+				draw_line(Vector2(x, margins.y + 16.0), Vector2(x, divider_y - 12.0),
+					Color(newsprint, 0.14), 1.0)
+		# A small mechanical marker separates this strip from the table; it is intentionally
+		# neutral so Dirty/Clean/Heat/Police keep their semantic ownership.
+		draw_circle(Vector2(inner_left, divider_y), 3.0, Color(brass, 0.72))
+		draw_circle(Vector2(inner_right, divider_y), 3.0, Color(brass, 0.72))
+
+
+## The Heat dial with band edges marked, labels, and a hatch warning so the warning survives
+## grayscale and reduced flash (docs/03 §4).
 class HeatBar:
 	extends Control
 
 	var value: float = 0.0
+	var compact := false
+	var federal := false
+
+	func configure(is_compact: bool) -> void:
+		compact = is_compact
+		federal = _federal_stage_enabled()
+		queue_redraw()
 
 	func set_heat(v: float) -> void:
-		if is_equal_approx(v, value):
+		var next_federal := _federal_stage_enabled()
+		var changed_scale := next_federal != federal
+		federal = next_federal
+		var cap := FEDERAL_HEAT_PRESENTATION_MAX if federal else Rates.HEAT_MAX
+		if not changed_scale and is_equal_approx(v, value):
 			return
-		value = v
+		value = clampf(v, 0.0, cap)
+		queue_redraw()
+
+	func _federal_stage_enabled() -> bool:
+		return Game.heat != null and Game.heat.federal_enabled
+
+	func _draw() -> void:
+		if size.x <= 0.0 or size.y <= 0.0:
+			return
+		var metadata_type := Presentation.theme.typography_for(&"metadata")
+		var font := metadata_type["font"] as Font
+		var type_size := 15 if compact else 20
+		var label_color := Presentation.theme.newsprint
+		draw_string(font, Vector2(0.0, float(type_size)), "HEAT", HORIZONTAL_ALIGNMENT_LEFT,
+			-1.0, type_size, label_color)
+		# Federal is deliberately absolute, not normalized: `/ 200` keeps the endpoint
+		# readable while the model continues to own its independent 0..200 value.
+		var cap := FEDERAL_HEAT_PRESENTATION_MAX if federal else Rates.HEAT_MAX
+		var number := "%d / %d" % [int(round(value)), int(cap)]
+		var number_width := font.get_string_size(number, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			 type_size).x
+		draw_string(font, Vector2(size.x - number_width, float(type_size)), number,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, type_size, label_color)
+		var meter_top := float(type_size + 5)
+		var meter_height := maxf(size.y - meter_top - (9.0 if compact else 13.0), 8.0)
+		var meter := Rect2(0.0, meter_top, size.x, meter_height)
+		draw_rect(meter, Color(Presentation.theme.ink, 0.94), true)
+		var fraction := clampf(value / cap, 0.0, 1.0)
+		var band := Rates.band_for(value)
+		var col := Presentation.theme.heat.darkened(0.30) if band == 0 else Presentation.theme.heat
+		if federal and value >= Rates.RAID_THRESHOLD:
+			col = Presentation.theme.police
+		elif band >= 4:
+			col = Presentation.theme.dirty
+		var filled := Rect2(meter.position, Vector2(meter.size.x * fraction, meter.size.y))
+		draw_rect(filled, col, true)
+		if (band >= 2 or (federal and value >= Rates.RAID_THRESHOLD)) and filled.size.x > 4.0:
+			var hatch_step := 11.0 if compact else 15.0
+			var x := filled.position.x - filled.size.y
+			while x < filled.end.x:
+				draw_line(Vector2(maxf(x, filled.position.x), filled.end.y),
+					Vector2(minf(x + filled.size.y, filled.end.x), filled.position.y),
+					Color(Presentation.theme.newsprint, 0.44), 1.5)
+				x += hatch_step
+		var thresholds := PackedFloat64Array(Rates.BAND_THRESHOLDS)
+		if federal:
+			# Keep the ordinary raid boundary and the readable Federal endpoint on one dial.
+			thresholds.append(FEDERAL_HEAT_PRESENTATION_MAX)
+		for threshold: float in thresholds:
+			var marker_x := meter.position.x + meter.size.x * threshold / cap
+			draw_line(Vector2(marker_x, meter.position.y), Vector2(marker_x, meter.end.y),
+				Color(Presentation.theme.newsprint, 0.78), 1.0)
+			var marker := "%d" % int(threshold)
+			var marker_width := font.get_string_size(marker, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+				10).x
+			if not compact or threshold == 90.0 or (federal and threshold >= Rates.RAID_THRESHOLD):
+				draw_string(font, Vector2(clampf(marker_x - marker_width * 0.5, 0.0,
+					size.x - marker_width), size.y - 1.0), marker, HORIZONTAL_ALIGNMENT_LEFT,
+					-1.0, 10, Color(Presentation.theme.newsprint, 0.72))
+		draw_rect(meter, Color(Presentation.theme.brass, 0.76), false, 2.0)
+
+
+class RespectMeter:
+	extends Control
+
+	var progress := 0.0
+	var compact := false
+
+	func configure(is_compact: bool) -> void:
+		compact = is_compact
+		queue_redraw()
+
+	func set_progress(next: float) -> void:
+		progress = clampf(next, 0.0, 1.0)
 		queue_redraw()
 
 	func _draw() -> void:
-		var r := Rect2(Vector2.ZERO, size)
-		draw_rect(r, Feel.COL_INK.lightened(0.12))
-		var f := clampf(value / Rates.HEAT_MAX, 0.0, 1.0)
-		var band := Rates.band_for(value)
-		var col := Color("FF7A2E")
-		if band >= 4:
-			col = Feel.COL_DIRTY
-		elif band == 0:
-			col = Color("FF7A2E").darkened(0.35)
-		draw_rect(Rect2(Vector2.ZERO, Vector2(size.x * f, size.y)), col)
-		for t: float in Rates.BAND_THRESHOLDS:
-			var x := size.x * clampf(t / Rates.HEAT_MAX, 0.0, 1.0)
-			draw_line(Vector2(x, 0.0), Vector2(x, size.y), Feel.COL_NEWSPRINT, 2.0)
-		draw_rect(r, Feel.COL_BRASS.darkened(0.3), false, 2.0)
+		if size.x <= 0.0 or size.y <= 0.0:
+			return
+		var track := Rect2(0.0, 0.0, size.x, maxf(size.y, 5.0))
+		draw_rect(track, Color(Presentation.theme.ink, 0.92), true)
+		draw_rect(Rect2(track.position, Vector2(track.size.x * progress, track.size.y)),
+			Presentation.theme.brass, true)
+		draw_rect(track, Color(Presentation.theme.newsprint, 0.56), false, 1.0)
+		var tick_x := track.size.x * 0.5
+		draw_line(Vector2(tick_x, 0.0), Vector2(tick_x, track.size.y),
+			Color(Presentation.theme.newsprint, 0.60), 1.0)
 
 
-## The brass ☆ next to the Respect count — drawn, because the default font has no star.
+class PlungerLane:
+	extends Control
+
+	var value := 0.0
+	var compact := false
+
+	func configure(is_compact: bool) -> void:
+		compact = is_compact
+		queue_redraw()
+
+	func set_charge(power: float) -> void:
+		value = clampf(power, 0.0, 1.0)
+		queue_redraw()
+
+	func _draw() -> void:
+		if size.x <= 0.0 or size.y <= 0.0:
+			return
+		var rail_width := 26.0 if compact else 38.0
+		# Standard reserves transparent copy space to the left of the physical lane.
+		# Keep the rail at the same right-anchored world position as the former 72px
+		# control; compact remains centered in its shallow 44px control.
+		var rail_center_x := size.x * 0.5 if compact else size.x - 36.0
+		var rail := Rect2(rail_center_x - rail_width * 0.5, 24.0, rail_width,
+			maxf(size.y - 54.0, 24.0))
+		draw_rect(Rect2(rail.position - Vector2(8.0, 8.0), rail.size + Vector2(16.0, 16.0)),
+			Color(Presentation.theme.ink, 0.74), true)
+		draw_rect(rail, Color(Presentation.theme.ink, 0.95), true)
+		var fill_height := rail.size.y * value
+		if fill_height > 0.0:
+			draw_rect(Rect2(rail.position + Vector2(0.0, rail.size.y - fill_height),
+				Vector2(rail.size.x, fill_height)), Presentation.theme.brass, true)
+		for detent: float in [0.35, 0.70, 1.0]:
+			var y := rail.end.y - rail.size.y * detent
+			draw_line(Vector2(rail.position.x - 10.0, y), Vector2(rail.end.x + 10.0, y),
+				Color(Presentation.theme.newsprint, 0.88), 2.0)
+			if not compact or detent < 1.0:
+				var micro_type := Presentation.theme.typography_for(&"micro")
+				draw_string(micro_type["font"] as Font, Vector2(rail.end.x + 14.0, y + 4.0),
+					"MAX" if detent >= 1.0 else "%d" % int(detent * 100.0),
+					HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13 if compact else 16,
+					Color(Presentation.theme.newsprint, 0.74))
+		draw_rect(rail, Color(Presentation.theme.brass, 0.90), false, 2.0)
+		var micro_type := Presentation.theme.typography_for(&"micro")
+		var font := micro_type["font"] as Font
+		var pull := "PULL" if compact else "PULL  ·  LAUNCH"
+		var pull_width := font.get_string_size(pull, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+			14 if compact else 18).x
+		draw_string(font, Vector2((size.x - pull_width) * 0.5, 15.0), pull,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14 if compact else 18,
+			Color(Presentation.theme.newsprint, 0.88))
+		var arrow_x := rail.get_center().x
+		draw_line(Vector2(arrow_x, rail.end.y + 9.0), Vector2(arrow_x, rail.end.y + 19.0),
+			Color(Presentation.theme.brass, 0.90), 2.0)
+		draw_line(Vector2(arrow_x, rail.end.y + 19.0), Vector2(arrow_x - 5.0, rail.end.y + 13.0),
+			Color(Presentation.theme.brass, 0.90), 2.0)
+		draw_line(Vector2(arrow_x, rail.end.y + 19.0), Vector2(arrow_x + 5.0, rail.end.y + 13.0),
+			Color(Presentation.theme.brass, 0.90), 2.0)
+
+
+## The brass star next to the Respect count — drawn because the default font has no glyph.
 class StarBadge:
 	extends Control
 
 	func _draw() -> void:
-		PaperKit.draw_star(self, size * 0.5, size.x * 0.5, Feel.COL_BRASS)
+		var center := size * 0.5
+		draw_circle(center, size.x * 0.48, Color(Presentation.theme.ink, 0.92))
+		draw_arc(center, size.x * 0.46, 0.0, TAU, 20, Color(Presentation.theme.brass, 0.78), 1.5)
+		PaperKit.draw_star(self, center, size.x * 0.34, Presentation.theme.brass)

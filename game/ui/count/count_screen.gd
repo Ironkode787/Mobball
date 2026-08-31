@@ -151,7 +151,9 @@ var _headline_revealing: bool = false
 var _headline_stung: bool = false
 var _headline_elapsed: float = 0.0
 var _headline_target := ""
-var _buttons: HBoxContainer = null
+var _headline_placeholder: Label = null
+var _tally_indicator: Label = null
+var _buttons: PanelContainer = null
 var _roster: VBoxContainer = null
 var _safe: PanelContainer = null
 var _body: VBoxContainer = null
@@ -159,6 +161,17 @@ var _counter: AudioStreamPlayer = null
 var _board: VBoxContainer = null
 var _content_margin: MarginContainer = null
 var _set_piece: CountSetPiece = null
+var _paper: PanelContainer = null
+var _scroll: ScrollContainer = null
+var _headline_paper: PanelContainer = null
+var _crew_section: VBoxContainer = null
+var _holding_section: VBoxContainer = null
+var _holding_count: int = 0
+var _profile: Dictionary = {}
+var _geometry: Dictionary = {}
+var _logical_viewport := Vector2.ZERO
+var _requested_window := Vector2i.ZERO
+var _actual_window := Vector2i.ZERO
 
 
 func _ready() -> void:
@@ -178,9 +191,203 @@ func _on_safe_margins_changed(_margins: Vector4) -> void:
 func _apply_safe_area() -> void:
 	Presentation.safe.apply_to_margin_container(_content_margin,
 			Vector4(48.0, 60.0, 48.0, 48.0))
+	_logical_viewport = get_viewport().get_visible_rect().size
+	_actual_window = DisplayServer.window_get_size()
+	if _actual_window.x <= 0 or _actual_window.y <= 0:
+		_actual_window = Vector2i(maxi(1, int(_logical_viewport.x)),
+				maxi(1, int(_logical_viewport.y)))
+	_requested_window = _requested_capture_size(_actual_window)
+	_profile = _layout_profile()
+	# Container sizes settle on the next layout pass. Publish after that pass so D4 receives
+	# rectangles in the same logical coordinate space as the Count controls.
+	call_deferred(&"_publish_geometry")
+
+
+## Stable presentation anchors for subtitle/toast arbitration and capture tooling. The Count
+## owns these reservations, but never decides where the global subtitle is drawn.
+func geometry_contract() -> Dictionary:
+	_publish_geometry()
+	return _geometry.duplicate(true)
+
+
+func geometry_snapshot() -> Dictionary:
+	return geometry_contract()
+
+
+func content_reservations() -> Dictionary:
+	var snapshot := geometry_contract()
+	return (snapshot.get("reservations", {}) as Dictionary).duplicate(true)
+
+
+func profile_id() -> StringName:
+	return _profile.get("id", &"compact") as StringName
+
+
+func safe_content_rect() -> Rect2:
+	var viewport := get_viewport().get_visible_rect().size
+	return Presentation.safe.content_rect().intersection(Rect2(Vector2.ZERO, viewport))
+
+
+func logical_viewport_size() -> Vector2:
+	return get_viewport().get_visible_rect().size
+
+
+func requested_physical_size() -> Vector2i:
+	return _requested_window if _requested_window != Vector2i.ZERO else DisplayServer.window_get_size()
+
+
+func actual_physical_size() -> Vector2i:
+	return _actual_window if _actual_window != Vector2i.ZERO else DisplayServer.window_get_size()
+
+
+func _publish_geometry() -> void:
+	if not is_inside_tree():
+		return
+	if _profile.is_empty():
+		_profile = _layout_profile()
+	var viewport_size := get_viewport().get_visible_rect().size
+	_logical_viewport = viewport_size
+	var safe := Presentation.safe.content_rect().intersection(Rect2(Vector2.ZERO, viewport_size))
+	var paper_rect := _control_rect(_paper)
+	var headline_rect := _control_rect(_headline_paper)
+	var crew_rect := _control_rect(_crew_section)
+	var holding_rect := _control_rect(_holding_section)
+	var footer_rect := _control_rect(_buttons)
+	var settings_rect := _control_rect(get_node_or_null("SafeContent/SettingsButton") as Control)
+	# SettingsButton is nested below the outer VBox and therefore is not a direct child of the
+	# CanvasLayer in the normal tree; resolve it by name when the direct path is unavailable.
+	if settings_rect == Rect2():
+		var settings := find_child("SettingsButton", true, false) as Control
+		settings_rect = _control_rect(settings)
+	var row_rects: Array[Rect2] = []
+	for row: Dictionary in _rows:
+		var row_node := row.get("node", null) as Control
+		row_rects.append(_control_rect(row_node))
+	var body_rect := _control_rect(_body)
+	var exclusions: Array[Rect2] = []
+	if body_rect.size.x > 0.0 and body_rect.size.y > 0.0:
+		exclusions.append(body_rect)
+	for rect: Rect2 in row_rects:
+		if rect.size.x > 0.0 and rect.size.y > 0.0:
+			exclusions.append(rect)
+	for rect: Rect2 in [headline_rect, crew_rect, holding_rect, footer_rect, settings_rect]:
+		if rect.size.x > 0.0 and rect.size.y > 0.0:
+			exclusions.append(rect)
+	var subtitle_bottom := footer_rect.position.y - 16.0 if footer_rect.size.y > 0.0 else safe.end.y
+	var subtitle_top := headline_rect.end.y + 16.0 if headline_rect.size.y > 0.0 else safe.position.y
+	var subtitle_region := Rect2(safe.position.x, subtitle_top, safe.size.x,
+			maxf(0.0, subtitle_bottom - subtitle_top))
+	_geometry = {
+			"schema": "kingpin.count.geometry.v1",
+			"profile": _profile.get("id", &"compact"),
+			"profile_config": _profile.duplicate(true),
+			"requested_physical_size": requested_physical_size(),
+			"actual_physical_size": actual_physical_size(),
+			"logical_viewport": viewport_size,
+			"safe_margins": Presentation.safe.margins(),
+			"safe_content": safe,
+			"state": "finished" if finished() else "rolling",
+			"holding_count": _holding_count,
+			"headline_state": "final" if _headline_shown and not _headline_revealing else (
+				"printing" if _headline_revealing else "pending"),
+			"reservations": {
+				"paper": paper_rect,
+				"scroll_body": body_rect,
+				"rows": row_rects,
+				"headline": headline_rect,
+				"roster": {
+					"crew": crew_rect,
+					"holding": holding_rect,
+				},
+				"crew": crew_rect,
+				"holding": holding_rect,
+				"footer": footer_rect,
+				"settings": settings_rect,
+				"footer_actions": _footer_action_rects(),
+				"subtitle_safe_region": subtitle_region,
+				"subtitle_exclusion_rects": exclusions,
+			},
+		}
+
+
+func _control_rect(control: Control) -> Rect2:
+	if control == null or not is_instance_valid(control) or not control.is_inside_tree():
+		return Rect2()
+	return control.get_global_rect()
+
+
+func _requested_capture_size(actual: Vector2i) -> Vector2i:
+	var raw := OS.get_environment("KINGPIN_REQUESTED_SIZE")
+	if raw.is_empty():
+		raw = OS.get_environment("KINGPIN_CAPTURE_REQUESTED_SIZE")
+	if raw.is_empty():
+		return actual
+	var parts := raw.to_lower().replace(" ", "").split("x")
+	if parts.size() != 2:
+		return actual
+	var width := int(parts[0])
+	var height := int(parts[1])
+	return Vector2i(width, height) if width > 0 and height > 0 else actual
+
+
+func _footer_action_rects() -> Dictionary:
+	if _buttons == null or not is_instance_valid(_buttons):
+		return {}
+	var actions := _buttons.get_node_or_null("Actions") as Control
+	if actions == null:
+		return {}
+	var result := {}
+	for child in actions.get_children():
+		if child is Control:
+			result[(child as Control).name.to_snake_case()] = (child as Control).get_global_rect()
+	return result
+
+
+func _paper_style() -> StyleBoxFlat:
+	var material := Presentation.theme.material_for(&"aged_paper")
+	var surface := Presentation.theme.surface_for(&"card")
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(material["fill"] as Color, 1.0)
+	style.border_color = material["border"] as Color
+	style.set_border_width_all(int(surface["border_width"]))
+	style.set_corner_radius_all(int(surface["radius"]))
+	style.shadow_color = material["shadow"] as Color
+	style.shadow_size = int(surface["elevation"]) * 3
+	style.shadow_offset = Vector2(0.0, 4.0)
+	style.content_margin_left = 28.0
+	style.content_margin_right = 28.0
+	style.content_margin_top = 24.0
+	style.content_margin_bottom = 24.0
+	return style
+
+
+func _receipt_style() -> StyleBoxFlat:
+	var material := Presentation.theme.material_for(&"newsprint")
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(material["fill"] as Color, 0.22)
+	style.border_color = Color(Feel.COL_INK, 0.16)
+	style.border_width_bottom = 1
+	style.content_margin_left = 12.0
+	style.content_margin_right = 12.0
+	style.content_margin_top = 6.0
+	style.content_margin_bottom = 6.0
+	return style
+
+
+func _layout_profile() -> Dictionary:
+	var actual := _actual_window
+	if actual.x <= 0:
+		actual = DisplayServer.window_get_size()
+	var requested_profile := OS.get_environment("KINGPIN_COUNT_PROFILE").to_lower()
+	var profile_id := &"compact" if actual.x < 720 else &"standard"
+	if ReleaseChannel.allow_development_hooks() \
+			and requested_profile in ["compact", "standard"]:
+		profile_id = StringName(requested_profile)
+	return Presentation.theme.layout_profile(profile_id)
 
 
 func _build() -> void:
+	_profile = _layout_profile()
 	var bg := ColorRect.new()
 	bg.color = Feel.COL_NEWSPRINT
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -214,24 +421,55 @@ func _build() -> void:
 	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
 	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 14)
+	outer.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_12")))
 	_content_margin.add_child(outer)
+
+	var paper := PanelContainer.new()
+	paper.name = "CountPaper"
+	paper.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	paper.clip_contents = true
+	paper.add_theme_stylebox_override("panel", _paper_style())
+	_paper = paper
+	outer.add_child(paper)
 
 	var scroll := ScrollContainer.new()
 	scroll.name = "CountScroll"
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	outer.add_child(scroll)
+	_scroll = scroll
+	paper.add_child(scroll)
 
 	_body = VBoxContainer.new()
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_body.add_theme_constant_override("separation", 14)
+	_body.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_12")))
 	scroll.add_child(_body)
 
-	_body.add_child(PaperKit.label("THE COUNT", PaperKit.FONT_TITLE, Feel.COL_INK))
-	_body.add_child(PaperKit.label(
-			"NIGHT %d   ·   %s" % [int(summary.get("night", Game.night_no)), Game.rank_title()],
-			PaperKit.FONT_SMALL, Feel.COL_INK.lightened(0.35)))
+	var masthead := VBoxContainer.new()
+	masthead.name = "Masthead"
+	masthead.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	masthead.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_4")))
+	var title := PaperKit.type_label("THE COUNT", &"title", Presentation.theme.ink)
+	title.name = "Title"
+	masthead.add_child(title)
+	var details := HBoxContainer.new()
+	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_16")))
+	var night := PaperKit.type_label(
+			"NIGHT %02d" % int(summary.get("night", Game.night_no)), &"metadata",
+			Presentation.theme.ink)
+	night.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	details.add_child(night)
+	var rank := PaperKit.type_label(String(Game.rank_title()).to_upper(), &"metadata",
+			Presentation.theme.ink.lightened(0.18), HORIZONTAL_ALIGNMENT_RIGHT)
+	rank.custom_minimum_size = Vector2(140.0, 0.0)
+	details.add_child(rank)
+	_tally_indicator = PaperKit.type_label("TALLY 00 / 00", &"micro",
+			Presentation.theme.ink.lightened(0.18), HORIZONTAL_ALIGNMENT_RIGHT)
+	_tally_indicator.custom_minimum_size = Vector2(190.0, 0.0)
+	details.add_child(_tally_indicator)
+	masthead.add_child(details)
+	_body.add_child(masthead)
 	_body.add_child(PaperKit.rule(Feel.COL_INK, 4.0))
 
 	_build_safe_banner()
@@ -239,21 +477,30 @@ func _build() -> void:
 
 	_body.add_child(PaperKit.rule(Feel.COL_INK, 4.0))
 	var headline_paper := PanelContainer.new()
-	var headline_box := StyleBoxFlat.new()
-	headline_box.bg_color = Color(Feel.COL_NEWSPRINT, 0.88)
-	headline_box.border_color = Color(Feel.COL_INK, 0.32)
-	headline_box.set_border_width_all(2)
-	headline_box.content_margin_left = 28.0
-	headline_box.content_margin_right = 28.0
-	headline_box.content_margin_top = 18.0
-	headline_box.content_margin_bottom = 18.0
-	headline_paper.add_theme_stylebox_override("panel", headline_box)
+	headline_paper.name = "HeadlineClipping"
+	headline_paper.clip_contents = true
 	headline_paper.custom_minimum_size = Vector2(0.0, 190.0)
-	_headline = PaperKit.label("", PaperKit.FONT_BIG, Feel.COL_INK)
+	headline_paper.add_theme_stylebox_override("panel", _headline_style())
+	_headline_paper = headline_paper
+	var headline_column := VBoxContainer.new()
+	headline_column.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_8")))
+	headline_paper.add_child(headline_column)
+	var headline_kicker := PaperKit.type_label("TONIGHT'S EDITION", &"micro",
+			Presentation.theme.ink.lightened(0.18))
+	headline_kicker.name = "Kicker"
+	headline_column.add_child(headline_kicker)
+	_headline_placeholder = PaperKit.type_label("THE STORY IS DEVELOPING", &"section",
+			Presentation.theme.ink.lightened(0.20))
+	_headline_placeholder.name = "Pending"
+	_headline_placeholder.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_headline_placeholder.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	headline_column.add_child(_headline_placeholder)
+	_headline = PaperKit.type_label("", &"section", Presentation.theme.ink)
+	_headline.name = "Headline"
 	_headline.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_headline.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_headline.modulate.a = 0.0
-	headline_paper.add_child(_headline)
+	_headline.visible = false
+	headline_column.add_child(_headline)
 	_body.add_child(headline_paper)
 
 	_roster = VBoxContainer.new()
@@ -272,24 +519,36 @@ func _build() -> void:
 	_build_war_room()
 	_build_train()
 
-	_buttons = HBoxContainer.new()
-	_buttons.add_theme_constant_override("separation", 24)
+	_buttons = PaperKit.bottom_action_bar("NEXT NIGHT", "THE LEDGER")
+	_buttons.name = "BottomActionBar"
+	_buttons.custom_minimum_size = Vector2(0.0, float(_layout_profile().get("footer_height", 112.0)))
 	outer.add_child(_buttons)
-
-	var ledger := PaperKit.button("THE LEDGER")
-	ledger.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var actions := _buttons.get_node("Actions") as HBoxContainer
+	var ledger := actions.get_node("Secondary") as Button
 	ledger.pressed.connect(func() -> void: ledger_pressed.emit())
-	_buttons.add_child(ledger)
-
-	var next := PaperKit.button("NEXT NIGHT", PaperKit.FONT_BIG, Feel.COL_CLEAN)
-	next.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var next := actions.get_node("Primary") as Button
 	next.pressed.connect(func() -> void: next_night_pressed.emit())
-	_buttons.add_child(next)
 
-	var settings_button := PaperKit.button("HOUSE RULES", PaperKit.FONT_SMALL, Feel.COL_BRASS)
+	var settings_button := PaperKit.action_button("HOUSE RULES", &"quiet")
 	settings_button.name = "SettingsButton"
 	settings_button.pressed.connect(func() -> void: settings_pressed.emit())
 	outer.add_child(settings_button)
+	_update_tally_indicator()
+	call_deferred(&"_publish_geometry")
+
+
+func _headline_style() -> StyleBoxFlat:
+	var material := Presentation.theme.material_for(&"newsprint")
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(material["fill"] as Color, 1.0)
+	style.border_color = Color(Feel.COL_INK, 0.34)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
+	style.content_margin_left = 24.0
+	style.content_margin_right = 24.0
+	style.content_margin_top = 18.0
+	style.content_margin_bottom = 18.0
+	return style
 
 
 ## THE COMMISSION. The ☆ are in the bank and a rival family wants a word: the next Night is
@@ -612,38 +871,76 @@ static func _money(v: Variant) -> BigMoney:
 
 
 func _row(text: String, color: Color, size: int, money: BigMoney, count: int) -> Dictionary:
-	var line := HBoxContainer.new()
-	line.add_theme_constant_override("separation", 20)
-	var left := PaperKit.label(text, size, Feel.COL_INK)
+	# Every tally line receives its final footprint while the sheet is built. Empty windows
+	# therefore never cause the headline, crew or footer to jump when the count finishes.
+	var line := PanelContainer.new()
+	line.name = "ReceiptRow_%d" % _rows.size()
+	line.custom_minimum_size = Vector2(0.0, 84.0 if size <= PaperKit.FONT_SMALL else 92.0)
+	line.set_meta("count_row_index", _rows.size())
+	line.set_meta("count_row_value_kind", "money" if money != null else "count")
+	line.set_meta("count_row_final_height", line.custom_minimum_size.y)
+	line.add_theme_stylebox_override("panel", _receipt_style())
+	var content := HBoxContainer.new()
+	content.add_theme_constant_override("separation",
+			int(Presentation.theme.spacing_for(&"space_16")))
+	line.add_child(content)
+	var left := PaperKit.type_label(text.strip_edges(), &"body", Presentation.theme.ink)
+	if size <= PaperKit.FONT_SMALL:
+		left = PaperKit.type_label(text.strip_edges(), &"caption", Presentation.theme.ink)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var right := PaperKit.label("", size, color, HORIZONTAL_ALIGNMENT_RIGHT)
+	left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	left.clip_text = false
+	content.add_child(left)
+	var right := PaperKit.type_label("", &"primary_value", color, HORIZONTAL_ALIGNMENT_RIGHT)
 	right.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	right.clip_text = false
 	var meter := CountOdometerFace.new()
 	meter.name = "Odometer"
-	meter.custom_minimum_size = Vector2(300.0, 68.0)
+	meter.custom_minimum_size = Vector2(300.0, 72.0)
 	meter.size_flags_horizontal = Control.SIZE_SHRINK_END
 	meter.set_tint(color)
 	right.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	meter.add_child(right)
-	line.add_child(left)
-	line.add_child(meter)
+	content.add_child(meter)
 	_body.add_child(line)
-	return {"label": right, "money": money, "count": count}
+	return {"node": line, "label": right, "money": money, "count": count}
 
 
 func _build_roster() -> void:
-	for c in _roster.get_children():
-		c.queue_free()
+	_crew_section = null
+	_holding_section = null
+	_holding_count = 0
+	while _roster.get_child_count() > 0:
+		var old := _roster.get_child(0)
+		_roster.remove_child(old)
+		old.queue_free()
 	_build_crew_strip()
 	var held: Array[Dictionary] = []
 	if Game.bench != null:
 		held = Game.bench.holding()
 	if held.is_empty():
+		call_deferred(&"_publish_geometry")
 		return
-	_roster.add_child(PaperKit.label("IN HOLDING", PaperKit.FONT_SMALL,
-			Feel.COL_INK.lightened(0.35)))
-	for guy: Dictionary in held:
+	_holding_section = VBoxContainer.new()
+	_holding_count = held.size()
+	_holding_section.name = "HoldingSection"
+	_holding_section.add_theme_constant_override("separation", int(
+			Presentation.theme.spacing_for(&"space_8")))
+	_roster.add_child(_holding_section)
+	var holding_header := PaperKit.type_label("IN HOLDING", &"metadata",
+			Presentation.theme.ink.lightened(0.18))
+	holding_header.name = "HoldingHeader"
+	_holding_section.add_child(holding_header)
+	var holding_hint := PaperKit.type_label("DIRTY CASH ONLY · BAIL NOW OR WAIT",
+			&"caption", Presentation.theme.ink.lightened(0.18))
+	holding_hint.name = "HoldingHint"
+	holding_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_holding_section.add_child(holding_hint)
+	for index in held.size():
+		var guy: Dictionary = held[index]
 		var row := HBoxContainer.new()
+		row.name = "HoldingRow_%d" % index
+		row.custom_minimum_size = Vector2(0.0, 96.0)
 		row.add_theme_constant_override("separation", 16)
 		# Waiting is normal, not a fail state (device feedback): every held guy says when
 		# he walks on his own, so bail reads as the impatience tax it is.
@@ -653,17 +950,25 @@ func _build_roster() -> void:
 				PaperKit.FONT_SMALL, Feel.COL_INK)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_label.clip_text = false
 		row.add_child(name_label)
 		# Through `Game`, not the Bench: Cohen's discount is the session's, not the roster's.
 		var cost := Game.bail_cost(guy)
 		var affordable := Game.wallet.can_afford_dirty(cost)
 		var b := PaperKit.button("BAIL " + cost.text(), PaperKit.FONT_SMALL, Feel.COL_DIRTY)
+		b.name = "BailButton_%d" % index
+		b.custom_minimum_size = Vector2(190.0, 96.0)
 		b.disabled = not affordable
 		if not affordable:
 			b.tooltip_text = "dirty cash only — you're short"
 		b.pressed.connect(_on_bail.bind(guy))
 		row.add_child(b)
-		_roster.add_child(row)
+		_holding_section.add_child(row)
+		if not affordable:
+			var short := PaperKit.type_label("SHORT ON DIRTY CASH", &"caption", Feel.COL_DIRTY)
+			short.name = "BailStatus_%d" % index
+			_holding_section.add_child(short)
+	call_deferred(&"_publish_geometry")
 
 
 ## Who was out tonight, with the one line each of them has (docs/01 §4: one visible trait
@@ -673,13 +978,22 @@ func _build_crew_strip() -> void:
 	var crew: Variant = summary.get("guys", [])
 	if not (crew is Array) or (crew as Array).is_empty():
 		return
-	_roster.add_child(PaperKit.label("TONIGHT'S CREW", PaperKit.FONT_SMALL,
-			Feel.COL_INK.lightened(0.35)))
-	for raw: Variant in crew as Array:
+	_crew_section = VBoxContainer.new()
+	_crew_section.name = "CrewSection"
+	_crew_section.add_theme_constant_override("separation", int(
+			Presentation.theme.spacing_for(&"space_4")))
+	_roster.add_child(_crew_section)
+	var crew_header := PaperKit.type_label("TONIGHT'S CREW", &"metadata",
+			Presentation.theme.ink.lightened(0.18))
+	crew_header.name = "CrewHeader"
+	_crew_section.add_child(crew_header)
+	for index in crew.size():
+		var raw: Variant = (crew as Array)[index]
 		if not (raw is Dictionary):
 			continue
 		var g: Dictionary = raw
 		var row := HBoxContainer.new()
+		row.name = "CrewRow_%d" % index
 		row.add_theme_constant_override("separation", 16)
 		var who := String(g.get("name", ""))
 		if bool(g.get("meeting", false)):
@@ -687,13 +1001,16 @@ func _build_crew_strip() -> void:
 		var name_label := PaperKit.label(who, PaperKit.FONT_SMALL, Feel.COL_INK)
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		name_label.clip_text = false
 		row.add_child(name_label)
 		var trait_id := String(g.get("trait", ""))
-		row.add_child(PaperKit.label(GuyTraits.label(trait_id).to_upper(),
-				PaperKit.FONT_SMALL, Feel.COL_BRASS.darkened(0.2),
-				HORIZONTAL_ALIGNMENT_RIGHT))
-		_roster.add_child(row)
-	_roster.add_child(PaperKit.spacer(10.0))
+		var trait_label := PaperKit.type_label(GuyTraits.label(trait_id).to_upper(), &"caption",
+				Feel.COL_BRASS.darkened(0.2),
+				HORIZONTAL_ALIGNMENT_RIGHT)
+		trait_label.name = "Trait"
+		row.add_child(trait_label)
+		_crew_section.add_child(row)
+	_crew_section.add_child(PaperKit.spacer(10.0))
 
 
 func _on_bail(guy: Dictionary) -> void:
@@ -719,6 +1036,7 @@ func _process(delta: float) -> void:
 	_tick_time += delta
 	var t := clampf(_row_time / LINE_TIME, 0.0, 1.0)
 	_paint_row(_rows[_row_index], t)
+	_update_tally_indicator()
 	if _tick_time >= TICK_INTERVAL and t < 1.0:
 		_tick_time = 0.0
 		AudioDirector.play(&"cash_tick")
@@ -767,6 +1085,7 @@ func skip() -> void:
 	for row in _rows:
 		_paint_row(row, 1.0)
 	_row_index = _rows.size()
+	_update_tally_indicator()
 	_show_headline(true)
 	# A deliberate tap is the old skip gesture: it still finishes the entire ceremony in the
 	# same frame, while an unattended Count gets the staged typewriter reveal.
@@ -785,13 +1104,17 @@ func _show_headline(force_immediate: bool = false) -> void:
 	_headline_stung = false
 	if _set_piece != null:
 		_set_piece.roll_progress = 1.0
+	if _headline_placeholder != null:
+		_headline_placeholder.visible = false
 	if force_immediate or _reduced_motion() or _headline_target.is_empty():
 		_finish_headline()
 		return
 	_headline.text = ""
+	_headline.visible = true
 	_headline.modulate.a = 0.0
 	_headline_revealing = true
 	AudioDirector.play(&"paper_slip")
+	call_deferred(&"_publish_geometry")
 
 
 func _advance_headline(delta: float) -> void:
@@ -810,11 +1133,21 @@ func _finish_headline() -> void:
 	if not _headline_shown:
 		return
 	_headline_revealing = false
+	_headline.visible = true
 	_headline.text = _headline_target
 	_headline.modulate.a = 1.0
 	if not _headline_stung:
 		_headline_stung = true
 		AudioDirector.play(&"headline_sting")
+	call_deferred(&"_publish_geometry")
+
+
+func _update_tally_indicator() -> void:
+	if _tally_indicator == null:
+		return
+	var total := _rows.size()
+	var done := total if _headline_shown else clampi(_row_index, 0, total)
+	_tally_indicator.text = "TALLY %02d / %02d" % [done, total]
 
 
 func _reduced_motion() -> bool:

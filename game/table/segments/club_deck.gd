@@ -434,9 +434,11 @@ func _draw() -> void:
 		draw_rect(sign, Feel.COL_INK.darkened(0.18))
 		draw_rect(sign, COL_NEON_ROSE.darkened(0.10), false, 4.0)
 		draw_string(font, sign.position + Vector2(0.0, 50.0), "THE CLUB",
-				HORIZONTAL_ALIGNMENT_CENTER, sign.size.x, 38, COL_NEON_ROSE)
+			HORIZONTAL_ALIGNMENT_CENTER, sign.size.x, 38, COL_NEON_ROSE)
+		draw_string(font, sign.position + Vector2(0.0, 68.0), "R4  /  CAPO  /  EARNED DECK",
+			HORIZONTAL_ALIGNMENT_CENTER, sign.size.x, 12, Feel.COL_BRASS)
 		draw_string(font, Vector2(DECK_LEFT + 54.0, -246.0), "HOUSE FLOOR",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Feel.COL_BRASS.darkened(0.32))
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Feel.COL_BRASS.darkened(0.32))
 
 
 ## Casino carpet and a small proscenium organize the wheel, reels and bats as a room rather
@@ -486,6 +488,78 @@ func _draw_room_inlay() -> void:
 		draw_line(Vector2(DECK_LEFT + 26.0, y), Vector2(DECK_LEFT + 48.0, y - 4.0),
 				COL_VIOLET.darkened(0.40), 3.0)
 
+	# State marks sit beside, never on top of, the child hardware. Every cue uses the C2
+	# mark/pattern vocabulary so state survives grayscale and reduced effects. A missing child
+	# is N/A at this draw edge; the shell never invents a transition for it.
+	var cues: Array[Dictionary] = []
+	if roulette != null and roulette.has_method(&"visual_token"):
+		cues.append({"at": WHEEL_AT + Vector2(0.0, -132.0), "token": roulette.visual_token()})
+	if reels != null and reels.has_method(&"visual_token"):
+		cues.append({"at": REELS_AT + Vector2(0.0, -112.0), "token": reels.visual_token()})
+	if high_roller != null and high_roller.has_method(&"visual_token"):
+		cues.append({"at": HIGH_ROLLER_AT + Vector2(-48.0, 0.0), "token": high_roller.visual_token()})
+	if backroom != null and backroom.has_method(&"visual_token"):
+		cues.append({"at": BACKROOM_AT + Vector2(48.0, 0.0), "token": backroom.visual_token()})
+	if staircase != null and staircase.has_method(&"visual_token"):
+		cues.append({"at": STAIR_PATH[0] + Vector2(-28.0, 0.0), "token": staircase.visual_token()})
+	if return_lane != null and return_lane.has_method(&"visual_token"):
+		cues.append({"at": RETURN_PATH[RETURN_PATH.size() - 1] + Vector2(22.0, 0.0),
+				"token": return_lane.visual_token()})
+	for cue_data: Dictionary in cues:
+		var token: Dictionary = cue_data["token"]
+		var at: Vector2 = cue_data["at"]
+		var state := String(token.get("state", &"idle"))
+		var mark := String(token.get("mark", &"outline"))
+		var pattern := String(token.get("pattern", &"stable_outline"))
+		var cue_col := Feel.COL_BRASS.darkened(0.46)
+		if state == "armed":
+			cue_col = Feel.COL_BRASS
+		elif state == "active":
+			cue_col = COL_NEON_ROSE
+		elif state == "completed":
+			cue_col = Feel.COL_NEWSPRINT
+		elif state == "disabled":
+			cue_col = Feel.COL_NEWSPRINT.darkened(0.46)
+		elif state == "danger":
+			cue_col = Feel.COL_DIRTY
+		var cue := Color(cue_col.r, cue_col.g, cue_col.b, 0.78)
+		var radius := 12.0
+		if mark == "invitation_pin":
+			draw_circle(at, radius * 0.36, cue)
+			draw_line(at + Vector2(0.0, radius * 0.30), at + Vector2(0.0, radius), cue, 3.0)
+		elif mark == "contact_pulse" or mark == "held_ring":
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+			draw_circle(at, radius * 0.20, cue)
+		elif mark == "check_stamp" or mark == "marked_stamp":
+			draw_rect(Rect2(at - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)),
+					cue, false, 3.0)
+			draw_line(at + Vector2(-radius * 0.52, 0.0), at + Vector2(-radius * 0.10, radius * 0.40),
+					cue, 3.0)
+			draw_line(at + Vector2(-radius * 0.10, radius * 0.40), at + Vector2(radius * 0.56, -radius * 0.48),
+					cue, 3.0)
+		elif mark == "lock_offline":
+			draw_rect(Rect2(at - Vector2(radius * 0.72, radius * 0.34), Vector2(radius * 1.44, radius * 0.90)),
+					cue, false, 3.0)
+			draw_arc(at + Vector2(0.0, -radius * 0.25), radius * 0.42, PI, TAU, 12, cue, 3.0)
+		elif mark == "offline_cross":
+			draw_line(at + Vector2(-radius * 0.72, -radius * 0.72),
+				at + Vector2(radius * 0.72, radius * 0.72), cue, 3.0)
+			draw_line(at + Vector2(radius * 0.72, -radius * 0.72),
+				at + Vector2(-radius * 0.72, radius * 0.72), cue, 3.0)
+		elif mark == "cooldown_clock":
+			draw_arc(at, radius, -PI * 0.5, PI, 16, cue, 3.0)
+			draw_line(at, at + Vector2(0.0, -radius * 0.52), cue, 2.0)
+			draw_line(at, at + Vector2(radius * 0.34, radius * 0.20), cue, 2.0)
+		elif mark == "hazard_hatch" or mark == "telegraph_hatch" or mark == "jam_alert" \
+				or pattern == "hazard_hatch" or pattern == "telegraph_hatch":
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+			for hatch in range(3):
+				var hy := at.y - radius * 0.62 + float(hatch) * radius * 0.52
+				draw_line(Vector2(at.x - radius * 0.68, hy), Vector2(at.x + radius * 0.68, hy - radius * 0.36), cue, 2.0)
+		else:
+			# `outline` and any future C2 mark remain a stable, non-color cue.
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+
 
 ## Once the table has an upstairs, the space around it is in shot. This is the back of the
 ## machine behind the deck — dark board, a hint of a skyline, the scaffolding that holds the
@@ -511,3 +585,11 @@ func _draw_backdrop() -> void:
 		var gx := lerpf(DECK_LEFT + 20.0, DECK_RIGHT - 20.0, float(i) / 5.0)
 		draw_line(Vector2(gx, DECK_BOTTOM), Vector2(gx - 18.0, 4.0),
 				Feel.COL_INK.lightened(0.14), 7.0)
+	# A few right-side windows establish the Club as an earned upper district. They are broad,
+	# static patches of light in the backdrop, not a lane, guide, or activation signal; the left
+	# half remains deliberately quiet for the Docks and Penthouse composition.
+	for i in range(4):
+		var x := lerpf(DECK_LEFT + 270.0, DECK_RIGHT - 36.0, float(i) / 3.0)
+		var y := -150.0 - float(i % 2) * 88.0
+		draw_rect(Rect2(Vector2(x, y), Vector2(28.0, 46.0)),
+				Color(COL_VIOLET.r, COL_VIOLET.g, COL_VIOLET.b, 0.10))

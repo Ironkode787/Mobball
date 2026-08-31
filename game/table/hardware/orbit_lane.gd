@@ -101,9 +101,69 @@ func set_hardware_active(active: bool) -> void:
 		area.collision_mask = Feel.LAYER_BALL if active else 0
 
 
+## The orbit window is presentation state only. The authoritative three-second window remains
+## `_entered_at`/`WINDOW`; no visual classification changes scoring or entry/exit sensors.
+func _visual_state_id() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if _flash > 0.0:
+		return TableVisualState.VisualState.COMPLETED
+	if armed():
+		return TableVisualState.VisualState.ARMED
+	return TableVisualState.VisualState.IDLE
+
+
+func visual_state() -> Dictionary:
+	return TableVisualState.state_token(_visual_state_id(), {&"flash": _flash > 0.0})
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _material_fill(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
 func _draw() -> void:
 	if _entry == null or _exit == null:
 		return
-	var col := Feel.COL_BRASS.darkened(0.55).lerp(Feel.COL_NEWSPRINT, _flash)
-	draw_arc(_entry.position, 26.0, 0.0, TAU, 20, col, 4.0)
-	draw_arc(_exit.position, 26.0, 0.0, TAU, 20, col, 4.0)
+	var token := visual_token()
+	var state := StringName(token["state"])
+	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
+	var brass := _material_fill(&"brass", Feel.COL_BRASS)
+	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
+	var flash_strength := _flash * (0.25 if _reduced_flash() else 1.0)
+	var col := brass.darkened(0.55)
+	if state == &"armed":
+		col = brass
+	elif state == &"completed":
+		col = brass.lerp(paper, 0.42 + flash_strength * 0.58)
+	elif state == &"disabled":
+		col = ink.lightened(0.18)
+	# Entry and exit are the only switch marks; the actual curved rail remains WallBuilder-owned.
+	draw_circle(_entry.position, 27.0, Color(col.r, col.g, col.b, 0.12))
+	draw_circle(_exit.position, 27.0, Color(col.r, col.g, col.b, 0.12))
+	draw_arc(_entry.position, 26.0, 0.0, TAU, 20, col, 5.0)
+	draw_arc(_exit.position, 26.0, 0.0, TAU, 20, col, 5.0)
+	if state == &"armed":
+		var direction := (_exit.position - _entry.position).normalized()
+		var side := Vector2(-direction.y, direction.x) * 9.0
+		var tip := _entry.position + direction * 20.0
+		draw_line(tip - direction * 12.0 + side, tip + direction * 9.0, col, 4.0)
+		draw_line(tip - direction * 12.0 - side, tip + direction * 9.0, col, 4.0)
+	elif state == &"completed":
+		draw_line(_exit.position + Vector2(-11.0, 1.0), _exit.position + Vector2(-2.0, 10.0), paper, 4.0)
+		draw_line(_exit.position + Vector2(-2.0, 10.0), _exit.position + Vector2(14.0, -12.0), paper, 4.0)
+	elif state == &"disabled":
+		draw_line(_entry.position - Vector2(13.0, 13.0), _exit.position + Vector2(13.0, 13.0),
+			Color(paper.r, paper.g, paper.b, 0.28), 3.0)

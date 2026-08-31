@@ -22,9 +22,139 @@ func _theme_and_city(t: TestCtx) -> void:
 	for role: StringName in [&"display", &"headline", &"ui", &"body", &"annotation"]:
 		t.ok(theme.font_for(role) != null, "%s production font is loaded" % role)
 	t.eq(theme.size_for(&"body"), 34, "body type token")
+	_semantic_tokens(theme, t)
 	var city := CitySkin.eastport()
 	t.eq(city.id, &"eastport", "default city skin")
 	t.eq(city.felt, Feel.COL_FELT, "city skin begins without a visual jump")
+	_city_tokens(city, t)
+
+
+func _semantic_tokens(theme: PresentationTheme, t: TestCtx) -> void:
+	var expected_type_roles: Array[StringName] = [
+		&"hero", &"title", &"section", &"primary_value", &"body", &"caption", &"metadata",
+		&"button", &"micro",
+	]
+	t.eq(PresentationTheme.TYPE_ROLES, expected_type_roles, "semantic type role set is complete")
+	for role: StringName in expected_type_roles:
+		var token := theme.typography_for(role)
+		t.eq(token.get("role", &""), role, "%s reports its canonical role" % role)
+		t.ok(token.get("font", null) != null, "%s has a font token" % role)
+		t.ok(int(token.get("size", 0)) > 0, "%s has a positive size" % role)
+		t.ok(float(token.get("line_height", 0.0)) > 0.0, "%s has line-height metadata" % role)
+		t.ok(float(token.get("tracking", -1.0)) >= 0.0, "%s has tracking metadata" % role)
+		t.ok(float(token.get("max_width", 0.0)) >= float(token.get("size", 0)),
+				"%s has a usable max line width" % role)
+		t.ok(token.has("tabular_numbers"), "%s has tabular-number metadata" % role)
+		t.eq(token.keys().size(), 7, "%s exposes one canonical metadata key per value" % role)
+	t.eq(theme.size_for(&"display"), 78, "legacy display size remains stable")
+	t.eq(theme.size_for(&"headline"), 56, "legacy headline size remains stable")
+	t.eq(theme.size_for(&"title"), 44, "legacy title size remains stable")
+	t.eq(theme.size_for(&"annotation"), 28, "legacy annotation size remains stable")
+	t.eq(theme.font_for(&"title"), theme.body_font, "legacy title font fallback remains stable")
+	t.eq(theme.typography_for(&"title").get("font"), theme.headline_font,
+			"semantic title resolves its canonical display font")
+	t.eq(theme.font_for(&"annotation_bold"), PresentationTheme.FONT_COURIER_BOLD,
+			"legacy bold annotation font remains stable")
+	t.eq(theme.space_xs, 8.0, "legacy extra-small spacing remains stable")
+	t.eq(theme.space_sm, 14.0, "legacy small spacing remains stable")
+	t.eq(theme.space_md, 28.0, "legacy medium spacing remains stable")
+	t.eq(theme.space_lg, 48.0, "legacy large spacing remains stable")
+	t.eq(theme.touch_min, 96.0, "legacy touch minimum remains stable")
+	var spacing := theme.spacing_tokens()
+	var expected_spacing_roles: Array[StringName] = [
+		&"space_4", &"space_8", &"space_12", &"space_16", &"space_24", &"space_32",
+		&"space_40", &"space_48", &"space_64",
+	]
+	t.eq(PresentationTheme.SPACING_ROLES, expected_spacing_roles,
+			"semantic spacing role set is complete")
+	for role: StringName in expected_spacing_roles:
+		var value := float(spacing.get(role, -1.0))
+		t.ok(value > 0.0 and int(value) % 4 == 0, "%s follows the 4/8 spacing rhythm" % role)
+		t.eq(value, theme.spacing_for(role), "%s collection uses the canonical lookup" % role)
+	t.eq(theme.spacing_for(&"space_4"), 4.0, "4-point spacing token")
+	t.eq(theme.spacing_for(&"space_8"), 8.0, "8-point spacing token")
+	var legacy_xs := theme.space_xs
+	theme.space_xs = 14.0
+	t.eq(theme.spacing_for(&"space_8"), 8.0, "canonical 8-point spacing ignores legacy customization")
+	theme.space_xs = legacy_xs
+	var compact := theme.layout_profile(&"compact")
+	var standard := theme.layout_profile(&"standard")
+	t.eq(PresentationTheme.LAYOUT_PROFILES, [&"compact", &"standard"],
+			"layout profile set is complete")
+	t.eq(compact.get("id"), &"compact", "compact layout profile is canonical")
+	t.eq(standard.get("id"), &"standard", "standard layout profile is canonical")
+	t.ok(float(compact.get("content_width", 0.0)) > 0.0,
+			"compact profile has a bounded content width")
+	t.ok(float(standard.get("content_width", 0.0)) > float(compact.get("content_width", 0.0)),
+			"standard profile has the wider content width")
+	var compact_gutter: Vector4 = compact.get("safe_gutter", Vector4.ZERO)
+	var standard_gutter: Vector4 = standard.get("safe_gutter", Vector4.ZERO)
+	t.eq(theme.layout_profile(&"compact").get("safe_gutter"), compact_gutter,
+			"compact profile exposes its canonical safe gutter")
+	t.eq(theme.layout_profile(&"standard").get("content_width"),
+			float(standard.get("content_width", 0.0)),
+			"standard profile exposes its canonical content width")
+	t.ok(compact_gutter.x > 0.0 and compact_gutter.y > 0.0 and compact_gutter.z > 0.0
+			and compact_gutter.w > 0.0, "compact profile protects all safe edges")
+	t.ok(standard_gutter.x > 0.0 and standard_gutter.y > 0.0 and standard_gutter.z > 0.0
+			and standard_gutter.w > 0.0, "standard profile protects all safe edges")
+	var expected_material_roles: Array[StringName] = [
+		&"ink_glass", &"newsprint", &"aged_paper", &"cork", &"wood", &"brass", &"felt",
+	]
+	t.eq(PresentationTheme.MATERIAL_ROLES, expected_material_roles,
+			"material role set is complete")
+	for role: StringName in expected_material_roles:
+		var material := theme.material_for(role)
+		t.eq(material.keys().size(), 4, "%s material has one complete contract" % role)
+		for key in [&"fill", &"border", &"shadow", &"opacity"]:
+			t.ok(material.has(key), "%s material exposes %s" % [role, key])
+	var expected_control_roles: Array[StringName] = [
+		&"button", &"compact_button", &"toggle", &"slider", &"touch_target",
+	]
+	t.eq(PresentationTheme.CONTROL_ROLES, expected_control_roles,
+			"control role set is complete")
+	for role: StringName in expected_control_roles:
+		var control := theme.control_for(role)
+		t.ok(float(control.get("min_height", 0.0)) >= theme.touch_min,
+				"%s control preserves the touch minimum" % role)
+		t.eq(control.keys().size(), 6, "%s control has one height contract" % role)
+		t.ok(control.get("padding", null) is Vector4, "%s control has typed padding" % role)
+	var expected_surface_roles: Array[StringName] = [
+		&"screen", &"panel", &"card", &"receipt", &"overlay", &"control",
+	]
+	t.eq(PresentationTheme.SURFACE_ROLES, expected_surface_roles,
+			"surface role set is complete")
+	for role: StringName in expected_surface_roles:
+		var surface := theme.surface_for(role)
+		var material_role: StringName = surface.get("material", &"")
+		t.ok(PresentationTheme.MATERIAL_ROLES.has(material_role),
+				"%s surface selects a known material" % role)
+		t.eq(surface.keys().size(), 5, "%s surface has one complete contract" % role)
+	var neutral_fill = theme.material_for(&"ink_glass").get("fill", Color.TRANSPARENT)
+	t.ok(neutral_fill != theme.dirty and neutral_fill != theme.clean and neutral_fill != theme.heat
+			and neutral_fill != theme.police, "neutral materials do not repurpose state colors")
+	for alias in [&"type_for", &"type_token", &"space_for", &"spacing_token", &"layout_for",
+			&"layout_profile_for", &"profile_for", &"safe_gutter_for", &"content_width_for",
+			&"line_height_for", &"tracking_for", &"max_width_for", &"tabular_numbers_for",
+			&"material_token", &"control_token", &"surface_token"]:
+		t.ok(not theme.has_method(alias), "%s is not a parallel token lookup" % alias)
+
+
+func _city_tokens(city: CitySkin, t: TestCtx) -> void:
+	var expected_roles: Array[StringName] = [
+		&"felt", &"wood", &"wood_dark", &"wood_edge", &"brass", &"paper",
+		&"aged_paper", &"cork", &"ink_glass", &"earned_neon",
+	]
+	t.eq(CitySkin.AMBIENT_MATERIAL_ROLES, expected_roles, "city ambient role set is complete")
+	var ambient := city.ambient_materials()
+	t.eq(ambient.keys().size(), expected_roles.size(), "city ambient map has no omitted roles")
+	for role: StringName in expected_roles:
+		t.eq(ambient.get(role), city.material_for(role), "%s city lookup is canonical" % role)
+		t.ok(ambient.get(role, Color.TRANSPARENT) != Color.TRANSPARENT,
+				"%s city material is non-empty" % role)
+	for reserved in [&"dirty", &"clean", &"heat", &"police"]:
+		t.eq(city.material_for(reserved), Color.TRANSPARENT,
+				"city skin cannot redefine reserved %s" % reserved)
 
 
 func _art_catalog(t: TestCtx) -> void:

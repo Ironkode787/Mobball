@@ -1,6 +1,10 @@
 ; Engine configuration file.
 ; It's best edited using the editor UI and not directly,
 ; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -9,10 +13,10 @@ config_version=5
 config/name="KINGPIN"
 config/description="A pinball racket. Points are money. The table is your career."
 config/version="0.5.0-beta.1"
-config/version_code=5
 run/main_scene="res://game/main.tscn"
 config/features=PackedStringArray("4.5", "GL Compatibility")
 config/icon="res://icon.png"
+config/version_code=5
 
 [autoload]
 
@@ -45,12 +49,12 @@ window/handheld/orientation=1
 [physics]
 
 common/physics_ticks_per_second=120
-common/physics_interpolation=true
 2d/default_gravity=3800.0
+common/physics_interpolation=true
 
 [rendering]
 
-environment/defaults/default_clear_color=Color(0.0705882, 0.0627451, 0.054902, 1)
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
+environment/defaults/default_clear_color=Color(0.0705882, 0.0627451, 0.054902, 1)

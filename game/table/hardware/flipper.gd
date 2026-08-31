@@ -217,6 +217,54 @@ func is_hardware_active() -> bool:
 	return _present
 
 
+## Draw-edge translation of the native flipper state. `HELD` is a persistent active cue;
+## motion remains active, while jam/telegraph and tilt are danger/disabled cues respectively.
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.IDLE
+	var mods: Array[StringName] = []
+	if not _present or dead:
+		state = TableVisualState.VisualState.DISABLED
+		if dead:
+			mods.append(&"dead")
+	elif _jam > 0.0:
+		state = TableVisualState.VisualState.DANGER
+		mods.append(&"jam")
+	elif _telegraph > 0.0:
+		state = TableVisualState.VisualState.DANGER
+		mods.append(&"telegraph")
+	elif self.state != State.REST:
+		state = TableVisualState.VisualState.ACTIVE
+		mods.append(&"held" if self.state == State.HELD else &"pulse")
+	return TableVisualState.state_token(state, mods)
+
+
+func _ambient_material(role: StringName, fallback: Color) -> Color:
+	if Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
+func _draw_bat_hatch(l: float, rp: float, color: Color, alpha: float) -> void:
+	var hatch := Color(color, alpha)
+	for i in range(3):
+		var x := l * (0.26 + float(i) * 0.20)
+		draw_line(Vector2(x - rp * 0.32, -rp * 0.44), Vector2(x + rp * 0.32, rp * 0.44),
+				hatch, maxf(2.0, rp * 0.10))
+
+
+func _draw_held_marks(l: float, rp: float, color: Color) -> void:
+	var mark := Color(color, 0.78)
+	for x: float in [l * 0.25, l * 0.50, l * 0.75]:
+		draw_line(Vector2(x, -rp * 0.60), Vector2(x + rp * 0.22, 0.0), mark, 2.5)
+		draw_line(Vector2(x + rp * 0.22, 0.0), Vector2(x, rp * 0.60), mark, 2.5)
+
+
 func _now() -> float:
 	return _clock
 
@@ -418,43 +466,63 @@ func _assist(local: Vector2, reach: float, _delta: float) -> void:
 
 
 func _draw() -> void:
+	if not _present:
+		return
+	var token := visual_state()
 	var l := bat_length()
 	var rp := pivot_radius()
 	var rt := tip_radius()
-	var brass := Feel.COL_BRASS
+	var brass := _ambient_material(&"brass", Feel.COL_BRASS)
+	var ink := _ambient_material(&"ink_glass", Feel.COL_INK)
+	var paper := _ambient_material(&"paper", Feel.COL_NEWSPRINT)
+	var danger := Feel.COL_DIRTY
+	var flash := _glow * (0.25 if _reduced_flash() else 1.0)
+	var state_name := String(token["state"])
+	if state_name == "disabled":
+		brass = ink.lightened(0.32)
+	elif state_name == "danger":
+		brass = brass.lerp(danger, 0.55)
 	if _glow > 0.0:
-		brass = brass.lerp(Color(1.0, 0.97, 0.8), _glow * 0.7)
+		brass = brass.lerp(paper, flash * 0.70)
 	if _jam > 0.0:
-		brass = brass.lerp(Feel.COL_DIRTY, 0.55).darkened(0.25)
+		brass = brass.lerp(danger, 0.55).darkened(0.25)
 	elif _telegraph > 0.0:
 		# the wrench gag: the bat rattles a warning before the linkage goes
-		var warning_phase := 0.5 if Presentation.fx != null and Presentation.fx.reduced_flash \
+		var warning_phase := 0.5 if _reduced_flash() \
 				else 0.5 + 0.5 * sin(_clock * 26.0)
-		brass = brass.lerp(Feel.COL_DIRTY, 0.35 * warning_phase)
+		brass = brass.lerp(danger, 0.35 * warning_phase)
 	var body := PackedVector2Array([
 		Vector2(0.0, -rp), Vector2(l, -rt), Vector2(l, rt), Vector2(0.0, rp),
 	])
 	draw_colored_polygon(body, brass)
 	draw_circle(Vector2.ZERO, rp, brass)
 	draw_circle(Vector2(l, 0.0), rt, brass)
-	draw_arc(Vector2.ZERO, rp, 0.0, TAU, 24, Feel.COL_INK, 3.0)
-	draw_arc(Vector2(l, 0.0), rt, 0.0, TAU, 20, Feel.COL_INK, 3.0)
-	draw_line(Vector2(0.0, -rp), Vector2(l, -rt), Feel.COL_INK, 3.0)
-	draw_line(Vector2(0.0, rp), Vector2(l, rt), Feel.COL_INK, 3.0)
+	draw_arc(Vector2.ZERO, rp, 0.0, TAU, 24, ink, 3.0)
+	draw_arc(Vector2(l, 0.0), rt, 0.0, TAU, 20, ink, 3.0)
+	draw_line(Vector2(0.0, -rp), Vector2(l, -rt), ink, 3.0)
+	draw_line(Vector2(0.0, rp), Vector2(l, rt), ink, 3.0)
 	# Ivory grip and a walnut pinstripe make the bats feel like bespoke machine parts. The
 	# inlay follows the real taper, so it still reads correctly on the Club's smaller pair.
-	var ivory := Feel.COL_NEWSPRINT.darkened(0.10)
+	var ivory := paper.darkened(0.10)
 	var in_rp := rp * 0.34
 	var in_rt := rt * 0.30
 	draw_line(Vector2(rp * 0.72, 0.0), Vector2(l - rt * 0.62, 0.0),
 			ivory.lerp(brass, 0.28), maxf(4.0, in_rp * 0.42))
-	draw_circle(Vector2(l * 0.68, 0.0), maxf(3.0, in_rt * 0.60), Feel.COL_INK)
-	draw_circle(Vector2.ZERO, rp * 0.32, Feel.COL_INK)
-	draw_circle(Vector2.ZERO, rp * 0.13, Feel.COL_BRASS.lightened(0.28))
+	draw_circle(Vector2(l * 0.68, 0.0), maxf(3.0, in_rt * 0.60), ink)
+	draw_circle(Vector2.ZERO, rp * 0.32, ink)
+	draw_circle(Vector2.ZERO, rp * 0.13, brass.lightened(0.28))
+	if String(token["mark"]) == "held_ring":
+		_draw_held_marks(l, rp, paper)
+	elif state_name == "danger":
+		_draw_bat_hatch(l, rp, paper, 0.76 if not _reduced_flash() else 0.52)
+	elif state_name == "disabled":
+		# Tilt/dead is a quiet disabled mark; no hue is required to read the crossed linkage.
+		draw_line(Vector2(l * 0.30, -rp * 0.54), Vector2(l * 0.70, rp * 0.54), paper, 4.0)
+		draw_line(Vector2(l * 0.30, rp * 0.54), Vector2(l * 0.70, -rp * 0.54), paper, 4.0)
 	if _jam > 0.0:
 		# the wrench itself, laid across the linkage
 		var mid := Vector2(l * 0.42, 0.0)
 		draw_line(mid - Vector2(0.0, rp * 1.1), mid + Vector2(0.0, rp * 1.1),
-				Feel.COL_NEWSPRINT.darkened(0.15), 7.0)
+				paper.darkened(0.15), 7.0)
 		draw_arc(mid - Vector2(0.0, rp * 1.1), rp * 0.42, PI * 0.2, PI * 1.8, 14,
-				Feel.COL_NEWSPRINT.darkened(0.15), 6.0)
+				paper.darkened(0.15), 6.0)

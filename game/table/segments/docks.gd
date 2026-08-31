@@ -330,7 +330,9 @@ func _draw() -> void:
 	if font != null:
 		draw_set_transform(ROOF_FROM + Vector2(16.0, 34.0), deg_to_rad(RAKE_DEG), Vector2.ONE)
 		draw_string(font, Vector2.ZERO, "THE DOCKS", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26,
-				COL_RUST.lightened(0.35))
+			COL_RUST.lightened(0.35))
+		draw_string(font, Vector2(0.0, 22.0), "R5  /  UNDERBOSS  /  HOT CARGO",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, Feel.COL_NEWSPRINT.darkened(0.12))
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -372,6 +374,74 @@ func _draw_yard() -> void:
 	draw_line(QUAY_TO, QUAY_TO + Vector2(0.0, 26.0), COL_RUST.darkened(0.2), 6.0)
 	draw_circle(QUAY_TO + Vector2(-14.0, -20.0), 9.0, COL_RUST)
 
+	# These marks are a draw-edge translation of the native yard states. They are deliberately
+	# adjacent to child hardware, never replacement geometry: the crate bank, crane, cargo lane,
+	# and one-way gate continue to own their own draw/collision state.
+	var cues: Array[Dictionary] = []
+	if containers != null and containers.has_method(&"visual_token"):
+		cues.append({"at": CRATES_ORIGIN + Vector2(108.0, -46.0), "token": containers.visual_token()})
+	if crane != null and crane.has_method(&"visual_token"):
+		cues.append({"at": GANTRY_FROM.lerp(GANTRY_TO, 0.50) + Vector2(0.0, -30.0),
+				"token": crane.visual_token()})
+	if cargo_ramp != null and cargo_ramp.has_method(&"visual_token"):
+		cues.append({"at": CARGO_MOUTH_AT + Vector2(-56.0, 0.0), "token": cargo_ramp.visual_token()})
+	if gate != null and gate.has_method(&"visual_token"):
+		cues.append({"at": BLADE_FROM.lerp(BLADE_TO, 0.50) + Vector2(0.0, -24.0),
+				"token": gate.visual_token()})
+	for cue_data: Dictionary in cues:
+		var token: Dictionary = cue_data["token"]
+		var at: Vector2 = cue_data["at"]
+		var state := String(token.get("state", &"idle"))
+		var mark := String(token.get("mark", &"outline"))
+		var pattern := String(token.get("pattern", &"stable_outline"))
+		var cue_col := Feel.COL_BRASS.darkened(0.48)
+		if state == "armed":
+			cue_col = Feel.COL_BRASS
+		elif state == "active":
+			cue_col = COL_WATER.lightened(0.48)
+		elif state == "completed":
+			cue_col = Feel.COL_NEWSPRINT
+		elif state == "disabled":
+			cue_col = Feel.COL_NEWSPRINT.darkened(0.48)
+		elif state == "danger":
+			cue_col = Feel.COL_DIRTY
+		var cue := Color(cue_col.r, cue_col.g, cue_col.b, 0.82)
+		var radius := 12.0
+		if mark == "invitation_pin":
+			draw_circle(at, radius * 0.36, cue)
+			draw_line(at + Vector2(0.0, radius * 0.30), at + Vector2(0.0, radius), cue, 3.0)
+		elif mark == "contact_pulse" or mark == "held_ring":
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+			draw_circle(at, radius * 0.20, cue)
+		elif mark == "check_stamp" or mark == "marked_stamp":
+			draw_rect(Rect2(at - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)),
+					cue, false, 3.0)
+			draw_line(at + Vector2(-radius * 0.52, 0.0), at + Vector2(-radius * 0.10, radius * 0.40),
+					cue, 3.0)
+			draw_line(at + Vector2(-radius * 0.10, radius * 0.40), at + Vector2(radius * 0.56, -radius * 0.48),
+					cue, 3.0)
+		elif mark == "lock_offline":
+			draw_rect(Rect2(at - Vector2(radius * 0.72, radius * 0.34), Vector2(radius * 1.44, radius * 0.90)),
+					cue, false, 3.0)
+			draw_arc(at + Vector2(0.0, -radius * 0.25), radius * 0.42, PI, TAU, 12, cue, 3.0)
+		elif mark == "offline_cross":
+			draw_line(at + Vector2(-radius * 0.72, -radius * 0.72),
+				at + Vector2(radius * 0.72, radius * 0.72), cue, 3.0)
+			draw_line(at + Vector2(radius * 0.72, -radius * 0.72),
+				at + Vector2(-radius * 0.72, radius * 0.72), cue, 3.0)
+		elif mark == "cooldown_clock":
+			draw_arc(at, radius, -PI * 0.5, PI, 16, cue, 3.0)
+			draw_line(at, at + Vector2(0.0, -radius * 0.52), cue, 2.0)
+			draw_line(at, at + Vector2(radius * 0.34, radius * 0.20), cue, 2.0)
+		elif mark == "hazard_hatch" or mark == "telegraph_hatch" or mark == "jam_alert" \
+				or pattern == "hazard_hatch" or pattern == "telegraph_hatch":
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+			for hatch in range(3):
+				var hy := at.y - radius * 0.62 + float(hatch) * radius * 0.52
+				draw_line(Vector2(at.x - radius * 0.68, hy), Vector2(at.x + radius * 0.68, hy - radius * 0.36), cue, 2.0)
+		else:
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+
 
 func _draw_water() -> void:
 	var r := Rect2(WATER_AT - WATER_SIZE * 0.5, WATER_SIZE)
@@ -388,3 +458,13 @@ func _draw_water() -> void:
 		var x := r.position.x + 18.0 + float(i) * 23.0
 		draw_line(Vector2(x, r.position.y + 8.0), Vector2(x + 9.0, r.end.y - 7.0),
 				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.13), 3.0)
+	# The pier is an authored loss area, not a route. A stable red hazard hatch and a broken
+	# edge make that consequence readable without consulting hue or adding another collider.
+	var danger := Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.72)
+	for i in range(3):
+		var x := r.position.x + 10.0 + float(i) * 34.0
+		draw_line(Vector2(x, r.position.y + 6.0), Vector2(x + 20.0, r.end.y - 6.0), danger, 3.0)
+	var font := ThemeDB.fallback_font
+	if font != null:
+		draw_string(font, r.position + Vector2(8.0, r.size.y * 0.62), "PIER  /  LOSS ZONE",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, Feel.COL_NEWSPRINT.darkened(0.10))

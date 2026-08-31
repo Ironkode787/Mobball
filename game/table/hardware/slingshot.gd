@@ -147,18 +147,71 @@ func _apply_collision() -> void:
 		_band.collision_mask = Feel.LAYER_BALL if _present and _powered else 0
 
 
+## Presentation only: passive triangles stay idle, while a powered face is an invitation and
+## a hit is active. The physical passive-body exception is intentionally represented by `idle`.
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.IDLE
+	var mods: Array[StringName] = []
+	if not _present:
+		state = TableVisualState.VisualState.DISABLED
+	elif _pulse > 0.0:
+		state = TableVisualState.VisualState.ACTIVE
+		mods.append(&"pulse")
+	elif _powered:
+		state = TableVisualState.VisualState.ARMED
+	return TableVisualState.state_token(state, mods)
+
+
+func _ambient_material(role: StringName, fallback: Color) -> Color:
+	if Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
 func _draw() -> void:
-	if points.size() != 3:
+	if not _present or points.size() != 3:
 		return
-	draw_colored_polygon(points, Feel.COL_INK)
+	var token := visual_state()
+	var ink := _ambient_material(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient_material(&"brass", Feel.COL_BRASS)
+	var paper := _ambient_material(&"paper", Feel.COL_NEWSPRINT)
+	var pulse_alpha := _pulse * (0.25 if _reduced_flash() else 1.0)
+	draw_colored_polygon(points, ink)
 	var a := points[1]
 	var b := points[2]
-	var lit := Feel.COL_BRASS.darkened(0.52) if not _powered \
-			else Feel.COL_BRASS.lerp(Color(1.0, 0.95, 0.75), _pulse)
-	var edge := Feel.COL_BRASS.darkened(0.62) if not _powered else Feel.COL_BRASS.darkened(0.35)
+	var lit := brass.darkened(0.52) if not _powered \
+			else brass.lerp(paper, 0.22 + pulse_alpha * 0.62)
+	var edge := brass.darkened(0.62) if not _powered else brass.darkened(0.35)
 	draw_line(a, b, lit, 9.0 + _pulse * 5.0)
 	draw_line(points[0], points[1], edge, 5.0)
 	draw_line(points[2], points[0], edge, 5.0)
+	if _pulse > 0.0:
+		var mid := (a + b) * 0.5
+		draw_circle(mid, Feel.BALL_RADIUS + 8.0 + pulse_alpha * 8.0,
+				Color(paper, pulse_alpha * 0.18), false, 4.0)
+		# Four short rays are a contact mark, not a painted extension of the face.
+		for i in range(4):
+			var ray := face_normal.rotated(float(i) * PI * 0.5)
+			draw_line(mid + ray * (Feel.BALL_RADIUS + 12.0),
+					mid + ray * (Feel.BALL_RADIUS + 24.0 + pulse_alpha * 8.0),
+					Color(paper, pulse_alpha * 0.70), 3.0)
+	elif _powered:
+		# A face chevron reads as an invitation in grayscale; it does not imply a new route.
+		var mid := (a + b) * 0.5
+		var along := (b - a).normalized()
+		var across := along.orthogonal()
+		for offset: float in [-18.0, 0.0, 18.0]:
+			var p := mid + along * offset
+			draw_line(p - along * 7.0 - across * 5.0, p + across * 5.0,
+					Color(paper, 0.75), 3.0)
+			draw_line(p + across * 5.0, p + along * 7.0 - across * 5.0,
+					Color(paper, 0.75), 3.0)
 
 	if _powered:
 		# The "Corner Boy" is a tiny coat-and-fedora silhouette sitting behind the kicker face.
@@ -175,4 +228,4 @@ func _draw() -> void:
 		draw_line(back + Vector2(-19.0, 23.0), back + Vector2(-12.0, 37.0),
 				Feel.COL_BRASS.darkened(0.45), 3.0)
 		draw_line(back + Vector2(19.0, 23.0), back + Vector2(12.0, 37.0),
-				Feel.COL_BRASS.darkened(0.45), 3.0)
+				brass.darkened(0.45), 3.0)

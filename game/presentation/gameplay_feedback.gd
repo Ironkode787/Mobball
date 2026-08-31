@@ -3,6 +3,7 @@ extends Control
 ## Pooled, screen-space gameplay feedback. This node never owns or mutates table, camera,
 ## collider, or timer state: it consumes immutable event payloads and draws one overlay.
 
+const TABLE_VISUAL_STATE := preload("res://game/presentation/table_visual_state.gd")
 const MAX_EFFECTS := 12
 const MOBILE_PLATFORMS: PackedStringArray = ["Android", "iOS"]
 const HAPTIC_COOLDOWN_MS := 55
@@ -121,6 +122,37 @@ func _on_effect(kind: StringName, payload: Dictionary) -> void:
 	slot["serial"] = _serial
 	slot["motion_scale"] = clampf(float(payload.get("motion_scale", 1.0)), 0.0, 1.0)
 	slot["flash_scale"] = clampf(float(payload.get("flash_scale", 1.0)), 0.0, 1.0)
+	var contract: Dictionary = payload.get("_presentation", {})
+	if contract.is_empty():
+		contract = TABLE_VISUAL_STATE.feedback_contract(kind, payload)
+	var level := TABLE_VISUAL_STATE.feedback_level(kind)
+	var state := TABLE_VISUAL_STATE.feedback_state(kind, payload)
+	if contract.has("level_id"):
+		level = int(contract["level_id"])
+	if contract.has("state"):
+		state = TABLE_VISUAL_STATE.state_from(contract["state"], state)
+	slot["feedback_level"] = level
+	slot["level"] = TABLE_VISUAL_STATE.feedback_level_name(level)
+	slot["state"] = TABLE_VISUAL_STATE.state_name(state)
+	slot["event_id"] = contract.get("event_id", kind)
+	slot["event_identity"] = contract.get("event_identity", slot["event_id"])
+	slot["state_id"] = state
+	slot["destination"] = contract.get("destination", contract.get("destination_class", &"source"))
+	slot["destination_class"] = contract.get("destination_class", slot["destination"])
+	slot["duration_kind"] = contract.get("duration_kind", kind)
+	slot["priority"] = contract.get("priority", &"P0")
+	slot["priority_id"] = int(contract.get("priority_id", level))
+	slot["semantic_priority"] = contract.get("semantic_priority", slot["level"])
+	slot["suppression"] = contract.get("suppression", &"none")
+	slot["saturation"] = contract.get("saturation", contract.get("replacement", &"drop_at_capacity"))
+	slot["replacement"] = contract.get("replacement", slot["saturation"])
+	slot["haptic"] = contract.get("haptic", {})
+	slot["teardown"] = contract.get("teardown", &"clear_on_state_change")
+	slot["reown"] = contract.get("reown", &"main_route_owner")
+	slot["clear_on_state_change"] = bool(contract.get("clear_on_state_change", true))
+	slot["mark"] = TABLE_VISUAL_STATE.state_mark(state, _feedback_modifiers(kind, payload))
+	slot["pattern"] = TABLE_VISUAL_STATE.state_pattern(state, _feedback_modifiers(kind, payload))
+	slot["source"] = contract.get("source", payload.get("screen_position", Vector2(-1.0, -1.0)))
 	slot["text"] = _effect_text(kind, payload)
 	emitted_count += 1
 	queue_redraw()
@@ -214,6 +246,19 @@ static func destination_for(currency: StringName, viewport_size: Vector2,
 	var left := clampf(maxf(margins.x, 48.0) + 176.0, min_x, max_x)
 	var y := maxf(margins.y, 48.0) + (106.0 if currency == &"clean" else 46.0)
 	return Vector2(left, clampf(y, min_y, max_y))
+
+
+static func destination_for_level(level: int, source: Vector2, viewport_size: Vector2,
+		margins: Vector4) -> Vector2:
+	return TABLE_VISUAL_STATE.feedback_destination(level, source, viewport_size, margins)
+
+
+static func feedback_level_for(kind: StringName) -> StringName:
+	return TABLE_VISUAL_STATE.feedback_level_name(TABLE_VISUAL_STATE.feedback_level(kind))
+
+
+static func visual_state_for(kind: StringName, payload: Dictionary = {}) -> StringName:
+	return TABLE_VISUAL_STATE.state_name(TABLE_VISUAL_STATE.feedback_state(kind, payload))
 
 
 func _effect_text(kind: StringName, payload: Dictionary) -> String:
@@ -369,9 +414,25 @@ func _draw_drain(slot: Dictionary, p: float, alpha: float) -> void:
 func _draw_banner(slot: Dictionary, p: float, alpha: float) -> void:
 	var kind := StringName(slot.get("kind", &"mode"))
 	var safe := _safe_rect()
-	var center := safe.get_center()
+	var level := int(slot.get("feedback_level", TABLE_VISUAL_STATE.feedback_level(kind)))
+	var source: Variant = slot.get("source", safe.get_center())
+	var source_at := source as Vector2 if source is Vector2 else safe.get_center()
+	var margins := _safe.margins() if _safe != null else Vector4(48.0, 48.0, 48.0, 48.0)
+	# Laundering keeps its existing named ceremony while the clean flight remains a reward.
+	var destination_class := StringName(slot.get("destination_class", &""))
+	var destination_level := level
+	if destination_class == &"ceremony" or destination_class == &"safe_center":
+		destination_level = TABLE_VISUAL_STATE.FeedbackLevel.CEREMONY
+	elif destination_class == &"consequence" or destination_class == &"safe_bottom_right":
+		destination_level = TABLE_VISUAL_STATE.FeedbackLevel.CONSEQUENCE
+	elif destination_class == &"reward":
+		destination_level = TABLE_VISUAL_STATE.FeedbackLevel.REWARD
+	# Laundering keeps its existing named ceremony while the clean flight remains a reward.
+	if kind == &"launder":
+		destination_level = TABLE_VISUAL_STATE.FeedbackLevel.CEREMONY
+	var center := destination_for_level(destination_level, source_at, size, margins)
 	var col := _banner_color(kind, slot["payload"])
-	var major := kind == &"jackpot" or kind == &"rank" or kind == &"boss"
+	var major := destination_level == TABLE_VISUAL_STATE.FeedbackLevel.CEREMONY
 	# Full-bleed atmosphere can enter rounded corners; the readable banner cannot.
 	if major:
 		draw_rect(Rect2(0.0, center.y - 124.0, size.x, 248.0), Color(col, alpha * 0.10), true)
@@ -390,6 +451,17 @@ func _draw_banner(slot: Dictionary, p: float, alpha: float) -> void:
 		tw = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, px).x
 	draw_string(font, Vector2(center.x - tw * 0.5, center.y + float(px) * 0.34 - lift), text,
 			HORIZONTAL_ALIGNMENT_LEFT, -1.0, px, Color(Presentation.theme.newsprint, alpha))
+
+
+func _feedback_modifiers(kind: StringName, payload: Dictionary) -> Dictionary:
+	var raw: Variant = payload.get("local_modifiers", {})
+	var modifiers: Dictionary = raw.duplicate(true) if raw is Dictionary else {}
+	if modifiers.is_empty():
+		if kind == &"drain" or kind == &"warning":
+			modifiers[&"telegraph"] = true
+		if kind == &"boss":
+			modifiers[&"boss_phase"] = int(payload.get("phase", 0)) > 0
+	return modifiers
 
 
 func _banner_color(kind: StringName, payload: Dictionary) -> Color:

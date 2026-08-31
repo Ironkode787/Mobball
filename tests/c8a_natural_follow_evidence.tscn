@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tests/c8a_natural_follow_evidence.gd" id="1_c8a"]
+
+[node name="C8aNaturalFollowEvidence" type="Node2D"]
+script = ExtResource("1_c8a")

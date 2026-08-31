@@ -17,7 +17,11 @@ extends Control
 
 signal closed
 
-const HEADER_H := 194.0
+## The old surface spent 194 logical px on an empty masthead. 164 keeps the title, wallet,
+## page switch, and safe top inset while returning a meaningful slice of board to the phone.
+const HEADER_H := 164.0
+const FOOTER_H := 136.0
+const DOCKET_RESERVATION_H := 660.0
 
 ## Which page the header is titling and the body is showing.
 const PAGE_BOARD := &"board"
@@ -135,6 +139,10 @@ var _built: bool = false
 var _open_wanted: bool = false
 var _safe_margins := Vector4.ZERO
 var _material_frame: LedgerMaterialFrame = null
+var _profile := "standard"
+## Standalone captures can lower this without touching the live Game wallet. Live sessions
+## always read Game.wallet.clean, so the preview affordance cannot become a gameplay override.
+var _preview_clean := BigMoney.parse("90K")
 
 
 ## Catalog and reveal are wired at instantiation, not at _ready, so `get_owned()` and
@@ -176,28 +184,29 @@ func _apply_safe_area() -> void:
 	if _board == null:
 		return
 	_safe_margins = Presentation.safe.margins()
+	_profile = _current_profile()
 	var header_bottom := HEADER_H + _safe_margins.y
 	_board.offset_top = header_bottom
 	_book_page.offset_top = header_bottom
 	_book_page.set_safe_margins(_safe_margins)
 
-	var close_right := -(_safe_margins.z + 30.0)
-	_close_btn.offset_left = close_right - 190.0
+	var close_right := -(_safe_margins.z + 24.0)
+	_close_btn.offset_left = close_right - 168.0
 	_close_btn.offset_right = close_right
-	_close_btn.offset_top = _safe_margins.y + 26.0
-	_close_btn.offset_bottom = _safe_margins.y + 122.0
-	_book_btn.offset_right = _close_btn.offset_left - 20.0
-	_book_btn.offset_left = _book_btn.offset_right - 300.0
-	_book_btn.offset_top = _safe_margins.y + 26.0
-	_book_btn.offset_bottom = _safe_margins.y + 122.0
+	_close_btn.offset_top = _safe_margins.y + 18.0
+	_close_btn.offset_bottom = _safe_margins.y + 114.0
+	_book_btn.offset_right = _close_btn.offset_left - 16.0
+	_book_btn.offset_left = _book_btn.offset_right - 228.0
+	_book_btn.offset_top = _safe_margins.y + 18.0
+	_book_btn.offset_bottom = _safe_margins.y + 114.0
 
 	_zoom_btn.offset_left = _safe_margins.x + 36.0
-	_zoom_btn.offset_right = _zoom_btn.offset_left + 150.0
-	_zoom_btn.offset_bottom = -(_safe_margins.w + 40.0)
+	_zoom_btn.offset_right = _zoom_btn.offset_left + 206.0
+	_zoom_btn.offset_bottom = -(_safe_margins.w + 32.0)
 	_zoom_btn.offset_top = _zoom_btn.offset_bottom - 96.0
 	_compass.offset_right = -(_safe_margins.z + 36.0)
-	_compass.offset_left = _compass.offset_right - 330.0
-	_compass.offset_bottom = -(_safe_margins.w + 40.0)
+	_compass.offset_left = _compass.offset_right - 300.0
+	_compass.offset_bottom = -(_safe_margins.w + 32.0)
 	_compass.offset_top = _compass.offset_bottom - 96.0
 	if _material_frame != null:
 		_material_frame.set_header_bottom(header_bottom)
@@ -273,6 +282,68 @@ func next_target() -> String:
 	return best
 
 
+## Read-only geometry for the D4 subtitle/toast arbiter and capture tooling. All rectangles
+## are in this Ledger's logical viewport coordinates, never in host physical pixels.
+func geometry_contract() -> Dictionary:
+	_profile = _current_profile()
+	var logical := size
+	var safe := Presentation.safe.content_rect().intersection(Rect2(Vector2.ZERO, logical))
+	return {
+		"schema": "kingpin.ledger.geometry.v1",
+		"profile": _profile,
+		"requested_physical_size": Vector2i(ProjectSettings.get_setting(
+			"display/window/size/viewport_width", 1080), ProjectSettings.get_setting(
+			"display/window/size/viewport_height", 1920)),
+		"actual_physical_size": Vector2i(DisplayServer.window_get_size()),
+		"logical_viewport": logical,
+		"safe_content": safe,
+		"page": String(_page),
+		"reservations": content_reservations(),
+	}
+
+
+func _current_profile() -> String:
+	var physical_width: int = DisplayServer.window_get_size().x
+	var width: float = float(physical_width) if physical_width > 0 else size.x
+	return "compact" if width < 820.0 else "standard"
+
+
+func geometry_snapshot() -> Dictionary:
+	return geometry_contract()
+
+
+func content_reservations() -> Dictionary:
+	var header := Rect2(0.0, 0.0, size.x, HEADER_H + _safe_margins.y)
+	var board := Rect2(0.0, header.end.y, size.x, maxf(size.y - header.end.y - FOOTER_H, 0.0))
+	var footer := Rect2(0.0, maxf(size.y - FOOTER_H - _safe_margins.w, board.position.y),
+		size.x, FOOTER_H + _safe_margins.w)
+	var docket := Rect2()
+	if _docket != null and _docket.is_open():
+		docket = Rect2(0.0, maxf(size.y - DOCKET_RESERVATION_H, 0.0), size.x,
+		DOCKET_RESERVATION_H)
+	var selected_rect := _board.card_rect_in_view(_selected) if _board != null else Rect2()
+	if _board != null and selected_rect.size.x > 0.0 and selected_rect.size.y > 0.0:
+		# Board coordinates begin below the fixed masthead. Publish the selected card in this
+		# Ledger's space so D4 can subtract it without knowing the scene tree transform.
+		selected_rect.position += _board.position
+	return {
+		"header": header,
+		"board_viewport": board,
+		"footer": footer,
+		"footer_actions": {
+			"next_buy": _compass.get_global_rect() if _compass != null and _compass.visible else Rect2(),
+			"fit_focus": _zoom_btn.get_global_rect() if _zoom_btn != null and _zoom_btn.visible else Rect2(),
+			"close": _close_btn.get_global_rect() if _close_btn != null else Rect2(),
+		},
+		"selected_card": selected_rect,
+		"docket": docket,
+		"subtitle_safe_region": Rect2(board.position + Vector2(32.0, 24.0),
+			Vector2(maxf(board.size.x - 64.0, 0.0), maxf(board.size.y - 48.0, 0.0))),
+		"subtitle_exclusion_rects": [header, footer, docket, selected_rect],
+		"board": _board.geometry_contract() if _board != null else {},
+	}
+
+
 # --- construction -------------------------------------------------------------
 
 
@@ -300,7 +371,7 @@ func _build() -> void:
 	add_child(_book_page)
 	_book_page.build(book, prestige)
 
-	_close_btn = _button("CLOSE", Vector2(190.0, 96.0), Color(LedgerStyle.DIRTY, 0.85), LedgerStyle.NEWSPRINT)
+	_close_btn = _button("CLOSE", Vector2(168.0, 96.0), Color(LedgerStyle.NEWSPRINT, 0.12), LedgerStyle.NEWSPRINT)
 	_close_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_close_btn.offset_left = -220.0
 	_close_btn.offset_right = -30.0
@@ -309,9 +380,9 @@ func _build() -> void:
 	_close_btn.pressed.connect(close)
 	add_child(_close_btn)
 
-	_book_btn = _button("BLACK BOOK", Vector2(300.0, 96.0),
-		Color(LedgerStyle.branch_color("blackbook"), 0.85), LedgerStyle.NEWSPRINT)
-	_book_btn.add_theme_font_size_override("font_size", 22)
+	_book_btn = _button("BLACK BOOK", Vector2(228.0, 96.0), Color(LedgerStyle.NEWSPRINT, 0.12),
+		LedgerStyle.NEWSPRINT)
+	_book_btn.add_theme_font_size_override("font_size", 21)
 	_book_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_book_btn.offset_left = -540.0
 	_book_btn.offset_right = -240.0
@@ -320,18 +391,18 @@ func _build() -> void:
 	_book_btn.pressed.connect(_on_turn_page)
 	add_child(_book_btn)
 
-	_zoom_btn = _button("ZOOM", Vector2(150.0, 96.0), Color(LedgerStyle.INK, 0.72), LedgerStyle.BRASS)
+	_zoom_btn = _button("FIT / FOCUS", Vector2(206.0, 96.0), Color(LedgerStyle.INK, 0.78), LedgerStyle.NEWSPRINT)
 	_zoom_btn.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	_zoom_btn.offset_left = 36.0
-	_zoom_btn.offset_right = 186.0
+	_zoom_btn.offset_right = 242.0
 	_zoom_btn.offset_top = -136.0
 	_zoom_btn.offset_bottom = -40.0
 	_zoom_btn.pressed.connect(_on_zoom)
 	add_child(_zoom_btn)
 
-	_compass = _button("NEXT BUY  ▸", Vector2(330.0, 96.0), Color(LedgerStyle.BRASS, 0.92), LedgerStyle.INK)
+	_compass = _button("NEXT BUY  ▸", Vector2(300.0, 96.0), Color(LedgerStyle.BRASS, 0.96), LedgerStyle.INK)
 	_compass.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	_compass.offset_left = -366.0
+	_compass.offset_left = -336.0
 	_compass.offset_right = -36.0
 	_compass.offset_top = -136.0
 	_compass.offset_bottom = -40.0
@@ -386,9 +457,9 @@ func _install_portrait_on_card(card: LedgerCard) -> void:
 	var portrait := TextureRect.new()
 	portrait.name = "PortraitCard"
 	portrait.texture = Presentation.art.resolve(StringName("mugshot.starter_%02d" % face), null, false)
-	portrait.position = Vector2(164.0, 40.0)
-	portrait.custom_minimum_size = Vector2(56.0, 70.0)
-	portrait.size = Vector2(56.0, 70.0)
+	portrait.position = Vector2(card.size.x - 82.0, 48.0)
+	portrait.custom_minimum_size = Vector2(58.0, 76.0)
+	portrait.size = Vector2(58.0, 76.0)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -414,7 +485,8 @@ func _refresh() -> void:
 	_board.set_trophies(_trophies())
 	# `observe`, not `states`: the board banks what flipped, it never drains the queue. Seeing
 	# a card here does not spend the Count's stinger (docs/04 — the flip is a scripted beat).
-	_board.refresh(reveal.observe(owned), owned, _rank(), _clean())
+	var states := reveal.observe(owned)
+	_board.refresh(states, owned, _rank(), _clean(), reveal.pending_ids())
 	if _selected != "":
 		_show_docket(_selected)
 	queue_redraw()
@@ -486,6 +558,9 @@ func _show_docket(id: String) -> void:
 	# money — just the wrong color of it.
 	var dirty_covers := block == Upgrades.Block.MONEY \
 			and Game.wallet.can_afford_dirty(cost)
+	# The docket owns the lower safe area. Re-centre the selected card first so the
+	# comparison sheet never rises over the thing the player just chose.
+	_board.center_on(id, false)
 	_docket.show_for(
 		node_def, int(owned.get(id, 0)), cost, block,
 		LedgerStyle.block_reason(block, node_def, catalog, owned, dirty_covers)
@@ -623,7 +698,7 @@ func _rank() -> int:
 
 
 func _clean() -> BigMoney:
-	return BigMoney.parse("90K") if _preview else Game.wallet.clean
+	return _preview_clean if _preview else Game.wallet.clean
 
 
 func _dirty() -> BigMoney:
@@ -641,6 +716,7 @@ func _is_standalone() -> bool:
 ## cards at once instead of a board of identical unaffordable rectangles.
 func _seed_preview() -> void:
 	_preview = true
+	_preview_clean = BigMoney.parse("90K")
 	LedgerState.set_owned({
 		"muscle.real_plunger": 1, "rackets.trash_2": 1, "rackets.trash_3": 1,
 		"rackets.can_deposits": 4, "muscle.corner_boys": 1, "muscle.fresh_rubbers": 2,
@@ -707,20 +783,30 @@ func _draw() -> void:
 	if _page == PAGE_BOOK:
 		_draw_book_header(w)
 		return
-	draw_string(_font, Vector2(left, top + 74.0), "THE LEDGER", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48, LedgerStyle.NEWSPRINT)
-	draw_string(_font, Vector2(left + 2.0, top + 106.0), "EVIDENCE PHOTO 44-C", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.BRASS, 0.7))
+	draw_string(_font, Vector2(left, top + 64.0), "THE LEDGER", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+		_type_px(42, &"title"), LedgerStyle.NEWSPRINT)
+	draw_string(_font, Vector2(left + 2.0, top + 94.0), "CAREER PURCHASES", HORIZONTAL_ALIGNMENT_LEFT,
+		-1.0, _type_px(17, &"metadata"), Color(LedgerStyle.BRASS, 0.72))
 
 	var rank_text := "R%d" % _rank()
-	var rw := _font.get_string_size(rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26).x
-	draw_rect(Rect2(left, top + 122.0, rw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
-	draw_string(_font, Vector2(left + 13.0, top + 148.0), rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26, LedgerStyle.INK)
+	var rank_px := _type_px(26, &"primary_value")
+	var rw := _font.get_string_size(rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, rank_px).x
+	draw_rect(Rect2(left, top + 108.0, rw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
+	draw_string(_font, Vector2(left + 13.0, top + 134.0), rank_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+		_type_px(24, &"primary_value"), LedgerStyle.INK)
 
 	# Wallets occupy the quiet strip under the title, never the right-side button zone.
-	var wallet_x := left + rw + 58.0
-	draw_string(_font, Vector2(wallet_x, top + 148.0), "CLEAN  " + _clean().text(),
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 25, LedgerStyle.CLEAN)
-	draw_string(_font, Vector2(wallet_x + 190.0, top + 148.0), "DIRTY  " + _dirty().text(),
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.DIRTY, 0.82))
+	var wallet_x := left + rw + 46.0
+	var clean_text := "CLEAN  " + _clean().text()
+	var clean_px := _type_px(23, &"primary_value")
+	draw_string(_font, Vector2(wallet_x, top + 132.0), clean_text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, clean_px, LedgerStyle.CLEAN)
+	var dirty_text := "DIRTY  " + _dirty().text()
+	var dirty_px := _type_px(18, &"metadata")
+	var dirty_x := wallet_x + maxf(188.0, _font.get_string_size(clean_text,
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, clean_px).x + 42.0)
+	draw_string(_font, Vector2(dirty_x, top + 132.0), dirty_text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, dirty_px, Color(LedgerStyle.DIRTY, 0.82))
 
 
 ## The Black Book's header. Same bar, different currency: Juice where clean cash goes, and
@@ -728,29 +814,46 @@ func _draw() -> void:
 func _draw_book_header(w: float) -> void:
 	var top := _safe_margins.y
 	var left := _safe_margins.x + 36.0
-	draw_string(_font, Vector2(left, top + 74.0), "THE BLACK BOOK", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 48,
-		LedgerStyle.NEWSPRINT)
-	draw_string(_font, Vector2(left + 2.0, top + 106.0), "WITNESS RELOCATION FORM 12-B",
-		HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Color(LedgerStyle.BRASS, 0.7))
+	draw_string(_font, Vector2(left, top + 64.0), "THE BLACK BOOK", HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+		_type_px(42, &"title"), LedgerStyle.NEWSPRINT)
+	draw_string(_font, Vector2(left + 2.0, top + 94.0), "WITNESS RELOCATION FORM 12-B",
+		HORIZONTAL_ALIGNMENT_LEFT, -1.0, _type_px(17, &"metadata"), Color(LedgerStyle.BRASS, 0.7))
 
 	var city_text := "CITY %d" % prestige.city_number()
-	var cw := _font.get_string_size(city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22).x
-	draw_rect(Rect2(left, top + 122.0, cw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
-	draw_string(_font, Vector2(left + 13.0, top + 148.0), city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 22,
-		LedgerStyle.INK)
+	var city_px := _type_px(22, &"metadata")
+	var cw := _font.get_string_size(city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, city_px).x
+	draw_rect(Rect2(left, top + 108.0, cw + 26.0, 34.0), Color(LedgerStyle.BRASS, 0.9))
+	draw_string(_font, Vector2(left + 13.0, top + 134.0), city_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+		_type_px(21, &"metadata"), LedgerStyle.INK)
 
 	var jx := left + cw + 58.0
-	draw_string(_font, Vector2(jx, top + 148.0), "JUICE  %d" % prestige.juice,
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 25, LedgerStyle.BRASS)
+	draw_string(_font, Vector2(jx, top + 132.0), "JUICE  %d" % prestige.juice,
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, _type_px(23, &"primary_value"), LedgerStyle.BRASS)
 	var earned := "%d EARNED" % prestige.juice_earned
-	draw_string(_font, Vector2(jx + 190.0, top + 148.0), earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19,
-		Color(LedgerStyle.NEWSPRINT, 0.45))
+	draw_string(_font, Vector2(jx + 174.0, top + 132.0), earned, HORIZONTAL_ALIGNMENT_LEFT, -1.0,
+		_type_px(18, &"metadata"), Color(LedgerStyle.NEWSPRINT, 0.45))
 
 
 func _button(text: String, min_size: Vector2, bg: Color, fg: Color) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.custom_minimum_size = min_size
-	b.add_theme_font_size_override("font_size", 26)
+	b.add_theme_font_size_override("font_size", _type_px(26, &"button"))
 	LedgerStyle.style_button(b, bg, fg)
 	return b
+
+
+func _type_px(base: int, role: StringName) -> int:
+	if Presentation.theme == null:
+		return base
+	var authored := 34.0
+	match role:
+		&"title": authored = 44.0
+		&"section": authored = 38.0
+		&"primary_value": authored = 44.0
+		&"caption": authored = 24.0
+		&"metadata": authored = 22.0
+		&"button": authored = 28.0
+		&"micro": authored = 20.0
+		_: authored = 34.0
+	return maxi(1, roundi(float(base) * float(Presentation.theme.size_for(role)) / authored))

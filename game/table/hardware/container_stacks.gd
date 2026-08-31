@@ -105,6 +105,8 @@ func cleared_stacks() -> Array:
 
 
 func reset_now() -> void:
+	if _reset_in.size() < STACKS:
+		_reset_in.resize(STACKS)
 	for s in range(STACKS):
 		_reset_in[s] = -1.0
 	for t in _targets:
@@ -154,6 +156,84 @@ func is_hardware_active() -> bool:
 	return _present
 
 
+## Presentation-only stack classification. The target children still own their collision,
+## drop/raise, payout, reset, and signal contracts; this aggregate read is for the cargo
+## dressing and evidence probes only.
+func visual_state(stack: int = -1) -> Dictionary:
+	var state := TableVisualState.VisualState.ARMED
+	var down := false
+	if not _present:
+		state = TableVisualState.VisualState.DISABLED
+	elif stack >= 0 and stack < STACKS:
+		if _targets.size() < STACKS * PER_STACK:
+			return TableVisualState.state_token(state, {&"down": false})
+		var count := stack_down(stack)
+		down = count > 0
+		if count >= PER_STACK:
+			state = TableVisualState.VisualState.COMPLETED
+		elif down:
+			state = TableVisualState.VisualState.ACTIVE
+	elif stack >= STACKS:
+		state = TableVisualState.VisualState.DISABLED
+	else:
+		if _targets.size() < STACKS * PER_STACK:
+			return TableVisualState.state_token(state, {&"down": false})
+		var cleared := cleared_stacks()
+		down = not cleared.is_empty()
+		if cleared.size() >= STACKS:
+			state = TableVisualState.VisualState.COMPLETED
+		elif down:
+			state = TableVisualState.VisualState.ACTIVE
+	return TableVisualState.state_token(state, {&"down": down})
+
+
+func visual_token(stack: int = -1) -> Dictionary:
+	return visual_state(stack)
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var city_col := Presentation.city.material_for(role)
+		if city_col.a > 0.0:
+			return city_col
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _hatch(rect: Rect2, color: Color, spacing: float = 10.0) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += spacing
+
+
+func _draw_state_cue(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	if mark == "invitation_pin":
+		draw_circle(center, radius * 0.42, color)
+		draw_line(center + Vector2(0.0, radius * 0.38), center + Vector2(0.0, radius), color, 3.0)
+	elif mark == "contact_pulse":
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+		draw_circle(center, radius * 0.2, color)
+	elif mark == "marked_stamp" or mark == "check_stamp":
+		draw_rect(Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)),
+				color, false, 3.0)
+		draw_line(center + Vector2(-radius * 0.55, 0.0),
+				center + Vector2(-radius * 0.10, radius * 0.42), color, 3.0)
+		draw_line(center + Vector2(-radius * 0.10, radius * 0.42),
+				center + Vector2(radius * 0.58, -radius * 0.48), color, 3.0)
+	elif mark == "lock_offline":
+		draw_rect(Rect2(center - Vector2(radius * 0.72, radius * 0.34),
+				Vector2(radius * 1.44, radius * 0.9)), color, false, 3.0)
+		draw_arc(center + Vector2(0.0, -radius * 0.25), radius * 0.42, PI, TAU, 12, color, 3.0)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+
+
 ## How far a standing crate reaches above and below its own centre — what the sim measures
 ## the yard's headroom and its under-deck lane against.
 static func half_extent_y() -> float:
@@ -164,19 +244,42 @@ static func half_extent_y() -> float:
 func _draw() -> void:
 	var step := tan(deg_to_rad(DECK_RAKE_DEG))
 	var rake := deg_to_rad(CRATE_RAKE_DEG)
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var wood := _ambient(&"wood", Feel.COL_INK.darkened(0.15))
+	var font := Presentation.theme.font_for(&"annotation") if Presentation != null \
+			and Presentation.theme != null else ThemeDB.fallback_font
 	for s in range(STACKS):
-		var lit := stack_is_clear(s)
+		var token := visual_token(s)
+		var state := String(token["state"])
+		var state_col := paper if state == "completed" else brass
 		for c in range(PER_STACK):
 			var along := float(s) * STACK_PITCH + float(c) * CRATE_PITCH
 			var at := Vector2(along, along * step)
-			var box := Rect2(at - Vector2(CRATE_PITCH * 0.5, CRATE_THICK * 0.9),
-					Vector2(CRATE_PITCH, CRATE_THICK * 1.8))
+			var target := target_at(s, c)
+			var box := Rect2(Vector2(-CRATE_LENGTH * 0.5, -CRATE_THICK * 0.5),
+					Vector2(CRATE_LENGTH, CRATE_THICK))
 			draw_set_transform(at, rake, Vector2.ONE)
-			var body := Rect2(-box.size * 0.5, box.size)
-			draw_rect(body, Feel.COL_INK.darkened(0.2) if lit else Feel.COL_BRASS.darkened(0.62))
-			draw_rect(body, Feel.COL_BRASS.darkened(0.25) if not lit else Feel.COL_INK, false, 2.0)
-			for r in range(3):
-				var rx := lerpf(body.position.x + 4.0, body.end.x - 4.0, float(r) / 2.0)
-				draw_line(Vector2(rx, body.position.y + 3.0), Vector2(rx, body.end.y - 3.0),
-						Feel.COL_INK.lightened(0.10), 2.0)
+			if target.down:
+				# An empty bay is visibly empty; the child DropTarget supplies the completed bar.
+				draw_rect(box.grow(4.0), wood.darkened(0.45), false, 3.0)
+				_hatch(box.grow(-2.0), Color(paper.r, paper.g, paper.b, 0.14), 10.0)
+			else:
+				var body := brass.darkened(0.48) if state == "armed" else brass.darkened(0.26)
+				if state == "active":
+					body = brass.lerp(paper, 0.18)
+				draw_rect(box.grow(4.0), ink, true)
+				draw_rect(box, body, true)
+				draw_line(Vector2(box.position.x + 2.0, box.position.y + 3.0),
+						Vector2(box.end.x - 2.0, box.position.y + 3.0), paper.darkened(0.25), 3.0)
+				for r in range(3):
+					var rx := lerpf(box.position.x + 5.0, box.end.x - 5.0, float(r) / 2.0)
+					draw_line(Vector2(rx, box.position.y + 5.0), Vector2(rx, box.end.y - 4.0),
+							ink.lightened(0.14), 2.0)
+				# A small stencil makes each two-crate stack read as one unit at phone scale.
+				if font != null:
+					draw_string(font, Vector2(-CRATE_LENGTH * 0.28, 5.0), "%d-%d" % [s + 1, c + 1],
+							HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, paper.darkened(0.10))
+			_draw_state_cue(Vector2(CRATE_LENGTH * 0.58, 0.0), 7.0, token, state_col)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

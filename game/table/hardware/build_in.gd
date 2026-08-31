@@ -80,6 +80,32 @@ func is_building(node: Node2D) -> bool:
 	return false
 
 
+## Presentation-only construction snapshot. Collision truth belongs to Dormant and is already
+## live when a job starts; this read describes only the temporary overlay for captures.
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.IDLE
+	if not _jobs.is_empty():
+		state = TableVisualState.VisualState.ACTIVE
+	return TableVisualState.state_token(state, {&"moving": not _jobs.is_empty()})
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var city_col := Presentation.city.material_for(role)
+		if city_col.a > 0.0:
+			return city_col
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
 ## Drop every crew and leave the pieces fully built. Used when a scenario switches the whole
 ## table out from under the animation.
 func finish_all() -> void:
@@ -162,12 +188,16 @@ func _draw_job(job: Dictionary) -> void:
 	var rect: Rect2 = job["rect"]
 	var f := clampf(float(job["t"]) / DURATION, 0.0, 1.0)
 	var fade := 1.0 - ease(f, 2.4)
-	var scaffold := Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.85 * fade)
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var scaffold := Color(brass.r, brass.g, brass.b, 0.85 * fade)
 	# the frame goes up first, from the ground line
 	var up := clampf(f / 0.45, 0.0, 1.0)
 	var top := lerpf(rect.end.y, rect.position.y, ease(up, 0.4))
-	draw_rect(Rect2(Vector2(rect.position.x, top),
-			Vector2(rect.size.x, rect.end.y - top)), scaffold, false, 3.0)
+	var frame := Rect2(Vector2(rect.position.x, top), Vector2(rect.size.x, rect.end.y - top))
+	draw_rect(frame, ink, false, 6.0)
+	draw_rect(frame, scaffold, false, 3.0)
 	for i in range(3):
 		var x := lerpf(rect.position.x, rect.end.x, float(i + 1) / 4.0)
 		draw_line(Vector2(x, top), Vector2(x, rect.end.y), scaffold, 2.0)
@@ -176,8 +206,14 @@ func _draw_job(job: Dictionary) -> void:
 	if tarp_h > 1.0:
 		draw_rect(Rect2(Vector2(rect.position.x, rect.end.y - tarp_h),
 				Vector2(rect.size.x, tarp_h)),
-				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g, Feel.COL_NEWSPRINT.b,
-				0.30 * fade))
+				Color(paper.r, paper.g, paper.b, 0.30 * fade))
+		# Awning stripes make the construction overlay read as a temporary cover, not new geometry.
+		var stripe_y := rect.end.y - tarp_h * 0.66
+		for i in range(5):
+			var x0 := lerpf(rect.position.x, rect.end.x, float(i) / 5.0)
+			var x1 := lerpf(rect.position.x, rect.end.x, float(i + 1) / 5.0)
+			draw_line(Vector2(x0, stripe_y), Vector2(x1, stripe_y + 10.0),
+					Color(brass.r, brass.g, brass.b, 0.30 * fade), 3.0)
 	# hammer taps: short sparks around the frame, on a seeded pattern per piece
 	var seed_i := int(job["seed"])
 	for i in range(HAMMER_TAPS):
@@ -189,9 +225,14 @@ func _draw_job(job: Dictionary) -> void:
 		var p := _edge_point(rect, edge, t)
 		var glow := (1.0 - phase / 0.35) * fade
 		draw_circle(p, 3.0 + glow * 4.0,
-				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g, Feel.COL_NEWSPRINT.b, glow))
+				Color(paper.r, paper.g, paper.b, glow))
 		draw_line(p, p + Vector2(6.0, -8.0),
-				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, glow), 2.0)
+				Color(brass.r, brass.g, brass.b, glow), 2.0)
+	var font := Presentation.theme.font_for(&"annotation") if Presentation != null \
+			and Presentation.theme != null else ThemeDB.fallback_font
+	if font != null and fade > 0.05:
+		draw_string(font, Vector2(rect.position.x + 8.0, rect.position.y - 8.0), "BUILDING",
+				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, Color(paper.r, paper.g, paper.b, fade))
 
 
 func _edge_point(rect: Rect2, edge: int, t: float) -> Vector2:

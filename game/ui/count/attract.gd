@@ -112,8 +112,11 @@ class _CabinetReveal extends Control:
 
 
 var _safe_panel: PanelContainer = null
+var _safe_heading: Label = null
 var _safe_label: Label = null
+var _safe_annotation: Label = null
 var _content_margin: MarginContainer = null
+var _content_column: VBoxContainer = null
 var _reveal_wash: ColorRect = null
 var _reveal_progress := 0.0
 
@@ -123,11 +126,11 @@ func _ready() -> void:
 	_reveal_wash = ColorRect.new()
 	_reveal_wash.name = "CabinetWash"
 	_reveal_wash.color = Feel.COL_INK
-	_reveal_wash.color.a = 0.88
+	_reveal_wash.color.a = 0.62
 	_reveal_wash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_reveal_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# The table's illuminated backglass is the title screen now. A lighter smoked-glass wash
-	# keeps it visible instead of printing a second opaque screen over the cabinet.
+	# The table's illuminated backglass is the title screen now. Keep the wash restrained so the
+	# authored lockup and cabinet material remain visible behind the safe-area invitation.
 	add_child(_reveal_wash)
 
 	var chrome := _CabinetReveal.new()
@@ -143,58 +146,74 @@ func _ready() -> void:
 	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 14)
+	col.name = "FrontDoorContent"
+	col.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_16")))
+	_content_column = col
 	_content_margin.add_child(col)
 
-	var brand := PaperKit.label("K I N G P I N", PaperKit.FONT_HUGE, Feel.COL_BRASS,
+	# The backglass already carries the only KINGPIN lockup. Safe content starts with one short
+	# invitation, then gives the player two useful wallet facts before the next action. A saved
+	# career changes only the invitation copy, never the action hierarchy.
+	var resumed := _is_resumed_career()
+	var invitation := PaperKit.type_label("WELCOME BACK" if resumed else "THE HOUSE IS OPEN",
+			&"title", Feel.COL_NEWSPRINT,
 			HORIZONTAL_ALIGNMENT_CENTER)
-	brand.name = "BrandMark"
-	brand.custom_minimum_size.y = 92.0
-	col.add_child(brand)
-	col.add_child(PaperKit.label("THE HOUSE IS OPEN", PaperKit.FONT_TITLE, Feel.COL_NEWSPRINT,
-			HORIZONTAL_ALIGNMENT_CENTER))
-	col.add_child(PaperKit.rule())
-	col.add_child(PaperKit.label(
-			"%s   ·   NIGHT %d   ·   RESPECT %d" % [Game.rank_title(), Game.night_no + 1, Game.respect],
-			PaperKit.FONT_SMALL, Feel.COL_NEWSPRINT.darkened(0.22),
-			HORIZONTAL_ALIGNMENT_CENTER))
+	invitation.name = "Invitation"
+	col.add_child(invitation)
+	var prompt := PaperKit.type_label("Pick up where you left off." if resumed \
+			else "Choose your crew for tonight.", &"body",
+			Feel.COL_NEWSPRINT.darkened(0.08), HORIZONTAL_ALIGNMENT_CENTER)
+	prompt.name = "InvitationCopy"
+	col.add_child(prompt)
 
+	var status_panel := PaperKit.glass_panel()
+	status_panel.name = "CareerStatus"
+	status_panel.custom_minimum_size.y = Presentation.theme.spacing_for(&"space_64") * 2.0
+	var status_content := VBoxContainer.new()
+	status_content.add_theme_constant_override("separation",
+			int(Presentation.theme.spacing_for(&"space_8")))
+	status_panel.add_child(status_content)
+	var status_heading := PaperKit.type_label("BACK ON THE BOOKS" if resumed else "ON THE BOOKS",
+			&"micro", Feel.COL_BRASS,
+			HORIZONTAL_ALIGNMENT_CENTER)
+	status_heading.name = "StatusHeading"
+	status_content.add_child(status_heading)
 	var money := HBoxContainer.new()
-	money.add_theme_constant_override("separation", 28)
-	var dirty := PaperKit.label("DIRTY  " + Game.wallet.dirty.text(), PaperKit.FONT_BODY,
-			Feel.COL_DIRTY)
-	dirty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	money.add_child(dirty)
-	var clean := PaperKit.label("CLEAN  " + Game.wallet.clean.text(), PaperKit.FONT_BODY,
-			Feel.COL_CLEAN, HORIZONTAL_ALIGNMENT_RIGHT)
-	clean.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	money.add_child(clean)
-	col.add_child(money)
+	money.name = "WalletFacts"
+	money.add_theme_constant_override("separation",
+			int(Presentation.theme.spacing_for(&"space_24")))
+	status_content.add_child(money)
+	var dirty_fact := _wallet_fact("DIRTY", Game.wallet.dirty.text(), Feel.COL_DIRTY)
+	dirty_fact.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	money.add_child(dirty_fact)
+	var clean_fact := _wallet_fact("CLEAN", Game.wallet.clean.text(), Feel.COL_CLEAN)
+	clean_fact.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	money.add_child(clean_fact)
+	var context := PaperKit.type_label(
+			"NIGHT %d  ·  %s  ·  RESPECT %d" % [Game.night_no + 1, Game.rank_title(), Game.respect],
+			&"metadata", Feel.COL_NEWSPRINT.darkened(0.18), HORIZONTAL_ALIGNMENT_CENTER)
+	context.name = "CareerContext"
+	status_content.add_child(context)
+	col.add_child(status_panel)
 
 	_build_safe(col)
 
-	var start := PaperKit.button("ROLL CALL", PaperKit.FONT_TITLE, Feel.COL_CLEAN)
+	var start := PaperKit.action_button("ROLL CALL", &"primary")
 	start.name = "RollCallCTA"
-	start.custom_minimum_size.y = Presentation.theme.touch_min
-	start.add_theme_stylebox_override("normal", PaperKit.box(
-			Feel.COL_INK.lightened(0.10), Feel.COL_CLEAN, 5.0))
-	start.add_theme_stylebox_override("hover", PaperKit.box(
-			Feel.COL_INK.lightened(0.18), Feel.COL_CLEAN, 5.0))
-	start.add_theme_stylebox_override("pressed", PaperKit.box(Feel.COL_CLEAN,
-			Feel.COL_CLEAN, 5.0))
+	var cta_type := Presentation.theme.typography_for(&"title")
+	start.add_theme_font_override("font", cta_type["font"] as Font)
+	start.add_theme_font_size_override("font_size", int(cta_type["size"]))
+	start.custom_minimum_size.y = maxf(
+			float(Presentation.theme.control_for(&"button").get("min_height", Presentation.theme.touch_min)),
+			Presentation.theme.spacing_for(&"space_64") * 2.0)
 	start.pressed.connect(func() -> void: start_pressed.emit())
-	var cta := VBoxContainer.new()
-	cta.name = "BrandedCTA"
-	cta.add_theme_constant_override("separation", 8)
-	cta.add_child(PaperKit.label("TAKE YOUR PLACE AT FIFTH STREET", PaperKit.FONT_SMALL,
-			Feel.COL_BRASS, HORIZONTAL_ALIGNMENT_CENTER))
-	cta.add_child(start)
-	var settings_button := PaperKit.button("HOUSE RULES", PaperKit.FONT_SMALL, Feel.COL_BRASS)
+	col.add_child(start)
+	var settings_button := PaperKit.action_button("HOUSE RULES", &"quiet")
 	settings_button.name = "SettingsButton"
-	settings_button.custom_minimum_size.y = Presentation.theme.touch_min
+	settings_button.custom_minimum_size.y = float(Presentation.theme.control_for(&"compact_button").get(
+			"min_height", Presentation.theme.touch_min))
 	settings_button.pressed.connect(func() -> void: settings_pressed.emit())
-	cta.add_child(settings_button)
-	col.add_child(cta)
+	col.add_child(settings_button)
 
 	Game.safe_changed.connect(_on_safe_changed)
 	if _reduced_motion_enabled():
@@ -210,8 +229,21 @@ func _on_safe_margins_changed(_margins: Vector4) -> void:
 
 
 func _apply_safe_area() -> void:
+	if _content_margin == null:
+		return
+	var viewport_height: float = get_viewport().get_visible_rect().size.y
+	# The base canvas is 1920 logical pixels tall. Keep the invitation/action cluster in the
+	# lower half on extra-tall canvases while retaining enough room for large-text capture.
+	var scale := maxf(viewport_height / 1920.0, 0.82)
+	var top := 1030.0 * scale
+	var bottom := 120.0 * scale
+	if _content_column != null:
+		var required_height := _content_column.get_combined_minimum_size().y
+		var available_bottom := viewport_height - bottom
+		if top + required_height > available_bottom:
+			top = maxf(0.0, available_bottom - required_height)
 	Presentation.safe.apply_to_margin_container(_content_margin,
-			Vector4(60.0, 1030.0, 60.0, 120.0))
+			Vector4(60.0, top, 60.0, bottom))
 
 
 func _process(delta: float) -> void:
@@ -222,8 +254,11 @@ func _process(delta: float) -> void:
 	else:
 		_reveal_progress = minf(1.0, _reveal_progress + delta / 0.95)
 	var eased := _ease_reveal(_reveal_progress)
-	_reveal_wash.color.a = lerpf(0.88, 0.62, eased)
+	_reveal_wash.color.a = lerpf(0.62, 0.42, eased)
 	_content_margin.modulate.a = clampf((eased - 0.12) / 0.88, 0.0, 1.0)
+	# Container minimums settle after the first layout pass (and change when the Safe appears),
+	# so keep the cluster inside the available safe height without moving it every frame once fit.
+	_apply_safe_area()
 
 
 func _reduced_motion_enabled() -> bool:
@@ -236,18 +271,48 @@ func _ease_reveal(value: float) -> float:
 
 
 func _build_safe(col: VBoxContainer) -> void:
-	_safe_panel = PaperKit.panel(Feel.COL_INK.lightened(0.08), Feel.COL_BRASS)
+	_safe_panel = PaperKit.glass_panel()
+	_safe_panel.name = "PendingSafeInterruption"
+	_safe_panel.set_meta("paperkit_role", &"safe_interruption")
+	_safe_panel.set_meta("presentation_state", &"earned_interrupt")
+	_safe_panel.custom_minimum_size.y = Presentation.theme.spacing_for(&"space_64") * 2.0
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 20)
+	row.name = "SafeDropRow"
+	row.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_16")))
 	_safe_panel.add_child(row)
-	_safe_label = PaperKit.label("", PaperKit.FONT_BODY, Feel.COL_BRASS)
-	_safe_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(_safe_label)
-	var collect := PaperKit.button("COLLECT", PaperKit.FONT_BODY)
+	var copy := VBoxContainer.new()
+	copy.name = "SafeDropCopy"
+	copy.alignment = BoxContainer.ALIGNMENT_CENTER
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(copy)
+	_safe_heading = PaperKit.type_label("SAFE DROP", &"micro", Feel.COL_BRASS)
+	_safe_heading.name = "Heading"
+	copy.add_child(_safe_heading)
+	_safe_label = PaperKit.type_label("", &"primary_value", Feel.COL_NEWSPRINT)
+	_safe_label.name = "Amount"
+	copy.add_child(_safe_label)
+	_safe_annotation = PaperKit.type_label("Offline earnings · dirty cash", &"caption",
+			Feel.COL_NEWSPRINT.darkened(0.12))
+	_safe_annotation.name = "Annotation"
+	copy.add_child(_safe_annotation)
+	var collect := PaperKit.action_button("COLLECT", &"secondary")
+	collect.name = "CollectSafe"
+	collect.tooltip_text = "Collect the Safe drop"
 	collect.pressed.connect(func() -> void: Game.collect_safe())
 	row.add_child(collect)
 	col.add_child(_safe_panel)
 	_on_safe_changed(Game.safe_pending)
+
+
+func _wallet_fact(label_text: String, value_text: String, color: Color) -> VBoxContainer:
+	var fact := VBoxContainer.new()
+	fact.alignment = BoxContainer.ALIGNMENT_CENTER
+	var label := PaperKit.type_label(label_text, &"metadata", color, HORIZONTAL_ALIGNMENT_CENTER)
+	fact.add_child(label)
+	var value := PaperKit.type_label(value_text, &"primary_value", color,
+			HORIZONTAL_ALIGNMENT_CENTER)
+	fact.add_child(value)
+	return fact
 
 
 func _on_safe_changed(amount: BigMoney) -> void:
@@ -256,4 +321,15 @@ func _on_safe_changed(amount: BigMoney) -> void:
 	var got := amount != null and amount.is_positive()
 	_safe_panel.visible = got
 	if got:
-		_safe_label.text = "THE SAFE  " + amount.text()
+		_safe_label.text = amount.text()
+
+
+func _is_resumed_career() -> bool:
+	if Game == null or not Game.is_booted():
+		return false
+	if Game.night_no > 0 or Game.rank > 0 or Game.respect > 0:
+		return true
+	if Game.safe_pending != null and Game.safe_pending.is_positive():
+		return true
+	return (Game.wallet.dirty != null and Game.wallet.dirty.is_positive()) \
+			or (Game.wallet.clean != null and Game.wallet.clean.is_positive())

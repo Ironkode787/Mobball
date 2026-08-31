@@ -94,6 +94,48 @@ func set_hardware_active(active: bool) -> void:
 	_apply_collision()
 
 
+## Presentation-only state. The body remains the same capsule and the gameplay drop/raise
+## contract stays owned by this node; this read is consumed only at the draw edge.
+func _visual_state_id() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if down:
+		return TableVisualState.VisualState.COMPLETED
+	if _pulse > 0.0:
+		return TableVisualState.VisualState.ACTIVE
+	return TableVisualState.VisualState.IDLE
+
+
+func visual_state() -> Dictionary:
+	return TableVisualState.state_token(_visual_state_id(), {
+		&"down": down, &"pulse": _pulse > 0.0,
+	})
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _material_fill(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _hatch(rect: Rect2, color: Color, spacing: float = 12.0) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += spacing
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
 func _apply_collision() -> void:
 	var solid := _present and not down
 	collision_layer = Feel.LAYER_HARDWARE if solid else 0
@@ -110,12 +152,34 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	var half := length * 0.5
-	var r := thickness * 0.5
-	if down:
-		draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK.lightened(0.10), 6.0)
-		return
-	var lit := Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _pulse * 0.7)
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK, thickness + 6.0)
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), lit, thickness)
-	draw_line(Vector2(-half, r * 0.35), Vector2(half, r * 0.35),
-			Feel.COL_INK.lightened(0.25), 3.0)
+	var token := visual_token()
+	var state := StringName(token["state"])
+	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
+	var brass := _material_fill(&"brass", Feel.COL_BRASS)
+	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
+	var pulse_strength := _pulse * (0.25 if _reduced_flash() else 1.0)
+	var body := brass
+	if state == &"idle":
+		body = brass.darkened(0.34)
+	elif state == &"active":
+		body = brass.lerp(paper, 0.16 + pulse_strength * 0.26)
+	elif state == &"completed":
+		body = paper.darkened(0.16)
+	elif state == &"disabled":
+		body = ink.lightened(0.18)
+	var outline := ink.lightened(0.14)
+	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), outline, thickness + 8.0)
+	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), body, thickness)
+	draw_line(Vector2(-half, -thickness * 0.25), Vector2(half, -thickness * 0.25),
+			paper.darkened(0.28) if state != &"disabled" else outline, 3.0)
+	# Every state has a shape cue: down bar, strike pulse, or a quiet invitation notch.
+	if state == &"completed":
+		draw_line(Vector2(-half * 0.58, -3.0), Vector2(half * 0.58, -3.0), paper, 4.0)
+	elif state == &"active":
+		draw_arc(Vector2.ZERO, thickness * 0.96, 0.0, TAU, 20, paper, 3.0)
+	elif state == &"disabled":
+		_hatch(Rect2(Vector2(-half, -thickness * 0.5), Vector2(length, thickness)),
+			Color(paper.r, paper.g, paper.b, 0.32), 13.0)
+	else:
+		draw_line(Vector2(-half * 0.52, thickness * 0.48),
+			Vector2(-half * 0.22, thickness * 0.48), brass.lightened(0.22), 3.0)

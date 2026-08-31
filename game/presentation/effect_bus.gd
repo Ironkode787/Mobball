@@ -12,6 +12,18 @@ var haptics_enabled := true
 var subtitles_enabled := true
 
 
+func metadata_for(payload: Dictionary = {}) -> Dictionary:
+	var out := {
+		"motion_scale": float(payload.get("motion_scale", 1.0)),
+		"flash_scale": float(payload.get("flash_scale", 1.0)),
+	}
+	if reduced_motion:
+		out["motion_scale"] = 0.0
+	if reduced_flash:
+		out["flash_scale"] = minf(float(payload.get("flash_scale", 1.0)), 0.25)
+	return out
+
+
 func motion_scale() -> float:
 	return 0.0 if reduced_motion else 1.0
 

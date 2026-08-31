@@ -46,6 +46,26 @@ func starter_power() -> float:
 	return starter_powers[clampi(starter_band, 0, starter_powers.size() - 1)]
 
 
+## The visible lane is owned by GameHUD.PlungerLane. This metadata lets that owner and evidence
+## fixtures render the native plunger state without duplicating charge or changing launch logic.
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.IDLE
+	var mods: Array[StringName] = []
+	if not enabled:
+		state = TableVisualState.VisualState.DISABLED
+	elif charging:
+		state = TableVisualState.VisualState.ACTIVE
+		mods.append(&"moving")
+	var token := TableVisualState.state_token(state, mods)
+	token["draw_owner"] = &"hud.plunger_lane"
+	token["bands_enabled"] = bands_enabled
+	token["starter_band"] = clampi(starter_band, 0, maxi(starter_powers.size() - 1, 0))
+	token["starter_power"] = starter_power()
+	token["starter_pull_px"] = maxf(starter_pull_px, 0.0)
+	token["charge"] = clampf(power, 0.0, 1.0)
+	return token
+
+
 func set_pressed(pressed: bool) -> void:
 	if bands_enabled:
 		_starter_press_armed = false

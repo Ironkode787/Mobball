@@ -125,9 +125,45 @@ func is_hardware_active() -> bool:
 	return _present
 
 
+## Closed/open is the existing latch state, not a new gameplay state. This read gives the draw
+## edge an explicit armed invitation while retaining the plane, pass-from side, and hysteresis.
+func _visual_state_id() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if _open:
+		return TableVisualState.VisualState.ARMED
+	return TableVisualState.VisualState.IDLE
+
+
+func visual_state() -> Dictionary:
+	return TableVisualState.state_token(_visual_state_id())
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _material_fill(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
 func _draw() -> void:
+	var token := visual_token()
+	var state := StringName(token["state"])
+	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
+	var brass := _material_fill(&"brass", Feel.COL_BRASS)
+	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
 	var col := color.darkened(0.65) if _open else color
-	draw_line(from_point, to_point, Feel.COL_INK, thickness + 6.0)
+	if state == &"armed":
+		col = brass
+	elif state == &"disabled":
+		col = ink.lightened(0.18)
+	draw_line(from_point, to_point, ink, thickness + 8.0)
 	draw_line(from_point, to_point, col, thickness)
 	# a row of teeth on the solid side, so which way the blade lets you through reads at a glance
 	var steps := maxi(int(_half_span * 2.0 / 22.0), 1)
@@ -135,3 +171,16 @@ func _draw() -> void:
 		var t := (float(i) + 0.5) / float(steps)
 		var p := from_point.lerp(to_point, t)
 		draw_line(p, p - _normal * 9.0, col.darkened(0.35), 3.0)
+	if state == &"armed":
+		var mid := _centre + pass_from.normalized() * 18.0
+		var side := Vector2(-_axis.y, _axis.x) * 10.0
+		draw_line(mid - pass_from.normalized() * 14.0 + side, mid + pass_from.normalized() * 10.0,
+			paper, 4.0)
+		draw_line(mid - pass_from.normalized() * 14.0 - side, mid + pass_from.normalized() * 10.0,
+			paper, 4.0)
+	elif state == &"disabled":
+		var mid := _centre
+		draw_line(mid - Vector2(13.0, 13.0), mid + Vector2(13.0, 13.0),
+			Color(paper.r, paper.g, paper.b, 0.30), 3.0)
+		draw_line(mid + Vector2(13.0, -13.0), mid - Vector2(13.0, -13.0),
+			Color(paper.r, paper.g, paper.b, 0.30), 3.0)

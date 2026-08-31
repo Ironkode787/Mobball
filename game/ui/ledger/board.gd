@@ -16,10 +16,12 @@ extends Control
 
 signal card_tapped(id: String)
 
-const MARGIN := Vector2(96.0, 128.0)
-const PITCH_X := LedgerCard.W + 40.0
-const PITCH_Y := 400.0
-const BRANCH_GAP := 84.0
+const MARGIN := Vector2(42.0, 86.0)
+const PITCH_X := LedgerCard.W + 30.0
+const PITCH_Y := LedgerCard.H + 38.0
+const BRANCH_GAP := 70.0
+const TIER_GAP := 58.0
+const MAX_COLUMNS_PER_TIER := 2
 ## Movement (in screen px) past which a press is a pan, not a tap.
 const TAP_SLOP := 14.0
 ## Zoom rungs: readable, mid, and "show me the whole conspiracy" (computed to fit the
@@ -36,12 +38,14 @@ var _ground: Control = null
 var _font: Font = null
 
 var _cards: Dictionary = {}
+var _drawable: Dictionary = {}
 var _trophies: Array[Dictionary] = []
 var _slots: Dictionary = {}
 var _bands: Array[Dictionary] = []
 var _rows: Array[Dictionary] = []
 var _edges: Array[Dictionary] = []
 var _content := Vector2.ZERO
+var _profile := "standard"
 
 var _pan := Vector2.ZERO
 var _zoom := ZOOM_STEPS[0]
@@ -121,6 +125,7 @@ func build(from_catalog: Upgrades, trophies: Array[Dictionary] = []) -> void:
 		_sheet.remove_child(child)
 		child.queue_free()
 	_cards.clear()
+	_drawable.clear()
 	_layout()
 	for n in catalog.nodes:
 		var card := LedgerCard.new()
@@ -129,12 +134,14 @@ func build(from_catalog: Upgrades, trophies: Array[Dictionary] = []) -> void:
 		card.position = _slots.get(String(n["id"]), Vector2.ZERO)
 		card.visible = false
 		_cards[String(n["id"])] = card
+		_drawable[String(n["id"])] = false
 	for trophy in _trophies:
 		var t := LedgerCard.new()
 		_sheet.add_child(t)
 		t.setup_trophy(trophy)
 		t.position = _slots.get(String(trophy.get("id", "")), Vector2.ZERO)
 		_cards[String(trophy.get("id", ""))] = t
+		_drawable[String(trophy.get("id", ""))] = true
 	_sheet.size = _content
 	_apply_view()
 
@@ -176,19 +183,34 @@ func _layout() -> void:
 		counts[key] = c
 		widest[branch] = maxi(int(widest.get(branch, 0)), c)
 
+	var tier_rows: Dictionary = {}
+	for tier in range(min_tier, max_tier + 1):
+		var rows := 1
+		for branch in widest:
+			rows = maxi(rows, int(ceil(float(counts.get("%s:%d" % [branch, tier], 0)) \
+				/ float(MAX_COLUMNS_PER_TIER))))
+		tier_rows[tier] = rows
+
+	var tier_y: Dictionary = {}
+	var y_cursor := MARGIN.y
+	for tier in range(min_tier, max_tier + 1):
+		tier_y[tier] = y_cursor
+		y_cursor += float(tier_rows[tier]) * PITCH_Y + TIER_GAP
+
 	var x := MARGIN.x
 	var starts: Dictionary = {}
 	for branch in Upgrades.BRANCHES:
 		if not widest.has(branch):
 			continue
-		var slots := int(widest[branch])
+		var slots := mini(int(widest[branch]), MAX_COLUMNS_PER_TIER)
+		var band_w := float(slots) * PITCH_X - (PITCH_X - LedgerCard.W)
 		starts[branch] = x
 		_bands.append({
 			"branch": branch,
 			"x": x - 30.0,
-			"w": float(slots) * PITCH_X - (PITCH_X - LedgerCard.W) + 60.0,
+			"w": band_w + 60.0,
 		})
-		x += float(slots) * PITCH_X + BRANCH_GAP
+		x += band_w + BRANCH_GAP
 
 	var used: Dictionary = {}
 	for n in catalog.nodes:
@@ -197,17 +219,21 @@ func _layout() -> void:
 		var key := "%s:%d" % [branch, tier]
 		var idx := int(used.get(key, 0))
 		used[key] = idx + 1
-		# Centred inside the band, not left-packed: a tier with one node sits under the
-		# tier with five instead of hugging the left edge, which is what turns a spreadsheet
-		# into a cluster of index cards.
-		var slack := float(int(widest[branch]) - int(counts[key])) * PITCH_X * 0.5
+		# Two-up packing keeps a root decision cluster complete on a phone. The branch still
+		# owns its column and tier, while a four-card opening cluster becomes a quiet 2x2.
+		var branch_columns := mini(int(widest[branch]), MAX_COLUMNS_PER_TIER)
+		var columns := mini(int(counts[key]), MAX_COLUMNS_PER_TIER)
+		var slack := float(branch_columns - columns) * PITCH_X * 0.5
+		var row := idx / MAX_COLUMNS_PER_TIER
+		var column := idx % MAX_COLUMNS_PER_TIER
 		_slots[String(n["id"])] = Vector2(
-			float(starts[branch]) + slack + float(idx) * PITCH_X,
-			MARGIN.y + float(tier - min_tier) * PITCH_Y
+			float(starts[branch]) + slack + float(column) * PITCH_X,
+			float(tier_y[tier]) + float(row) * PITCH_Y
 		)
 
 	for tier in range(min_tier, max_tier + 1):
-		_rows.append({"tier": tier, "y": MARGIN.y + float(tier - min_tier) * PITCH_Y})
+		_rows.append({"tier": tier, "y": float(tier_y[tier]),
+			"h": float(tier_rows[tier]) * PITCH_Y + TIER_GAP})
 
 	# The trophy shelf: one column at the far right, one card a row from the top, because a
 	# spoil belongs to no tier — you did not reach it, you took it.
@@ -225,9 +251,10 @@ func _layout() -> void:
 
 	_content = Vector2(
 		x - BRANCH_GAP + MARGIN.x,
-		MARGIN.y + float(maxi(max_tier - min_tier, maxi(_trophies.size() - 1, 0))) * PITCH_Y
-			+ LedgerCard.H + MARGIN.y
+		maxf(y_cursor - TIER_GAP, MARGIN.y + float(maxi(_trophies.size() - 1, 0)) * PITCH_Y
+			+ LedgerCard.H) + MARGIN.y
 	)
+	_profile = _current_profile()
 
 
 # --- refresh ------------------------------------------------------------------
@@ -235,7 +262,8 @@ func _layout() -> void:
 
 ## Re-reads the whole board from the meta layer. Cheap enough to call on every change:
 ## 31 cards, no allocation beyond the edge list.
-func refresh(states: Dictionary, owned: Dictionary, rank: int, clean: BigMoney) -> void:
+func refresh(states: Dictionary, owned: Dictionary, rank: int, clean: BigMoney,
+		new_ids: PackedStringArray = PackedStringArray()) -> void:
 	if catalog == null:
 		return
 	for n in catalog.nodes:
@@ -251,11 +279,13 @@ func refresh(states: Dictionary, owned: Dictionary, rank: int, clean: BigMoney) 
 			face = LedgerCard.Face.FACEDOWN
 		card.set_state(
 			face, int(owned.get(id, 0)), catalog.next_cost(id, owned),
-			catalog.block_for(id, owned, rank, clean)
+			catalog.block_for(id, owned, rank, clean), new_ids.has(id)
 		)
+		_drawable[id] = card.visible
 		card.set_selected(id == _selected)
 	_build_edges(states)
 	_sheet.queue_redraw()
+	_sync_card_visibility()
 
 
 func set_selected(id: String) -> void:
@@ -313,6 +343,48 @@ func slot_of(id: String) -> Vector2:
 	return _slots.get(id, Vector2.ZERO)
 
 
+## Read-only layout handoff for D4 and capture tooling. Coordinates are in this board's
+## logical parent space; card_rects stay in sheet space so a consumer can apply `pan` and
+## `zoom` without guessing at the host window scale.
+func geometry_contract() -> Dictionary:
+	_profile = _current_profile()
+	var logical := size
+	var safe := Presentation.safe.content_rect().intersection(Rect2(Vector2.ZERO, logical))
+	return {
+		"schema": "kingpin.ledger.board.geometry.v1",
+		"profile": _profile,
+		"requested_physical_size": Vector2i(ProjectSettings.get_setting(
+			"display/window/size/viewport_width", 1080), ProjectSettings.get_setting(
+			"display/window/size/viewport_height", 1920)),
+		"actual_physical_size": Vector2i(DisplayServer.window_get_size()),
+		"logical_viewport": logical,
+		"safe_content": safe,
+		"viewport": Rect2(Vector2.ZERO, logical),
+		"content_size": _content,
+		"zoom": _zoom,
+		"pan": _pan,
+		"selected": _selected,
+		"reservations": content_reservations(),
+	}
+
+
+func geometry_snapshot() -> Dictionary:
+	return geometry_contract()
+
+
+func content_reservations() -> Dictionary:
+	var cards: Dictionary = {}
+	for id: Variant in _slots:
+		cards[String(id)] = Rect2(Vector2(_slots[id]), Vector2(LedgerCard.W, LedgerCard.H))
+	return {
+		"viewport": Rect2(Vector2.ZERO, size),
+		"card_rects": cards,
+		"selected_card": cards.get(_selected, Rect2()),
+		"content": Rect2(Vector2.ZERO, _content),
+		"fit_target": _zoom_step(2),
+	}
+
+
 func zoom() -> float:
 	return _zoom
 
@@ -326,6 +398,32 @@ func cycle_zoom() -> void:
 	# The button GLIDES to the next rung (maps feel), anchored at the view centre.
 	_zoom_focus = size * 0.5
 	_zoom_target = clampf(_zoom_step((i + 1) % ZOOM_STEPS.size()), ZOOM_MIN, ZOOM_MAX)
+
+
+func fit_board() -> void:
+	var focus := size * 0.5
+	_zoom_focus = focus
+	_zoom_target = _zoom_step(2)
+	if not is_inside_tree() or (Presentation.fx != null and Presentation.fx.reduced_motion):
+		_zoom = _zoom_target
+		_apply_view()
+
+
+func focus_card(id: String, animate: bool = true) -> void:
+	center_on(id, animate)
+
+
+func card_rect_in_view(id: String) -> Rect2:
+	if not _slots.has(id):
+		return Rect2()
+	var p := Vector2(_slots[id]) * _zoom + _pan
+	return Rect2(p, Vector2(LedgerCard.W, LedgerCard.H) * _zoom)
+
+
+func _current_profile() -> String:
+	var physical_width: int = DisplayServer.window_get_size().x
+	var width: float = float(physical_width) if physical_width > 0 else size.x
+	return "compact" if width < 820.0 else "standard"
 
 
 ## A zero rung means "fit the whole width", which only the live board size knows.
@@ -387,6 +485,24 @@ func _apply_view() -> void:
 	_pan = _clamp_pan(_pan)
 	_sheet.scale = Vector2(_zoom, _zoom)
 	_sheet.position = _pan
+	_sync_card_visibility()
+
+
+## A clipped index card reads as a rendering bug, not as a panned map. Hide cards that are
+## only partly inside the tactile window; panning another few pixels reveals them whole.
+## Face/state truth remains in `_drawable`, so a hidden model card is never made visible here.
+func _sync_card_visibility() -> void:
+	if _cards.is_empty() or size.x < 2.0 or size.y < 2.0:
+		return
+	var viewport := Rect2(Vector2.ZERO, size)
+	for id: Variant in _cards:
+		var card: LedgerCard = _cards[id]
+		var wanted := bool(_drawable.get(String(id), false))
+		if not wanted:
+			card.visible = false
+			continue
+		var rect := card_rect_in_view(String(id))
+		card.visible = viewport.encloses(rect)
 
 
 func _on_resized() -> void:
@@ -553,14 +669,14 @@ func _paint_map(c: Control) -> void:
 
 func _paint_bands(c: Control) -> void:
 	for row: Dictionary in _rows:
-		var y := float(row["y"]) - 46.0
-		c.draw_rect(Rect2(0.0, y, _content.x, LedgerCard.H + 92.0),
+		var y := float(row["y"]) - 30.0
+		c.draw_rect(Rect2(0.0, y, _content.x, float(row.get("h", PITCH_Y))),
 			Color(LedgerStyle.NEWSPRINT, 0.018))
 		var label := "TIER %d  ·  RANK R%d" % [int(row["tier"]), int(row["tier"])]
 		var lx := 24.0
 		while lx < _content.x:
-			c.draw_string(_font, Vector2(lx, y + 30.0), label, HORIZONTAL_ALIGNMENT_LEFT,
-				-1.0, 20, Color(LedgerStyle.BRASS, 0.35))
+			c.draw_string(_font, Vector2(lx, y + 22.0), label, HORIZONTAL_ALIGNMENT_LEFT,
+				-1.0, _type_px(17, &"metadata"), Color(LedgerStyle.BRASS, 0.28))
 			lx += 1180.0
 	for band: Dictionary in _bands:
 		var branch := String(band["branch"])
@@ -569,8 +685,8 @@ func _paint_bands(c: Control) -> void:
 		var w := float(band["w"])
 		c.draw_rect(Rect2(x, 22.0, w, _content.y - 44.0), Color(col, 0.022))
 		c.draw_rect(Rect2(x, 22.0, w, _content.y - 44.0), Color(col, 0.10), false, 2.0)
-		c.draw_string(_font, Vector2(x + 18.0, 78.0), LedgerStyle.branch_title(branch),
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 46, Color(col, 0.30))
+		c.draw_string(_font, Vector2(x + 18.0, 54.0), LedgerStyle.branch_title(branch),
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, _type_px(34, &"section"), Color(col, 0.42))
 
 
 ## Red string with a midpoint sag — a quadratic bezier, sampled, with a dark twin under it
@@ -593,3 +709,19 @@ func _paint_strings(c: Control) -> void:
 		c.draw_polyline(pts, Color(LedgerStyle.DIRTY, alpha), 3.0)
 		c.draw_circle(a, 4.5, Color(LedgerStyle.DIRTY.darkened(0.3), alpha))
 		c.draw_circle(b, 4.5, Color(LedgerStyle.DIRTY.darkened(0.3), alpha))
+
+
+func _type_px(base: int, role: StringName) -> int:
+	if Presentation.theme == null:
+		return base
+	var authored := 34.0
+	match role:
+		&"title": authored = 44.0
+		&"section": authored = 38.0
+		&"primary_value": authored = 44.0
+		&"caption": authored = 24.0
+		&"metadata": authored = 22.0
+		&"button": authored = 28.0
+		&"micro": authored = 20.0
+		_: authored = 34.0
+	return maxi(1, roundi(float(base) * float(Presentation.theme.size_for(role)) / authored))

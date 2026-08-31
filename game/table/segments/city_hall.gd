@@ -275,7 +275,58 @@ func _draw() -> void:
 	var font := ThemeDB.fallback_font
 	if font != null:
 		draw_string(font, Vector2(DOME_CENTER.x - 96.0, DRUM_BOTTOM - 26.0), "CITY HALL",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 30, COL_LEAF.lerp(Feel.COL_NEWSPRINT, 0.25))
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 30, COL_LEAF.lerp(Feel.COL_NEWSPRINT, 0.25))
+		draw_string(font, Vector2(DOME_CENTER.x - 96.0, DRUM_BOTTOM - 8.0), "R7  /  KINGPIN  /  FINAL CEREMONY",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, Feel.COL_NEWSPRINT.darkened(0.12))
+
+	# The loop is the only native state in this paint-only crown. Keep its mark adjacent to the
+	# dome so a lap, invitation, completion, or danger telegraph reads without turning sky into a
+	# route or adding a bound/collider.
+	var token: Dictionary = TableVisualState.state_token(TableVisualState.VisualState.DISABLED)
+	if loop != null and loop.has_method(&"visual_token"):
+		token = loop.visual_token()
+	var state := String(token.get("state", &"disabled"))
+	var mark := String(token.get("mark", &"lock_offline"))
+	var cue_col := Feel.COL_NEWSPRINT.darkened(0.48)
+	if state == "armed":
+		cue_col = COL_LEAF
+	elif state == "active":
+		cue_col = COL_LEAF.lightened(0.25)
+	elif state == "completed":
+		cue_col = Feel.COL_NEWSPRINT
+	elif state == "danger":
+		cue_col = Feel.COL_DIRTY
+	var cue := Color(cue_col.r, cue_col.g, cue_col.b, 0.82)
+	var cue_at := DOME_CENTER + Vector2(0.0, DOME_R + 30.0)
+	if mark == "invitation_pin":
+		draw_circle(cue_at, 5.0, cue)
+		draw_line(cue_at + Vector2(0.0, 5.0), cue_at + Vector2(0.0, 19.0), cue, 3.0)
+	elif mark == "contact_pulse" or mark == "held_ring":
+		draw_arc(cue_at, 16.0, 0.0, TAU, 24, cue, 3.0)
+		draw_circle(cue_at, 3.0, cue)
+	elif mark == "check_stamp" or mark == "marked_stamp":
+		draw_rect(Rect2(cue_at - Vector2(15.0, 15.0), Vector2(30.0, 30.0)), cue, false, 3.0)
+		draw_line(cue_at + Vector2(-7.0, 0.0), cue_at + Vector2(-2.0, 5.0), cue, 3.0)
+		draw_line(cue_at + Vector2(-2.0, 5.0), cue_at + Vector2(8.0, -7.0), cue, 3.0)
+	elif mark == "lock_offline":
+		draw_rect(Rect2(cue_at - Vector2(11.0, 5.0), Vector2(22.0, 14.0)), cue, false, 3.0)
+		draw_arc(cue_at + Vector2(0.0, -4.0), 7.0, PI, TAU, 12, cue, 3.0)
+	elif mark == "offline_cross":
+		draw_line(cue_at + Vector2(-11.0, -11.0), cue_at + Vector2(11.0, 11.0), cue, 3.0)
+		draw_line(cue_at + Vector2(11.0, -11.0), cue_at + Vector2(-11.0, 11.0), cue, 3.0)
+	elif mark == "cooldown_clock":
+		draw_arc(cue_at, 15.0, -PI * 0.5, PI, 18, cue, 3.0)
+		draw_line(cue_at, cue_at + Vector2(0.0, -7.0), cue, 2.0)
+		draw_line(cue_at, cue_at + Vector2(6.0, 3.0), cue, 2.0)
+	elif mark == "hazard_hatch" or mark == "telegraph_hatch" or mark == "jam_alert" \
+			or String(token.get("pattern", &"stable_outline")) == "hazard_hatch" \
+			or String(token.get("pattern", &"stable_outline")) == "telegraph_hatch":
+		draw_arc(cue_at, 16.0, 0.0, TAU, 24, cue, 3.0)
+		for hatch in range(3):
+			var hy := cue_at.y - 10.0 + float(hatch) * 10.0
+			draw_line(Vector2(cue_at.x - 11.0, hy), Vector2(cue_at.x + 11.0, hy - 6.0), cue, 2.0)
+	else:
+		draw_arc(cue_at, 16.0, 0.0, TAU, 24, cue, 3.0)
 
 
 ## The last of the night sky. The Club paints the board behind its own deck; above that

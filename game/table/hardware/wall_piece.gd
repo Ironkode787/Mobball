@@ -51,5 +51,26 @@ func is_hardware_active() -> bool:
 	return _active
 
 
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.IDLE if _active \
+			else TableVisualState.VisualState.DISABLED
+	return TableVisualState.state_token(state)
+
+
 func _draw() -> void:
+	if not _active:
+		return
+	var token := visual_state()
+	# WallBuilder remains the sole geometry/draw source. These endpoint caps are paint-only
+	# witness marks that make a real wall read in grayscale without adding a route or collider.
 	walls.draw_into(self, color, rim)
+	if String(token["mark"]) != "outline":
+		return
+	for chain: Dictionary in walls.chains:
+		var points: PackedVector2Array = chain["points"]
+		if points.size() < 2:
+			continue
+		var t: float = float(chain["thickness"])
+		var cap := maxf(t * 0.28, 4.0)
+		draw_circle(points[0], cap, rim)
+		draw_circle(points[points.size() - 1], cap, rim)

@@ -236,27 +236,104 @@ func is_hardware_active() -> bool:
 	return _present
 
 
+func visual_state() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if _cool > 0.0:
+		return TableVisualState.VisualState.DISABLED
+	if _held or _inside_t > 0.0:
+		return TableVisualState.VisualState.ACTIVE
+	if _flash > 0.0:
+		return TableVisualState.VisualState.COMPLETED
+	return TableVisualState.VisualState.ARMED
+
+
+func visual_modifiers() -> Dictionary:
+	return {
+		&"cooldown": _cool > 0.0,
+		&"held": _held,
+		&"flash": _flash > 0.02,
+	}
+
+
+func visual_token() -> Dictionary:
+	return TableVisualState.state_token(visual_state(), visual_modifiers())
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _draw_hatch(center: Vector2, radius: float, color: Color) -> void:
+	for i in range(5):
+		var y := -radius * 0.65 + float(i) * radius * 0.32
+		draw_line(center + Vector2(-radius * 0.68, y), center + Vector2(radius * 0.68, y), color, 2.0)
+
+
+func _draw_state_cue(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	if mark == "held_ring":
+		draw_arc(center, radius, 0.0, TAU, 24, color, 4.0)
+		draw_circle(center, radius * 0.22, color)
+	elif mark == "cooldown_clock":
+		draw_arc(center, radius, -PI * 0.5, PI, 16, color, 3.0)
+		draw_line(center, center + Vector2(0.0, -radius * 0.5), color, 2.0)
+		draw_line(center, center + Vector2(radius * 0.35, radius * 0.2), color, 2.0)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+	if String(token["pattern"]) == "offline_hatch" or String(token["pattern"]) == "cooldown_dash":
+		_draw_hatch(center, radius, color)
+
+
 func _draw() -> void:
-	var felt := Feel.COL_FELT.darkened(0.35)
-	draw_circle(Vector2.ZERO, RADIUS - WALL_THICK * 0.5, felt)
-	draw_arc(Vector2.ZERO, RADIUS - WALL_THICK * 0.5, 0.0, TAU, 48,
-			Feel.COL_INK.lightened(0.10), 3.0)
+	var token := visual_token()
+	var state := String(token["state"])
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var felt := _ambient(&"felt", Feel.COL_FELT).darkened(0.35)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var rim := RADIUS - WALL_THICK * 0.5
+	var state_col := brass if state == "armed" else paper
+	if state == "disabled":
+		state_col = paper.darkened(0.32)
+	draw_circle(Vector2.ZERO, RADIUS + 10.0, Color(ink.r, ink.g, ink.b, 0.52))
+	draw_circle(Vector2.ZERO, rim, felt)
+	draw_arc(Vector2.ZERO, rim, 0.0, TAU, 48, brass.darkened(0.16), 5.0)
+	draw_arc(Vector2.ZERO, rim - 12.0, 0.0, TAU, 48, ink.lightened(0.12), 2.0)
 	for i in range(POCKETS):
 		var a := pocket_angle(i)
 		var p := Vector2(cos(a), sin(a)) * POCKET_RING
 		var house := is_house_now(i)
-		var col := Feel.COL_DIRTY.darkened(0.25) if house else Feel.COL_INK.darkened(0.2)
+		var col := Feel.COL_DIRTY.darkened(0.25) if house else ink.darkened(0.2)
 		if not house and is_house(i):
 			# a pocket Loaded Dice bought off the house: marked, so the change is visible
-			col = Feel.COL_BRASS.darkened(0.45)
+			col = brass.darkened(0.45)
 		if _held and i == _pocket:
-			col = col.lerp(Feel.COL_NEWSPRINT, 0.35 + _flash * 0.4)
+			col = col.lerp(paper, 0.35 + _flash * 0.4)
 		draw_circle(p, POCKET_R, col)
-		draw_arc(p, POCKET_R, 0.0, TAU, 16, Feel.COL_BRASS.darkened(0.3), 3.0)
+		draw_arc(p, POCKET_R, 0.0, TAU, 16, brass.darkened(0.3), 3.0)
 		draw_line(Vector2(cos(a), sin(a)) * (POCKET_RING + POCKET_R),
-				Vector2(cos(a), sin(a)) * (RADIUS - WALL_THICK), Feel.COL_BRASS.darkened(0.55), 2.0)
-	draw_circle(Vector2.ZERO, 22.0, Feel.COL_BRASS.darkened(0.2))
-	draw_arc(Vector2.ZERO, 22.0, 0.0, TAU, 20, Feel.COL_INK, 3.0)
+				Vector2(cos(a), sin(a)) * (RADIUS - WALL_THICK), brass.darkened(0.55), 2.0)
+		var pocket_font := Presentation.theme.font_for(&"annotation")
+		if pocket_font != null:
+			draw_string(pocket_font, p + Vector2(-7.0, 6.0), str(i + 1),
+					HORIZONTAL_ALIGNMENT_CENTER, 14.0, 14, paper if house else brass)
+		# House pockets use a triangle, player pockets a square; color is only reinforcement.
+		if house:
+			draw_colored_polygon(PackedVector2Array([p + Vector2(0.0, -12.0),
+				p + Vector2(10.0, 8.0), p + Vector2(-10.0, 8.0)]), paper.darkened(0.18))
+		else:
+			draw_rect(Rect2(p - Vector2(8.0, 8.0), Vector2(16.0, 16.0)), brass.lightened(0.12), false, 3.0)
+	draw_circle(Vector2.ZERO, 22.0, brass.darkened(0.2))
+	draw_arc(Vector2.ZERO, 22.0, 0.0, TAU, 20, ink, 3.0)
+	draw_arc(Vector2.ZERO, 10.0, 0.0, TAU, 16, paper.darkened(0.1), 2.0)
 	# the bowl itself, drawn from the same chains the physics uses
 	if _walls != null:
-		_walls.draw_into(self, Feel.COL_INK.lightened(0.16), Feel.COL_INK)
+		_walls.draw_into(self, brass.lightened(0.08), ink)
+	if state == "disabled":
+		_draw_hatch(Vector2.ZERO, rim - 14.0, Color(paper.r, paper.g, paper.b, 0.20))
+	_draw_state_cue(Vector2(0.0, -RADIUS - 16.0), 12.0, token, state_col)

@@ -69,6 +69,34 @@ func _build_decal() -> void:
 	add_child(_decal)
 
 
+## Draw-only snapshot. Dormant bumpers are absent; a short post-hit cooldown is shown as a
+## subdued disabled cue so it cannot be mistaken for another invitation.
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.IDLE
+	var mods: Array[StringName] = []
+	if not _present:
+		state = TableVisualState.VisualState.DISABLED
+	elif _pulse > 0.0:
+		state = TableVisualState.VisualState.ACTIVE
+		mods.append(&"pulse")
+	elif _cooldown > 0.0:
+		state = TableVisualState.VisualState.DISABLED
+		mods.append(&"cooldown")
+	return TableVisualState.state_token(state, mods)
+
+
+func _ambient_material(role: StringName, fallback: Color) -> Color:
+	if Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
 func _process(delta: float) -> void:
 	if _pulse > 0.0:
 		_pulse = maxf(_pulse - delta * 6.0, 0.0)
@@ -76,7 +104,10 @@ func _process(delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var previous_cooldown := _cooldown
 	_cooldown = maxf(_cooldown - delta, 0.0)
+	if not is_equal_approx(previous_cooldown, _cooldown):
+		queue_redraw()
 	# a real pop bumper's skirt fires on contact, not on approach: a ball that comes to rest
 	# on the cap has to be thrown off again or it sits there for the rest of the night
 	if _inside.is_empty():
@@ -135,30 +166,49 @@ func _apply_collision() -> void:
 
 
 func _draw() -> void:
+	if not _present:
+		return
+	var token := visual_state()
 	var r := Feel.BUMPER_RADIUS * size_scale * (1.0 + _pulse * 0.14)
+	var ink := _ambient_material(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient_material(&"brass", Feel.COL_BRASS)
+	var paper := _ambient_material(&"paper", Feel.COL_NEWSPRINT)
+	var pulse_alpha := _pulse * (0.25 if _reduced_flash() else 1.0)
 	# A battered trash-can lid, not a generic pinball disc. The nested steel ribs make the
 	# pulse read like the lid physically jumping when the skirt fires.
 	draw_circle(Vector2(0.0, 7.0), r + 4.0, Color(0.0, 0.0, 0.0, 0.38))
 	if _pulse > 0.0:
 		draw_circle(Vector2.ZERO, r + 15.0,
-				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, _pulse * 0.12))
+				Color(brass.r, brass.g, brass.b, pulse_alpha * 0.12))
 	if _decal == null:
-		draw_circle(Vector2.ZERO, r, Feel.COL_INK.lightened(0.05))
+		draw_circle(Vector2.ZERO, r, ink.lightened(0.05))
 	draw_arc(Vector2.ZERO, r - 3.0, 0.0, TAU, 40,
-			Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _pulse * 0.62), 7.0)
+			brass.lerp(paper, pulse_alpha * 0.62), 7.0)
 	if _decal != null:
 		draw_circle(Vector2.ZERO, r * 0.13,
-				Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _pulse * 0.45))
-		return
-	var steel := Feel.COL_NEWSPRINT.darkened(0.62).lerp(Feel.COL_BRASS, 0.20 + _pulse * 0.42)
-	draw_circle(Vector2.ZERO, r * 0.68, steel.darkened(0.26))
-	draw_arc(Vector2.ZERO, r * 0.62, 0.0, TAU, 32, steel, 4.0)
-	draw_arc(Vector2.ZERO, r * 0.43, 0.0, TAU, 28, steel.darkened(0.12), 3.0)
-	draw_circle(Vector2(-r * 0.12, -r * 0.10), r * 0.25, steel.darkened(0.18))
-	# Each can has a different old dent, so three bought bumpers feel like three objects.
-	var dent_sign := -1.0 if String(id).ends_with("2") else 1.0
-	draw_arc(Vector2(dent_sign * r * 0.22, r * 0.08), r * 0.21,
-			0.2, PI * 1.18, 10, Feel.COL_INK.lightened(0.17), 3.0)
-	draw_line(Vector2(-r * 0.22, r * 0.35), Vector2(r * 0.30, r * 0.28),
-			Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
-			Feel.COL_NEWSPRINT.b, 0.13), 2.0)
+				brass.lerp(paper, pulse_alpha * 0.45))
+	else:
+		var steel := paper.darkened(0.62).lerp(brass, 0.20 + pulse_alpha * 0.42)
+		draw_circle(Vector2.ZERO, r * 0.68, steel.darkened(0.26))
+		draw_arc(Vector2.ZERO, r * 0.62, 0.0, TAU, 32, steel, 4.0)
+		draw_arc(Vector2.ZERO, r * 0.43, 0.0, TAU, 28, steel.darkened(0.12), 3.0)
+		draw_circle(Vector2(-r * 0.12, -r * 0.10), r * 0.25, steel.darkened(0.18))
+		# Each can has a different old dent, so three bought bumpers feel like three objects.
+		var dent_sign := -1.0 if String(id).ends_with("2") else 1.0
+		draw_arc(Vector2(dent_sign * r * 0.22, r * 0.08), r * 0.21,
+				0.2, PI * 1.18, 10, ink.lightened(0.17), 3.0)
+		draw_line(Vector2(-r * 0.22, r * 0.35), Vector2(r * 0.30, r * 0.28),
+				Color(paper.r, paper.g, paper.b, 0.13), 2.0)
+
+	# The marks are deliberately geometric so active/cooldown remain readable in grayscale.
+	match String(token["mark"]):
+		"contact_pulse":
+			for i in range(4):
+				var a := float(i) * PI * 0.5 + PI * 0.25
+				var inner := Vector2(cos(a), sin(a)) * r * 0.78
+				var outer := Vector2(cos(a), sin(a)) * (r + 8.0 + pulse_alpha * 7.0)
+				draw_line(inner, outer, Color(paper, pulse_alpha * 0.72), 3.0)
+		"cooldown_clock":
+			draw_arc(Vector2.ZERO, r * 0.78, -PI * 0.5, PI * 0.9, 12,
+					Color(paper, 0.50), 3.0)
+			draw_line(Vector2.ZERO, Vector2(0.0, -r * 0.42), Color(paper, 0.60), 3.0)

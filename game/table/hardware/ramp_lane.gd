@@ -247,9 +247,58 @@ func is_hardware_active() -> bool:
 	return _present
 
 
+## Read-only ramp presentation state. Rail progress, release, abort, and BallHold ownership
+## remain authoritative in the ride methods above; this never writes to the ride.
+func _visual_state_id() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if riding() and _v < 0.0:
+		return TableVisualState.VisualState.DANGER
+	if riding() or _flash > 0.0:
+		return TableVisualState.VisualState.ACTIVE
+	return TableVisualState.VisualState.ARMED
+
+
+func visual_state() -> Dictionary:
+	return TableVisualState.state_token(_visual_state_id(), {
+		&"held": riding(), &"telegraph": riding() and _v < 0.0,
+	})
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _material_fill(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _hatch(rect: Rect2, color: Color) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += 14.0
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
 func _draw() -> void:
 	if points.size() < 2:
 		return
+	var token := visual_token()
+	var state := StringName(token["state"])
+	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
+	var felt := _material_fill(&"felt", Feel.COL_FELT)
+	var brass := _material_fill(&"brass", Feel.COL_BRASS)
+	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
+	var flash_strength := _flash * (0.25 if _reduced_flash() else 1.0)
 	var left := PackedVector2Array()
 	var right := PackedVector2Array()
 	for i in range(points.size()):
@@ -264,11 +313,19 @@ func _draw() -> void:
 	for p: Vector2 in points:
 		shade.append(p + Vector2(7.0, 9.0))
 	draw_polyline(shade, Color(0.0, 0.0, 0.0, 0.22), RAIL_HALF * 2.0, true)
-	draw_polyline(points, Color(Feel.COL_FELT.r, Feel.COL_FELT.g, Feel.COL_FELT.b, 0.55),
+	draw_polyline(points, Color(felt.r, felt.g, felt.b, 0.55),
 			RAIL_HALF * 2.0 - 6.0, true)
-	var rail := color.lerp(Feel.COL_NEWSPRINT, _flash * 0.8)
-	draw_polyline(left, rail, 6.0, true)
-	draw_polyline(right, rail, 6.0, true)
+	var rail := color.lerp(paper, flash_strength * 0.8)
+	if state == &"armed":
+		rail = brass
+	elif state == &"active":
+		rail = brass.lerp(paper, 0.45)
+	elif state == &"danger":
+		rail = paper
+	elif state == &"disabled":
+		rail = ink.lightened(0.18)
+	draw_polyline(left, rail, 7.0, true)
+	draw_polyline(right, rail, 7.0, true)
 	# direction chevrons, so the shot reads at a glance
 	var s := ARROW_STEP * 0.5
 	while s < _total:
@@ -281,9 +338,17 @@ func _draw() -> void:
 	# The mouth, when it is a shot you aim at. A catcher that spans a whole deck floor is not
 	# one — it gets a lip along its edge instead of a box drawn round it.
 	var mouth := entry_rect()
-	var lip := Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _flash)
+	var lip := brass.lerp(paper, flash_strength)
+	if state == &"danger":
+		lip = paper
 	if mouth.size.x <= 200.0:
 		draw_rect(mouth, lip, false, 4.0)
 	else:
 		draw_line(mouth.position, mouth.position + Vector2(mouth.size.x, 0.0),
-				lip.darkened(0.35), 5.0)
+			lip.darkened(0.35), 5.0)
+	if state == &"danger":
+		var centre := mouth.get_center()
+		draw_line(centre - Vector2(14.0, 14.0), centre + Vector2(14.0, 14.0), paper, 4.0)
+		draw_line(centre + Vector2(14.0, -14.0), centre - Vector2(14.0, -14.0), paper, 4.0)
+	elif state == &"disabled":
+		_hatch(mouth, Color(paper.r, paper.g, paper.b, 0.30))

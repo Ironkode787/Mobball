@@ -229,16 +229,95 @@ func set_hardware_active(active: bool) -> void:
 	_apply_door()
 
 
+func visual_state() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	match _state:
+		State.OPEN:
+			return TableVisualState.VisualState.ACTIVE
+		State.COOLDOWN:
+			return TableVisualState.VisualState.DISABLED
+		_:
+			return TableVisualState.VisualState.ARMED
+
+
+func visual_modifiers() -> Dictionary:
+	return {
+		&"cooldown": _state == State.COOLDOWN,
+		&"pulse": _glow > 0.02,
+	}
+
+
+func visual_token() -> Dictionary:
+	return TableVisualState.state_token(visual_state(), visual_modifiers())
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _draw_hatch(rect: Rect2, color: Color, spacing: float = 14.0) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += spacing
+
+
+func _draw_state_cue(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	var pattern := String(token["pattern"])
+	if mark == "invitation_pin":
+		draw_circle(center, radius, color)
+		draw_colored_polygon(PackedVector2Array([
+		center + Vector2(-radius * 0.45, radius * 0.20),
+		center + Vector2(radius * 0.45, radius * 0.20),
+		center + Vector2(0.0, radius * 1.35),
+	]), color)
+	elif mark == "contact_pulse":
+		draw_arc(center, radius, 0.0, TAU, 20, color, 4.0)
+		draw_circle(center, radius * 0.28, color)
+	elif mark == "cooldown_clock":
+		draw_arc(center, radius, -PI * 0.5, PI * 1.2, 20, color, 4.0)
+		draw_line(center, center + Vector2(0.0, -radius * 0.48), color, 3.0)
+		draw_line(center, center + Vector2(radius * 0.34, radius * 0.20), color, 3.0)
+	elif mark == "lock_offline":
+		draw_rect(Rect2(center - Vector2(radius * 0.7, radius * 0.42),
+			Vector2(radius * 1.4, radius * 1.05)), color, false, 3.0)
+		draw_arc(center + Vector2(0.0, -radius * 0.30), radius * 0.46, PI, TAU, 12, color, 3.0)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+	if pattern == "offline_hatch" or pattern == "cooldown_dash":
+		for i in range(3):
+			var y := center.y - radius * 0.35 + float(i) * radius * 0.35
+			draw_line(Vector2(center.x - radius * 0.42, y), Vector2(center.x + radius * 0.42, y), color, 2.0)
+
+
 func _draw() -> void:
 	var w := half_span()
-	var lit := _state == State.OPEN
-	var frame := Feel.COL_INK.lightened(0.18)
+	var token := visual_token()
+	var state := String(token["state"])
+	var lit := state == "active"
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var wood := _ambient(&"wood", Feel.COL_INK.darkened(0.10))
+	var wood_edge := _ambient(&"wood_edge", Feel.COL_BRASS.darkened(0.58))
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var frame := brass.darkened(0.32)
+	var state_col := brass if state == "armed" else paper
+	if state == "disabled":
+		state_col = paper.darkened(0.35)
+	if state == "danger":
+		state_col = Feel.COL_DIRTY
 	# A complete little building gives the bank a silhouette: cornice, sign box, shop window,
 	# striped awning and the working doorway. Each racket is now a place on the Block.
 	var facade := Rect2(Vector2(-w - 10.0, -DOOR_DEPTH - 82.0),
 			Vector2(w * 2.0 + 20.0, DOOR_DEPTH + 78.0))
 	draw_rect(Rect2(facade.position + Vector2(7.0, 9.0), facade.size),
-			Color(0.0, 0.0, 0.0, 0.34))
+			Color(ink.r, ink.g, ink.b, 0.55))
 	var art_id := &"front.laundromat"
 	if String(id).contains("pizzeria"):
 		art_id = &"front.pizzeria"
@@ -246,23 +325,26 @@ func _draw() -> void:
 		art_id = &"front.pawn"
 	var facade_art := Presentation.art.resolve(art_id, null, false)
 	if facade_art != null:
-		draw_texture_rect(facade_art, facade, false, Color(1.0, 1.0, 1.0, 0.88))
+		draw_texture_rect(facade_art, facade, false, Color(1.0, 1.0, 1.0, 0.64))
 	else:
-		draw_rect(facade, Feel.COL_INK.lightened(0.08))
-	draw_rect(facade, Feel.COL_BRASS.darkened(0.58), false, 3.0)
+		draw_rect(facade, wood)
+	draw_rect(facade, wood_edge, false, 4.0)
+	if state == "disabled":
+		_draw_hatch(facade.grow(-8.0), Color(paper.r, paper.g, paper.b, 0.18))
+	draw_rect(facade, frame, false, 4.0)
 	draw_line(Vector2(facade.position.x - 5.0, facade.position.y),
-			Vector2(facade.end.x + 5.0, facade.position.y), Feel.COL_BRASS.darkened(0.25), 7.0)
+			Vector2(facade.end.x + 5.0, facade.position.y), brass, 7.0)
 
 	var sign_box := Rect2(Vector2(-w + 4.0, -DOOR_DEPTH - 70.0),
 			Vector2(w * 2.0 - 8.0, 34.0))
-	var sign_col := Feel.COL_CLEAN if wash_enabled else Feel.COL_BRASS
+	var sign_col := Feel.COL_CLEAN if wash_enabled else brass
 	if String(id).contains("pizzeria"):
 		sign_col = Feel.COL_DIRTY.darkened(0.10)
 	elif String(id).contains("pawn"):
-		sign_col = Feel.COL_BRASS.lightened(0.10)
-	if _state == State.COOLDOWN:
+		sign_col = brass.lightened(0.10)
+	if state == "disabled":
 		sign_col = sign_col.darkened(0.6)
-	draw_rect(sign_box, sign_col.darkened(0.66))
+	draw_rect(sign_box, Color(sign_col.r, sign_col.g, sign_col.b, 0.22))
 	draw_rect(sign_box, sign_col, false, 3.0)
 	var font := Presentation.theme.font_for(&"headline")
 	if font != null:
@@ -271,19 +353,21 @@ func _draw() -> void:
 
 	# the shopfront behind the bank: a dark doorway that lights up when it is open
 	var door_rect := Rect2(Vector2(-w, -DOOR_DEPTH - 31.0), Vector2(w * 2.0, DOOR_DEPTH + 19.0))
-	draw_rect(door_rect, Feel.COL_INK.darkened(0.35))
+	draw_rect(door_rect, ink.darkened(0.35))
 	if lit:
-		var glow := Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, 0.25 + _glow * 0.4)
-		draw_rect(door_rect.grow(-6.0), Color(glow.r, glow.g, glow.b, 0.30))
+		var glow := brass.lerp(paper, 0.25 + _glow * 0.4)
+		draw_rect(door_rect.grow(-6.0), Color(glow.r, glow.g, glow.b, 0.34))
 	draw_rect(door_rect, frame, false, 4.0)
+	if state == "disabled":
+		_draw_hatch(door_rect.grow(-8.0), Color(paper.r, paper.g, paper.b, 0.26), 16.0)
 
 	# Canvas awning; the bank targets sit directly along its lower edge.
 	var awning_y := -DOOR_DEPTH - 27.0
-	draw_line(Vector2(-w + 2.0, awning_y), Vector2(w - 2.0, awning_y), sign_col, 10.0)
+	draw_line(Vector2(-w + 2.0, awning_y), Vector2(w - 2.0, awning_y), state_col, 10.0)
 	for i in range(7):
 		var x := lerpf(-w + 8.0, w - 8.0, float(i) / 6.0)
 		draw_line(Vector2(x, awning_y - 4.0), Vector2(x - 4.0, awning_y + 7.0),
-				Feel.COL_NEWSPRINT.darkened(0.20), 3.0)
+				paper.darkened(0.20), 3.0)
 
 	# Shop-specific window marks stay small and readable even with the bank raised.
 	if String(id).contains("laundromat"):
@@ -299,3 +383,14 @@ func _draw() -> void:
 		for side in [-1.0, 1.0]:
 			draw_circle(Vector2(side * 17.0, -48.0), 11.0, sign_col.darkened(0.08), false, 4.0)
 		draw_circle(Vector2(0.0, -32.0), 11.0, sign_col.darkened(0.08), false, 4.0)
+
+	# A compact, non-colour state mark sits above the door and survives grayscale.
+	_draw_state_cue(Vector2(w - 18.0, -DOOR_DEPTH - 52.0), 12.0, token, state_col)
+	for i in range(_targets.size()):
+		var target := _targets[i]
+		if target == null or not is_instance_valid(target) or not target.visible:
+			continue
+		var target_col := brass if not target.down else paper.darkened(0.28)
+		draw_line(Vector2((float(i) - 1.0) * TARGET_PITCH - 15.0, -DOOR_DEPTH + 3.0),
+				Vector2((float(i) - 1.0) * TARGET_PITCH + 15.0, -DOOR_DEPTH + 3.0),
+				target_col, 4.0)

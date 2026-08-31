@@ -167,26 +167,114 @@ func is_hardware_active() -> bool:
 	return active
 
 
+## Draw-edge translation only. The crane's clock and reach remain owned by the existing
+## physics process; a target/telegraph is represented as a state mark, never as a new force.
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.IDLE
+	var mods: Array[StringName] = []
+	if not active:
+		state = TableVisualState.VisualState.DISABLED
+	elif _telegraphing:
+		state = TableVisualState.VisualState.DANGER
+		mods.append(&"telegraph")
+	elif _flash > 0.02:
+		state = TableVisualState.VisualState.COMPLETED
+		mods.append(&"pulse")
+	elif has_target():
+		state = TableVisualState.VisualState.ARMED
+	mods.append(&"moving" if _travel > 0.001 and _travel < 0.999 else &"parked")
+	return TableVisualState.state_token(state, mods)
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var city_col := Presentation.city.material_for(role)
+		if city_col.a > 0.0:
+			return city_col
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _semantic_color(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.theme != null:
+		var candidate := Presentation.theme.color(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _hatch(rect: Rect2, color: Color, spacing: float = 14.0) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += spacing
+
+
+func _draw_state_cue(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	if mark == "telegraph_hatch" or mark == "hazard_hatch":
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+		_hatch(Rect2(center - Vector2(radius * 0.7, radius * 0.7), Vector2(radius * 1.4, radius * 1.4)),
+				Color(color.r, color.g, color.b, 0.65), 8.0)
+	elif mark == "check_stamp":
+		draw_rect(Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), color, false, 3.0)
+		draw_line(center + Vector2(-radius * 0.5, 0.0), center + Vector2(-radius * 0.08, radius * 0.4), color, 3.0)
+		draw_line(center + Vector2(-radius * 0.08, radius * 0.4), center + Vector2(radius * 0.56, -radius * 0.5), color, 3.0)
+	elif mark == "invitation_pin":
+		draw_circle(center, radius * 0.4, color)
+		draw_line(center + Vector2(0.0, radius * 0.35), center + Vector2(0.0, radius), color, 3.0)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+
+
 func _draw() -> void:
 	if not active:
 		return
-	var warn := 0.0
-	if _telegraphing:
-		warn = clampf((_phase - (PERIOD - TELEGRAPH)) / TELEGRAPH, 0.0, 1.0)
-	var glow := maxf(warn, _flash)
-	var rail := Feel.COL_BRASS.darkened(0.55)
-	draw_line(rail_from, rail_to, Feel.COL_INK, 16.0)
-	draw_line(rail_from, rail_to, rail, 8.0)
+	var token := visual_token()
+	var state := String(token["state"])
+	var reduced_flash := Presentation.fx != null and Presentation.fx.reduced_flash
+	var warn := clampf((_phase - (PERIOD - TELEGRAPH)) / TELEGRAPH, 0.0, 1.0) if _telegraphing else 0.0
+	if reduced_flash:
+		warn = 0.28 if _telegraphing else 0.0
+	var glow := maxf(warn, _flash * (0.25 if reduced_flash else 1.0))
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var hazard := _semantic_color(&"dirty", Feel.COL_DIRTY)
+	var rail := brass.darkened(0.55)
+	# The doubled rail and end posts make the gantry legible as furniture, not a new wall.
+	draw_line(rail_from, rail_to, ink, 18.0)
+	draw_line(rail_from, rail_to, rail, 9.0)
+	for endpoint: Vector2 in [rail_from, rail_to]:
+		draw_line(endpoint, endpoint + Vector2(0.0, 54.0), ink, 10.0)
+		draw_line(endpoint, endpoint + Vector2(0.0, 54.0), rail, 5.0)
 	var trolley := trolley_position()
-	draw_rect(Rect2(trolley - Vector2(18.0, 12.0), Vector2(36.0, 24.0)),
-			Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, glow))
+	var trolley_fill := brass.lerp(paper, glow * 0.35)
+	if state == "danger":
+		trolley_fill = hazard.lerp(paper, glow * 0.30)
+	draw_rect(Rect2(trolley - Vector2(22.0, 13.0), Vector2(44.0, 26.0)), ink)
+	draw_rect(Rect2(trolley - Vector2(18.0, 10.0), Vector2(36.0, 20.0)), trolley_fill)
+	draw_line(trolley + Vector2(-13.0, -5.0), trolley + Vector2(13.0, -5.0), paper, 2.0)
 	# the hook, lowered as it winds up
 	var hook := trolley + Vector2(0.0, HOOK_DROP * (0.35 + glow * 0.65))
 	draw_line(trolley, hook, rail.lightened(0.2), 3.0)
-	draw_arc(hook, 9.0, 0.0, TAU, 14, Feel.COL_BRASS.lerp(Feel.COL_DIRTY, glow), 4.0)
+	var hook_col := brass.lerp(hazard, glow)
+	draw_arc(hook, 10.0, 0.0, TAU, 14, hook_col, 4.0)
+	if state == "armed":
+		_draw_state_cue(trolley + Vector2(0.0, -28.0), 8.0, token, brass)
 	if glow <= 0.0:
 		return
-	var col := Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.20 + glow * 0.6)
+	var col := Color(hazard.r, hazard.g, hazard.b,
+			0.16 + glow * (0.58 if not reduced_flash else 0.24))
 	for i in range(3):
 		draw_arc(hook, 22.0 + float(i) * 20.0 + glow * 22.0, 0.0, TAU, 24, col, 4.0 - float(i))
 	draw_line(hook, drop_point, Color(col.r, col.g, col.b, col.a * 0.5), 3.0)
+	_draw_state_cue(hook + Vector2(0.0, 30.0), 11.0, token, hazard)

@@ -281,22 +281,129 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 
+func visual_state() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if hits_left <= 0:
+		return TableVisualState.VisualState.COMPLETED
+	if _pulse > 0.02 or _moving:
+		return TableVisualState.VisualState.ACTIVE
+	return TableVisualState.VisualState.ARMED
+
+
+func visual_modifiers() -> Dictionary:
+	return {
+		&"moving": _moving,
+		&"parked": not _moving,
+		&"pulse": _pulse > 0.02,
+		&"boss_phase": _present,
+	}
+
+
+func visual_token() -> Dictionary:
+	return TableVisualState.state_token(visual_state(), visual_modifiers())
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var candidate := Presentation.city.material_for(role)
+		if candidate.a > 0.0:
+			return candidate
+	return fallback
+
+
+func _draw_hatch(rect: Rect2, color: Color) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += 14.0
+
+
+func _draw_state_cue(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	if mark == "contact_pulse":
+		draw_arc(center, radius, 0.0, TAU, 20, color, 4.0)
+		draw_circle(center, radius * 0.24, color)
+	elif mark == "check_stamp" or mark == "marked_stamp":
+		draw_rect(Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), color, false, 3.0)
+		draw_line(center + Vector2(-radius * 0.55, 0.0), center + Vector2(-radius * 0.08, radius * 0.42), color, 3.0)
+		draw_line(center + Vector2(-radius * 0.08, radius * 0.42), center + Vector2(radius * 0.58, -radius * 0.48), color, 3.0)
+	elif mark == "lock_offline":
+		draw_rect(Rect2(center - Vector2(radius * 0.72, radius * 0.38), Vector2(radius * 1.44, radius)), color, false, 3.0)
+		draw_arc(center + Vector2(0.0, -radius * 0.24), radius * 0.42, PI, TAU, 12, color, 3.0)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+	if String(token["pattern"]) == "offline_hatch":
+		for i in range(3):
+			var y := center.y - radius * 0.35 + float(i) * radius * 0.35
+			draw_line(Vector2(center.x - radius * 0.42, y), Vector2(center.x + radius * 0.42, y), color, 2.0)
+
+
 func _draw() -> void:
+	var token := visual_token()
+	var state := String(token["state"])
 	var half := body_length * 0.5
 	var r := body_thick * 0.5
-	var panel := color.lerp(Feel.COL_NEWSPRINT, _pulse * 0.55)
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var felt := _ambient(&"felt", Feel.COL_FELT)
+	var panel := color.lerp(paper, _pulse * 0.55)
 	if hits_left <= 0:
 		panel = panel.darkened(0.45)
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK, body_thick + 8.0)
+	if state == "disabled":
+		panel = ink.lightened(0.08)
+	var state_col := brass if state != "completed" and state != "disabled" else paper
+	if state == "danger":
+		state_col = Feel.COL_DIRTY
+	# Chassis and bumper: a thick, readable silhouette that remains aligned with the capsule.
+	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), ink, body_thick + 12.0)
 	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), panel, body_thick)
-	# a cabin, a windscreen and two wheels: enough car to read at a glance
-	draw_rect(Rect2(Vector2(-half * 0.25, -r * 0.62), Vector2(half * 0.9, r * 1.24)),
-			Feel.COL_FELT.darkened(0.25))
-	draw_line(Vector2(half * 0.62, -r * 0.5), Vector2(half * 0.62, r * 0.5),
-			Feel.COL_BRASS.darkened(0.2), 4.0)
+	draw_line(Vector2(-half + 8.0, -r * 0.68), Vector2(half - 8.0, -r * 0.68), brass.darkened(0.28), 3.0)
+	# Cabin and windscreen; the truck gets a taller squared cab, the sedan a sloped roof.
+	var cabin_left := -half * 0.28
+	var cabin_right := half * 0.42
+	var roof := r * (0.74 if kind == &"truck" else 0.62)
+	var cabin := PackedVector2Array([
+		Vector2(cabin_left, -r * 0.58), Vector2(cabin_left + r * 0.34, -roof),
+		Vector2(cabin_right - r * 0.18, -roof), Vector2(cabin_right, -r * 0.48),
+		Vector2(cabin_right, r * 0.28), Vector2(cabin_left, r * 0.28),
+	])
+	draw_colored_polygon(cabin, felt.darkened(0.28))
+	draw_polyline(cabin, brass.darkened(0.16), 3.0)
+	var windscreen := PackedVector2Array([
+		Vector2(cabin_left + r * 0.37, -roof + 4.0),
+		Vector2(cabin_right - r * 0.24, -roof + 4.0),
+		Vector2(cabin_right - r * 0.10, -r * 0.43),
+		Vector2(cabin_left + r * 0.18, -r * 0.43),
+	])
+	draw_colored_polygon(windscreen, ink.lightened(0.16))
+	draw_polyline(windscreen, paper.darkened(0.18), 2.0)
+	draw_line(Vector2(cabin_left + r * 0.16, -r * 0.39), Vector2(cabin_left + r * 0.16, r * 0.22), brass.darkened(0.22), 3.0)
+	# Wheels are non-colliding paint around the existing body capsule.
 	for x: float in [-half * 0.55, half * 0.55]:
-		draw_circle(Vector2(x, r * 0.92), r * 0.34, Feel.COL_INK)
-	# hits left, as pips along the flank — the panel count is the phase's clock
+		draw_circle(Vector2(x, r * 0.92), r * 0.38, ink)
+		draw_circle(Vector2(x, r * 0.92), r * 0.16, brass.darkened(0.18))
+	# Hits left, as pips along the flank — the panel count is the phase's clock.
 	for i in range(hits_left):
 		var px := lerpf(-half * 0.7, half * 0.7, 0.0 if hits_left <= 1 else float(i) / float(hits_left - 1))
-		draw_circle(Vector2(px, -r * 0.92), 6.0, Feel.COL_BRASS)
+		draw_circle(Vector2(px, -r * 0.92), 7.0, brass)
+		draw_arc(Vector2(px, -r * 0.92), 7.0, 0.0, TAU, 12, ink, 2.0)
+	if min_speed > 0.0 and hits_left > 0:
+		# Speed-gate warning is an eligibility cue, not a path or collider.
+		for i in range(3):
+			var x := -half * 0.35 + float(i) * half * 0.35
+			draw_line(Vector2(x, r * 0.45), Vector2(x + 10.0, r * 0.45), Feel.COL_DIRTY, 3.0)
+	var font := Presentation.theme.font_for(&"annotation")
+	if font != null:
+		var label := "BUTCHER" if kind == &"truck" else "SAMMY"
+		draw_string(font, Vector2(-half, -r - 16.0), label,
+				HORIZONTAL_ALIGNMENT_CENTER, body_length, 14, state_col)
+	if _moving:
+		var arrow := Vector2(half + 18.0, 0.0)
+		draw_line(Vector2(half + 2.0, 0.0), arrow, state_col, 3.0)
+		draw_line(arrow, arrow - Vector2(8.0, 6.0), state_col, 3.0)
+		draw_line(arrow, arrow - Vector2(8.0, -6.0), state_col, 3.0)
+	if state == "disabled":
+		_draw_hatch(Rect2(Vector2(-half, -r), Vector2(body_length, r * 2.0)), Color(paper.r, paper.g, paper.b, 0.22))
+	_draw_state_cue(Vector2(half + 18.0, -r - 20.0), 11.0, token, state_col)

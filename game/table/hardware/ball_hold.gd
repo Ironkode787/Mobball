@@ -43,6 +43,21 @@ static func is_held(ball: Ball) -> bool:
 	return ball != null and is_instance_valid(ball) and ball.collision_layer == 0
 
 
+## BallHold deliberately has no draw owner. Callers can consume this draw-only snapshot for a
+## held ring or an idle socket while retaining ownership of capture/release visuals.
+static func visual_state(ball: Ball = null) -> Dictionary:
+	var held := is_held(ball)
+	var state := TableVisualState.VisualState.ACTIVE if held else TableVisualState.VisualState.IDLE
+	var mods: Array[StringName] = []
+	if held:
+		mods.append(&"held")
+	var token := TableVisualState.state_token(state, mods)
+	token["draw_owner"] = &"caller"
+	token["physics_owner"] = &"ball_hold"
+	token["held"] = held
+	return token
+
+
 ## Move a held ball to `to` over exactly one physics tick.
 static func steer(ball: Ball, to: Vector2, delta: float) -> void:
 	if ball == null or not is_instance_valid(ball):

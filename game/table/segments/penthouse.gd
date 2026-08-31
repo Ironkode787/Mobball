@@ -337,9 +337,75 @@ func _draw() -> void:
 		draw_rect(plaque, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.70))
 		draw_rect(plaque, Feel.COL_BRASS.darkened(0.22), false, 3.0)
 		draw_string(font, plaque.position + Vector2(0.0, 41.0), "THE PENTHOUSE",
-				HORIZONTAL_ALIGNMENT_CENTER, plaque.size.x, 28, Feel.COL_BRASS)
+			HORIZONTAL_ALIGNMENT_CENTER, plaque.size.x, 28, Feel.COL_BRASS)
+		draw_string(font, plaque.position + Vector2(0.0, 56.0), "R6  /  BOSS  /  COMMISSION FLOOR",
+			HORIZONTAL_ALIGNMENT_CENTER, plaque.size.x, 11, Feel.COL_NEWSPRINT.darkened(0.12))
 		draw_string(font, Vector2(ROOM_LEFT + 84.0, -574.0), "SIT-DOWN",
-				HORIZONTAL_ALIGNMENT_CENTER, 170.0, 14, Feel.COL_BRASS.darkened(0.38))
+			HORIZONTAL_ALIGNMENT_CENTER, 170.0, 14, Feel.COL_BRASS.darkened(0.38))
+
+	# A room-level cue keeps the quiet glass legible when a native chair or saucer state changes.
+	# It is paint only; each holder and chair continues to own its state and collision.
+	var cues: Array[Dictionary] = []
+	if chairs != null and chairs.has_method(&"visual_token"):
+		cues.append({"at": TABLE_AT + Vector2(0.0, -54.0), "token": chairs.visual_token()})
+	if sitdown != null and sitdown.has_method(&"visual_token"):
+		cues.append({"at": SITDOWN_AT + Vector2(-52.0, 0.0), "token": sitdown.visual_token()})
+	if stairs != null and stairs.has_method(&"visual_token"):
+		cues.append({"at": STAIR_PATH[0] + Vector2(0.0, -32.0), "token": stairs.visual_token()})
+	if return_lane != null and return_lane.has_method(&"visual_token"):
+		cues.append({"at": RETURN_PATH[RETURN_PATH.size() - 1] + Vector2(0.0, 28.0),
+				"token": return_lane.visual_token()})
+	for cue_data: Dictionary in cues:
+		var token: Dictionary = cue_data["token"]
+		var at: Vector2 = cue_data["at"]
+		var state := String(token.get("state", &"idle"))
+		var mark := String(token.get("mark", &"outline"))
+		var pattern := String(token.get("pattern", &"stable_outline"))
+		var cue_col := Feel.COL_BRASS.darkened(0.50)
+		if state == "armed":
+			cue_col = Feel.COL_BRASS
+		elif state == "active":
+			cue_col = Feel.COL_BRASS.lightened(0.28)
+		elif state == "completed":
+			cue_col = Feel.COL_NEWSPRINT
+		elif state == "disabled":
+			cue_col = Feel.COL_NEWSPRINT.darkened(0.48)
+		elif state == "danger":
+			cue_col = Feel.COL_DIRTY
+		var cue := Color(cue_col.r, cue_col.g, cue_col.b, 0.78)
+		var radius := 12.0
+		if mark == "invitation_pin":
+			draw_circle(at, radius * 0.36, cue)
+			draw_line(at + Vector2(0.0, radius * 0.30), at + Vector2(0.0, radius), cue, 3.0)
+		elif mark == "contact_pulse" or mark == "held_ring":
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+			draw_circle(at, radius * 0.20, cue)
+		elif mark == "check_stamp" or mark == "marked_stamp":
+			draw_rect(Rect2(at - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)),
+					cue, false, 3.0)
+			draw_line(at + Vector2(-radius * 0.52, 0.0), at + Vector2(-radius * 0.10, radius * 0.40), cue, 3.0)
+			draw_line(at + Vector2(-radius * 0.10, radius * 0.40), at + Vector2(radius * 0.56, -radius * 0.48), cue, 3.0)
+		elif mark == "lock_offline":
+			draw_rect(Rect2(at - Vector2(radius * 0.72, radius * 0.34), Vector2(radius * 1.44, radius * 0.90)),
+					cue, false, 3.0)
+			draw_arc(at + Vector2(0.0, -radius * 0.25), radius * 0.42, PI, TAU, 12, cue, 3.0)
+		elif mark == "offline_cross":
+			draw_line(at + Vector2(-radius * 0.72, -radius * 0.72),
+				at + Vector2(radius * 0.72, radius * 0.72), cue, 3.0)
+			draw_line(at + Vector2(radius * 0.72, -radius * 0.72),
+				at + Vector2(-radius * 0.72, radius * 0.72), cue, 3.0)
+		elif mark == "cooldown_clock":
+			draw_arc(at, radius, -PI * 0.5, PI, 16, cue, 3.0)
+			draw_line(at, at + Vector2(0.0, -radius * 0.52), cue, 2.0)
+			draw_line(at, at + Vector2(radius * 0.34, radius * 0.20), cue, 2.0)
+		elif mark == "hazard_hatch" or mark == "telegraph_hatch" or mark == "jam_alert" \
+				or pattern == "hazard_hatch" or pattern == "telegraph_hatch":
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
+			for hatch in range(3):
+				var hy := at.y - radius * 0.62 + float(hatch) * radius * 0.52
+				draw_line(Vector2(at.x - radius * 0.68, hy), Vector2(at.x + radius * 0.68, hy - radius * 0.36), cue, 2.0)
+		else:
+			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
 
 
 ## The long table the five chairs sit around. Paint only — see TABLE_AT.
@@ -367,4 +433,23 @@ func _draw_long_table() -> void:
 		var p := Vector2(lerpf(r.position.x + 20.0, r.end.x - 20.0, seats[i]),
 				TABLE_AT.y + (-1.0 if above else 1.0) * TABLE_SIZE.y * 0.28)
 		var taken := chairs != null and i < chairs.targets().size() and chairs.targets()[i].marked
-		draw_circle(p, 9.0, Feel.COL_BRASS if taken else Feel.COL_INK.lightened(0.18))
+		if taken:
+			draw_circle(p, 9.0, Feel.COL_BRASS)
+			# A stamped check is the non-color seat-completion cue; the table remains paint-only.
+			draw_line(p + Vector2(-5.0, 0.0), p + Vector2(-1.0, 4.0), Feel.COL_INK, 2.0)
+			draw_line(p + Vector2(-1.0, 4.0), p + Vector2(6.0, -5.0), Feel.COL_INK, 2.0)
+		else:
+			draw_circle(p, 9.0, Feel.COL_INK.lightened(0.18))
+			draw_arc(p, 9.0, 0.0, TAU, 12, Feel.COL_BRASS.darkened(0.58), 2.0)
+	# The table's aggregate bank state is represented as a restrained edge treatment, not a
+	# playable lane. Completion brightens the existing trim; partial progress adds no new route.
+	if chairs != null and chairs.has_method(&"visual_token"):
+		var table_token: Dictionary = chairs.visual_token()
+		var table_state := String(table_token.get("state", &"idle"))
+		var trim := Feel.COL_BRASS.darkened(0.58)
+		if table_state == "active":
+			trim = Feel.COL_BRASS
+		elif table_state == "completed":
+			trim = Feel.COL_NEWSPRINT
+		draw_line(Vector2(r.position.x + 20.0, r.end.y + 12.0),
+				Vector2(r.end.x - 20.0, r.end.y + 12.0), trim, 3.0)

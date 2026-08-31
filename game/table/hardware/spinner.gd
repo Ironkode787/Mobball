@@ -121,6 +121,51 @@ func set_hardware_active(active: bool) -> void:
 	_apply_collision()
 
 
+## Spin motion is a presentation read; the scoring segment counter remains the gameplay source.
+func _visual_state_id() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if not is_zero_approx(_vel):
+		return TableVisualState.VisualState.ACTIVE
+	if spins_total > 0:
+		return TableVisualState.VisualState.COMPLETED
+	return TableVisualState.VisualState.IDLE
+
+
+func visual_state() -> Dictionary:
+	return TableVisualState.state_token(_visual_state_id(), {
+		&"moving": not is_zero_approx(_vel),
+	})
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _material_fill(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _hatch(rect: Rect2, color: Color) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += 12.0
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
+func _reduced_motion() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_motion
+
+
 func _apply_collision() -> void:
 	if _area == null:
 		return
@@ -129,24 +174,43 @@ func _apply_collision() -> void:
 
 
 func _draw() -> void:
+	var token := visual_token()
+	var state := StringName(token["state"])
+	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
+	var brass := _material_fill(&"brass", Feel.COL_BRASS)
+	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
 	var half := blade_length * 0.5
+	var visual_angle := 0.0 if _reduced_motion() else _angle
+	var flash_strength := 0.25 if _reduced_flash() else 1.0
 	# The numbers racket runs on a stripped bicycle wheel. The hoop and bearings stay still;
 	# the brass ticket blade rolls over inside them.
-	draw_arc(Vector2.ZERO, half * 0.92, 0.0, TAU, 32, Feel.COL_INK, 8.0)
-	draw_arc(Vector2.ZERO, half * 0.92, 0.0, TAU, 32, Feel.COL_BRASS.darkened(0.38), 3.0)
+	draw_arc(Vector2.ZERO, half * 0.92, 0.0, TAU, 32, ink, 8.0)
+	draw_arc(Vector2.ZERO, half * 0.92, 0.0, TAU, 32,
+		brass.darkened(0.38) if state != &"disabled" else ink.lightened(0.15), 3.0)
 	for i in range(8):
-		var a := float(i) * TAU / 8.0 + _angle * 0.18
+		var a := float(i) * TAU / 8.0 + visual_angle * 0.18
 		draw_line(Vector2.ZERO, Vector2(cos(a), sin(a)) * half * 0.84,
-				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.35), 2.0)
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK, 7.0)
+				Color(brass.r, brass.g, brass.b, 0.35 if state != &"disabled" else 0.18), 2.0)
+	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), ink, 7.0)
 	# a blade on a horizontal axle, seen from above: it foreshortens as it turns over
-	var squash := absf(cos(_angle))
+	var squash := absf(cos(visual_angle))
 	var h := 15.0 * squash + 2.0
-	var col := Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, squash * 0.35)
+	var col := brass.lerp(paper, squash * 0.35)
+	if state == &"idle":
+		col = brass.darkened(0.28)
+	elif state == &"completed":
+		col = brass.lerp(paper, 0.46 + flash_strength * 0.44)
+	elif state == &"disabled":
+		col = ink.lightened(0.18)
 	draw_rect(Rect2(Vector2(-half, -h), Vector2(blade_length, h * 2.0)), col)
-	draw_rect(Rect2(Vector2(-half, -h), Vector2(blade_length, h * 2.0)), Feel.COL_INK, false, 3.0)
+	draw_rect(Rect2(Vector2(-half, -h), Vector2(blade_length, h * 2.0)), ink, false, 3.0)
 	for i in range(3):
 		var x := lerpf(-half * 0.7, half * 0.7, float(i) / 2.0)
-		draw_line(Vector2(x, -h), Vector2(x, h), Feel.COL_INK, 2.0)
-	draw_circle(Vector2.ZERO, 6.0, Feel.COL_INK)
-	draw_circle(Vector2.ZERO, 3.0, Feel.COL_NEWSPRINT.darkened(0.25))
+		draw_line(Vector2(x, -h), Vector2(x, h), ink, 2.0)
+	draw_circle(Vector2.ZERO, 6.0, ink)
+	draw_circle(Vector2.ZERO, 3.0, paper.darkened(0.25))
+	if state == &"disabled":
+		_hatch(Rect2(Vector2(-half * 0.72, -half * 0.34), Vector2(half * 1.44, half * 0.68)),
+			Color(paper.r, paper.g, paper.b, 0.30))
+	elif state == &"completed":
+		draw_arc(Vector2.ZERO, half * 0.52, -0.65, 0.65, 12, paper, 3.0)

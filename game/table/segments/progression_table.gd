@@ -1669,8 +1669,32 @@ static func circumcenter(a: Vector2, b: Vector2, c: Vector2) -> Vector2:
 
 # ==================================================================== drawing =====
 
+## These are presentation-only dimensions. Load-bearing geometry remains above and is never
+## derived from these values. The larger strokes are intentional: a 486x864 phone still needs
+## to read the table's material hierarchy and functional marks after canvas scaling.
+const TABLE_RIM_WIDTH := 7.0
+const TABLE_DETAIL_WIDTH := 4.0
+const TABLE_LABEL_SIZE := 22
+const TABLE_MICRO_LABEL_SIZE := 18
+
+
+func _table_material(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var city_color := Presentation.city.material_for(role)
+		if city_color.a > 0.0:
+			return city_color
+	return fallback
+
+
+func _table_alpha(color: Color, alpha: float) -> Color:
+	return Color(color.r, color.g, color.b, alpha)
+
 
 func _draw() -> void:
+	var ink := _table_material(&"ink_glass", Feel.COL_INK)
+	var felt_color := _table_material(&"felt", Feel.COL_FELT)
+	var brass := _table_material(&"brass", Feel.COL_BRASS)
+	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
 	_draw_cabinet()
 	var a0 := arch_angle(ARCH_A)
 	var a1 := arch_angle(ARCH_C)
@@ -1681,128 +1705,101 @@ func _draw() -> void:
 		var ang := lerpf(a0, a1, float(i) / 40.0)
 		felt.append(ARCH_CENTER + Vector2(cos(ang), sin(ang)) * _arch_radius)
 	felt.append(Vector2(LANE_RIGHT, PLAY_BOTTOM))
-	draw_colored_polygon(felt, Feel.COL_FELT)
+	draw_colored_polygon(felt, felt_color)
 
 	var tint := _raid_tint()
 	if tint > 0.0:
+		# Dirty red is a gameplay consequence; it is intentionally absent outside a raid.
 		draw_colored_polygon(felt, Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g,
 				Feel.COL_DIRTY.b, tint))
 
 	_draw_playfield_inlay()
 	_draw_backglass()
 	_draw_shot_labels()
+	_draw_ball_separation()
 
-	draw_rect(Rect2(Vector2(LANE_LEFT, DIVIDER_TOP), Vector2(LANE_RIGHT - LANE_LEFT,
-			LANE_FLOOR_Y - DIVIDER_TOP)), Feel.COL_FELT.darkened(0.25))
+	# The shooter lane is a narrow physical lane, not an empty strip of background. The
+	# plunger's actual charge meter remains HUD-owned; these marks are only its table context.
+	var lane := Rect2(Vector2(LANE_LEFT, DIVIDER_TOP), Vector2(LANE_RIGHT - LANE_LEFT,
+			LANE_FLOOR_Y - DIVIDER_TOP))
+	draw_rect(lane, _table_alpha(ink, 0.82))
+	draw_line(Vector2(LANE_LEFT + 4.0, DIVIDER_TOP + 8.0),
+			Vector2(LANE_LEFT + 4.0, LANE_FLOOR_Y - 8.0), _table_alpha(brass, 0.48),
+			TABLE_DETAIL_WIDTH)
+	draw_line(Vector2(LANE_RIGHT - 4.0, DIVIDER_TOP + 8.0),
+			Vector2(LANE_RIGHT - 4.0, LANE_FLOOR_Y - 8.0), _table_alpha(brass, 0.48),
+			TABLE_DETAIL_WIDTH)
 	for i in range(1, 4):
 		var y := LANE_FLOOR_Y - float(i) * 380.0
-		draw_line(Vector2(LANE_LEFT + 6.0, y), Vector2(LANE_RIGHT - 6.0, y),
-				Feel.COL_BRASS.darkened(0.5), 2.0)
-
-	if _walls != null:
-		_walls.draw_into(self, Feel.COL_INK.lightened(0.12), Feel.COL_INK)
-		draw_arc(ARCH_CENTER, _arch_radius - OUTER_THICK * 0.48, a0, a1, 56,
-				Feel.COL_BRASS.darkened(0.42), 4.0)
-		draw_line(ARCH_A + Vector2(OUTER_THICK * 0.48, 0.0),
-				Vector2(PLAY_LEFT + OUTER_THICK * 0.48, PLAY_BOTTOM),
-				Feel.COL_BRASS.darkened(0.52), 4.0)
-		draw_line(ARCH_C - Vector2(OUTER_THICK * 0.48, 0.0),
-				Vector2(LANE_RIGHT - OUTER_THICK * 0.48, PLAY_BOTTOM),
-				Feel.COL_BRASS.darkened(0.52), 4.0)
-
-	var gate_col := Feel.COL_BRASS if _gate_closed else Feel.COL_BRASS.darkened(0.6)
-	draw_line(Vector2(DIVIDER_X, GATE_TOP), Vector2(DIVIDER_X, GATE_BOTTOM), gate_col, 12.0)
+		draw_line(Vector2(LANE_LEFT + 11.0, y), Vector2(LANE_RIGHT - 11.0, y),
+				_table_alpha(brass, 0.52), TABLE_DETAIL_WIDTH)
 	for i in range(6):
 		var y := 660.0 + float(i) * 190.0
 		var hot := posmod(i - int(floor(_show_clock * 3.0)), 4) == 0
-		var lane_col := Feel.COL_BRASS.darkened(0.18 if hot else 0.62)
+		var lane_col := brass.darkened(0.16 if hot else 0.62)
 		draw_polyline(PackedVector2Array([
-			Vector2(982.0, y + 18.0), Vector2(996.0, y), Vector2(1010.0, y + 18.0),
-		]), lane_col, 3.0)
+			Vector2(975.0, y + 18.0), Vector2(996.0, y), Vector2(1017.0, y + 18.0),
+		]), lane_col, TABLE_DETAIL_WIDTH)
 
+	if _walls != null:
+		# WallBuilder remains the single source for these rails and their capsule paths. The
+		# parent only supplies the visual material and never reconstructs a path here.
+		_walls.draw_into(self, ink.lightened(0.20), ink)
+
+	var gate_col := brass if _gate_closed else brass.darkened(0.6)
+	draw_line(Vector2(DIVIDER_X, GATE_TOP), Vector2(DIVIDER_X, GATE_BOTTOM), gate_col, 12.0)
 	_draw_boss_meter()
 
 	# The centre grate is a real, readable target between the bat tips; the two side trenches
 	# make the outlanes equally explicit. The cabinet safety switch at DRAIN_Y stays invisible.
 	var grate := Rect2(CENTRE_DRAIN_AT - CENTRE_DRAIN_SIZE * 0.5, CENTRE_DRAIN_SIZE)
 	draw_rect(grate, Feel.COL_DIRTY.darkened(0.42))
-	draw_rect(grate.grow(-5.0), Feel.COL_INK.darkened(0.25), false, 3.0)
+	draw_rect(grate.grow(-5.0), ink.darkened(0.25), false, TABLE_DETAIL_WIDTH)
 	for i in range(7):
 		var gx := grate.position.x + 22.0 + float(i) * 24.0
 		draw_line(Vector2(gx, grate.position.y + 8.0),
-				Vector2(gx, grate.end.y - 8.0), Feel.COL_BRASS.darkened(0.62), 4.0)
+				Vector2(gx, grate.end.y - 8.0), brass.darkened(0.62), TABLE_DETAIL_WIDTH)
 	for side in [-1.0, 1.0]:
 		var x0 := PLAY_LEFT if side < 0.0 else MIRROR_X * 2.0 - OUTLANE_X
 		var x1 := OUTLANE_X if side < 0.0 else PLAY_RIGHT
 		draw_rect(Rect2(Vector2(x0, OUTLANE_DRAIN_Y),
 				Vector2(x1 - x0, DRAIN_Y - OUTLANE_DRAIN_Y)),
-				Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.42))
+				Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.34))
 		for row in range(4):
 			var y := OUTLANE_DRAIN_Y + 34.0 + float(row) * 54.0
 			draw_line(Vector2(x0 + 10.0, y), Vector2(x1 - 10.0, y),
-					Feel.COL_BRASS.darkened(0.72), 3.0)
+					brass.darkened(0.72), TABLE_DETAIL_WIDTH)
 
 
-## The cabinet is part of the spectacle now, not unclaimed black around a physics field. It
-## also stitches the negative-y rooms into one machine when the camera follows a ball up.
+## The cabinet void is deliberately quiet: the felt and hardware own the eye, while the wood
+## edge keeps the table legible when the camera follows into a sparse upper room.
 func _draw_cabinet() -> void:
-	var wood := Color("21150F")
-	var wood_dark := Color("0B0908")
+	var wood := _table_material(&"wood", Color("21150F"))
+	var wood_dark := _table_material(&"wood_dark", Color("0B0908"))
+	var wood_edge := _table_material(&"wood_edge", Color("6D3F23"))
+	var brass := _table_material(&"brass", Feel.COL_BRASS)
 	draw_rect(Rect2(-10.0, -1600.0, 1100.0, 3520.0), wood_dark)
 	draw_rect(Rect2(2.0, -1580.0, 26.0, 3480.0), wood)
 	draw_rect(Rect2(1052.0, -1580.0, 26.0, 3480.0), wood)
-	draw_line(Vector2(16.0, -1560.0), Vector2(16.0, 1894.0),
-			Feel.COL_BRASS.darkened(0.58), 3.0)
-	draw_line(Vector2(1064.0, -1560.0), Vector2(1064.0, 1894.0),
-			Feel.COL_BRASS.darkened(0.58), 3.0)
-
-	# A city canyon behind the upper floors. The rooms paint over it, while the gaps retain
-	# enough architecture that the full-table view reads as one vertical place.
-	for i in range(12):
-		var x := 42.0 + float(i) * 86.0
-		var h := 190.0 + fmod(float(i) * 113.0, 330.0)
-		var top := -30.0 - h
-		draw_rect(Rect2(x, top, 58.0, h), Feel.COL_INK.lightened(0.045))
-		for row in range(5):
-			var wy := top + 28.0 + float(row) * 48.0
-			if wy > -28.0:
-				break
-			var lit := (i * 3 + row) % 4 == 1
-			draw_rect(Rect2(x + 15.0, wy, 9.0, 13.0),
-					Feel.COL_BRASS.darkened(0.28) if lit else Feel.COL_INK.lightened(0.12))
-			draw_rect(Rect2(x + 34.0, wy, 9.0, 13.0),
-					Feel.COL_BRASS.darkened(0.45) if lit and row % 2 == 0
-					else Feel.COL_INK.lightened(0.10))
+	draw_line(Vector2(16.0, -1560.0), Vector2(16.0, 1894.0), wood_edge, TABLE_DETAIL_WIDTH)
+	draw_line(Vector2(1064.0, -1560.0), Vector2(1064.0, 1894.0), wood_edge, TABLE_DETAIL_WIDTH)
+	# A single low-contrast witness line gives the cabinet a manufactured edge without turning
+	# the negative space into a painted route or a second set of colliders.
+	draw_line(Vector2(30.0, 454.0), Vector2(30.0, 1868.0),
+			_table_alpha(brass, 0.20), TABLE_DETAIL_WIDTH)
 
 
-## Layered felt, walnut and brass turn the lower third into a cockpit and make the main shots
-## legible at a glance. None of this has collision; the authored rails remain the truth.
+## R0's inlay describes material and wear, never a future route. The authored WallBuilder and
+## hardware nodes remain the only functional marks; all polygons here are paint-only context.
 func _draw_playfield_inlay() -> void:
-	# Fifth Street bends through the triangular Block, then forks around the bumper
-	# neighborhood. These painted routes agree with the actual new shot entrances.
-	var street := PackedVector2Array([
-		Vector2(190.0, 1468.0), Vector2(790.0, 1468.0),
-		Vector2(735.0, 1260.0), Vector2(690.0, 1130.0),
-		Vector2(645.0, 960.0), Vector2(470.0, 940.0),
-		Vector2(315.0, 1080.0), Vector2(245.0, 1270.0),
-	])
-	draw_colored_polygon(street, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.17))
-	draw_polyline(PackedVector2Array([
-		Vector2(190.0, 1468.0), Vector2(245.0, 1270.0), Vector2(315.0, 1080.0),
-		Vector2(470.0, 940.0), Vector2(645.0, 960.0),
-	]), Feel.COL_BRASS.darkened(0.62), 3.0)
-	draw_polyline(PackedVector2Array([
-		Vector2(790.0, 1468.0), Vector2(735.0, 1260.0), Vector2(690.0, 1130.0),
-		Vector2(645.0, 960.0),
-	]), Feel.COL_BRASS.darkened(0.62), 3.0)
-	for p in [Vector2(322.0, 1305.0), Vector2(480.0, 1115.0),
-			Vector2(665.0, 1200.0), Vector2(705.0, 1360.0)]:
-		draw_line(p - Vector2(18.0, 5.0), p + Vector2(18.0, 5.0),
-				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
-				Feel.COL_NEWSPRINT.b, 0.13), 4.0)
+	var ink := _table_material(&"ink_glass", Feel.COL_INK)
+	var wood := _table_material(&"wood", Color("21150F"))
+	var wood_edge := _table_material(&"wood_edge", Color("6D3F23"))
+	var brass := _table_material(&"brass", Feel.COL_BRASS)
+	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
 
-	# Split walnut apron wings frame the new centre grate instead of painting a false solid
-	# floor beneath it. The open V makes the danger legible from either cradle.
+	# Split walnut apron wings frame the real centre grate instead of painting a solid floor over
+	# its mouth. The open V makes the lower-field danger legible from either cradle.
 	var apron_left := PackedVector2Array([
 		Vector2(62.0, 1690.0), Vector2(205.0, 1570.0), Vector2(432.0, 1760.0),
 		Vector2(392.0, 1868.0), Vector2(62.0, 1868.0),
@@ -1812,57 +1809,74 @@ func _draw_playfield_inlay() -> void:
 		Vector2(588.0, 1868.0), Vector2(918.0, 1868.0),
 	])
 	for wing in [apron_left, apron_right]:
-		draw_colored_polygon(wing, Color("241710"))
+		draw_colored_polygon(wing, wood)
 		draw_polyline(PackedVector2Array([wing[0], wing[1], wing[2], wing[3]]),
-				Feel.COL_BRASS.darkened(0.48), 5.0)
+				wood_edge, TABLE_RIM_WIDTH)
+	# A shallow ink basin behind the flippers creates separation without covering their pivots.
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(205.0, 1570.0), Vector2(432.0, 1760.0), Vector2(490.0, 1784.0),
+		Vector2(548.0, 1760.0), Vector2(775.0, 1570.0), Vector2(706.0, 1694.0),
+		Vector2(490.0, 1790.0), Vector2(274.0, 1694.0),
+	]), _table_alpha(ink, 0.38))
 	for side in [-1.0, 1.0]:
 		draw_line(Vector2(MIRROR_X + side * 82.0, 1792.0),
-				Vector2(MIRROR_X + side * 335.0, 1818.0),
-				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.22), 3.0)
+			Vector2(MIRROR_X + side * 335.0, 1818.0),
+			_table_alpha(brass, 0.24), TABLE_DETAIL_WIDTH)
 
-	# The offset can neighborhood gets a broken ward boundary that opens toward aimed shots.
-	draw_arc(Vector2(385.0, 790.0), 172.0, -2.72, 1.22, 36,
-			Feel.COL_BRASS.darkened(0.68), 4.0)
-	draw_arc(Vector2(385.0, 790.0), 188.0, -2.60, 1.08, 36,
-			Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
-			Feel.COL_NEWSPRINT.b, 0.10), 2.0)
+	# Four brass fasteners establish the apron as a physical object, not a UI panel.
+	for p in [Vector2(92.0, 1732.0), Vector2(396.0, 1832.0),
+			Vector2(584.0, 1832.0), Vector2(888.0, 1732.0)]:
+		draw_circle(p, 7.0, _table_alpha(paper, 0.28))
+		draw_circle(p, 3.0, brass.darkened(0.35))
 
-	# The Family seal fills the intentionally open first-Night midfield without pretending to
-	# be a switch. Furniture grows over it as the Block is built.
+	# Fixed, sparse wear: scuffs are broad enough to survive phone scaling and low-contrast
+	# enough that they cannot be mistaken for a target, lane, or invitation.
+	var wear := _table_alpha(paper, 0.075)
+	for p in [Vector2(232.0, 664.0), Vector2(640.0, 748.0), Vector2(252.0, 930.0),
+			Vector2(694.0, 1006.0), Vector2(402.0, 1218.0), Vector2(706.0, 1392.0),
+			Vector2(332.0, 1490.0), Vector2(660.0, 1514.0)]:
+		draw_line(p - Vector2(18.0, 4.0), p + Vector2(18.0, 4.0), wear, TABLE_DETAIL_WIDTH)
+	# The family seal is a quiet R0 composition anchor, not an interactable insert.
 	var seal_at := Vector2(MIRROR_X, 1350.0)
-	var seal := PackedVector2Array([
-		seal_at + Vector2(0.0, -92.0), seal_at + Vector2(78.0, -48.0),
-		seal_at + Vector2(62.0, 54.0), seal_at + Vector2(0.0, 102.0),
-		seal_at + Vector2(-62.0, 54.0), seal_at + Vector2(-78.0, -48.0),
-	])
-	draw_colored_polygon(seal, Color(Feel.COL_INK.r, Feel.COL_INK.g, Feel.COL_INK.b, 0.18))
-	draw_polyline(PackedVector2Array([
-		seal[0], seal[1], seal[2], seal[3], seal[4], seal[5], seal[0],
-	]), Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.14), 3.0)
-	draw_line(seal_at + Vector2(-34.0, -42.0), seal_at + Vector2(-34.0, 50.0),
-			Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.15), 8.0)
-	draw_line(seal_at + Vector2(-28.0, 8.0), seal_at + Vector2(38.0, -44.0),
-			Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.15), 8.0)
-	draw_line(seal_at + Vector2(-18.0, 1.0), seal_at + Vector2(40.0, 54.0),
-			Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.15), 8.0)
-
-	# Quiet print texture: fixed, deterministic, and subtle enough that the ball stays king.
-	for i in range(28):
-		var x := 188.0 + fmod(float(i) * 137.0, 670.0)
-		var y := 646.0 + fmod(float(i) * 211.0, 820.0)
-		draw_circle(Vector2(x, y), 2.0 + float(i % 3),
-				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
-				Feel.COL_NEWSPRINT.b, 0.035))
+	draw_arc(seal_at, 86.0, -2.86, 1.28, 28, _table_alpha(brass, 0.20), TABLE_DETAIL_WIDTH)
+	draw_arc(seal_at, 102.0, -2.68, 1.10, 28, _table_alpha(paper, 0.10), TABLE_DETAIL_WIDTH)
+	draw_line(seal_at + Vector2(-28.0, -34.0), seal_at + Vector2(-28.0, 38.0),
+			_table_alpha(brass, 0.18), 7.0)
+	draw_line(seal_at + Vector2(-22.0, 4.0), seal_at + Vector2(28.0, -38.0),
+			_table_alpha(brass, 0.18), 7.0)
+	draw_line(seal_at + Vector2(-14.0, 0.0), seal_at + Vector2(30.0, 40.0),
+			_table_alpha(brass, 0.18), 7.0)
 
 
-## The previously empty arch is the machine's backglass: a pulp title card, a deco fan, and
-## incandescent chase bulbs. It is the visual reward visible before any furniture is bought.
+## Ball shadows are driven by the live registry position but never modify the ball, camera, or
+## physics. Drawing the contact shadow before children lets BallDesign's steel highlight remain
+## the brightest object on the felt, including during multiball.
+func _draw_ball_separation() -> void:
+	if Balls == null:
+		return
+	var shadow_color := _table_alpha(_table_material(&"ink_glass", Feel.COL_INK), 0.46)
+	for live_ball: Ball in Balls.live():
+		if live_ball == null or not is_instance_valid(live_ball):
+			continue
+		var p := to_local(live_ball.global_position)
+		if p.y < 0.0 or p.y > PLAY_BOTTOM + 40.0:
+			continue
+		draw_circle(p + Vector2(0.0, 10.0), Feel.BALL_RADIUS * 1.18, shadow_color)
+
+
+## The backglass gives the bare table one clear scene identity. R0 keeps the bulb row mostly
+## unlit; one slow earned-neon lamp is enough to make the machine feel alive without flooding
+## the sparse field with progression claims.
 func _draw_backglass() -> void:
+	var ink := _table_material(&"ink_glass", Feel.COL_INK)
+	var brass := _table_material(&"brass", Feel.COL_BRASS)
+	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
+	var neon := _table_material(&"earned_neon", Feel.COL_NEON_ROSE)
 	var plate := PackedVector2Array([
 		Vector2(218.0, 136.0), Vector2(762.0, 136.0),
 		Vector2(816.0, 400.0), Vector2(164.0, 400.0),
 	])
-	draw_colored_polygon(plate, Color("17120F"))
+	draw_colored_polygon(plate, ink.darkened(0.18))
 	var backglass := Presentation.art.resolve(&"table.backglass.eastport", null, false)
 	if backglass != null:
 		draw_texture_rect(backglass, Rect2(Vector2(164.0, 136.0), Vector2(652.0, 264.0)),
@@ -1870,66 +1884,73 @@ func _draw_backglass() -> void:
 	draw_polyline(PackedVector2Array([
 		Vector2(218.0, 136.0), Vector2(762.0, 136.0),
 		Vector2(816.0, 400.0), Vector2(164.0, 400.0), Vector2(218.0, 136.0),
-	]), Feel.COL_BRASS.darkened(0.28), 6.0)
+	]), brass.darkened(0.20), TABLE_RIM_WIDTH)
 	var fan_at := Vector2(MIRROR_X, 392.0)
 	for i in range(9):
 		var x := lerpf(198.0, 782.0, float(i) / 8.0)
-		draw_line(fan_at, Vector2(x, 154.0), Color(Feel.COL_BRASS.r,
-				Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.18), 3.0)
+		draw_line(fan_at, Vector2(x, 154.0), _table_alpha(brass, 0.18), TABLE_DETAIL_WIDTH)
 	draw_arc(fan_at, 236.0, PI + 0.18, TAU - 0.18, 32,
-			Feel.COL_BRASS.darkened(0.55), 3.0)
+			brass.darkened(0.55), TABLE_DETAIL_WIDTH)
 
 	var font := Presentation.theme.font_for(&"headline")
 	if font != null:
 		draw_string(font, Vector2(218.0, 274.0), "K I N G P I N",
-				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 54, Feel.COL_BRASS)
+				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 54, brass)
 		draw_string(font, Vector2(218.0, 322.0), "THE FAMILY RUNS THIS TOWN",
-				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 20, Feel.COL_NEWSPRINT.darkened(0.18))
-		draw_string(font, Vector2(218.0, 362.0), "FIFTH STREET SOCIAL CLUB",
-				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 15, Feel.COL_BRASS.darkened(0.35))
+				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 21, paper.darkened(0.18))
+		draw_string(font, Vector2(218.0, 362.0), "BARE ALLEY  /  RANK 0",
+				HORIZONTAL_ALIGNMENT_CENTER, 544.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.28))
 
-	var chase := int(floor(_show_clock * 5.0))
+	var chase := int(floor(_show_clock * 1.8))
 	for i in range(14):
 		var top := i < 7
 		var u := float(i % 7) / 6.0
 		var p := Vector2(lerpf(234.0, 746.0, u), 142.0 if top else 396.0)
-		var hot := posmod(i - chase, 5) == 0
-		var col := Feel.COL_NEWSPRINT if hot else Feel.COL_BRASS.darkened(0.58)
-		draw_circle(p, 5.0 if hot else 3.5, col)
+		var hot := posmod(i - chase, 14) == 0
+		var col := neon if hot else brass.darkened(0.64)
+		draw_circle(p, 6.0 if hot else 4.0, col)
 
 
 func _draw_shot_labels() -> void:
 	var font := Presentation.theme.font_for(&"annotation_bold")
 	if font == null:
 		return
-	# Labels live in dead felt, never over the switch they describe. Their orientation makes
-	# the shot lanes readable from the flippers, where the player's eyes actually are.
+	var brass := _table_material(&"brass", Feel.COL_BRASS)
+	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
+	var label_col := brass.darkened(0.22)
+	# Labels sit in dead felt, never over the switch they describe. Their larger authored sizes
+	# keep the lower-field hierarchy functional at compact phone scale.
 	draw_string(font, Vector2(220.0, 982.0), "THE RACKET",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 17, Feel.COL_BRASS.darkened(0.34))
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, label_col)
+	draw_string(font, Vector2(96.0, 1328.0), "BARE ALLEY",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.40))
+	draw_string(font, Vector2(334.0, 1528.0), "LOWER FIELD",
+			HORIZONTAL_ALIGNMENT_CENTER, 312.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.46))
+	draw_string(font, Vector2(346.0, 1862.0), "STORM GRATE",
+			HORIZONTAL_ALIGNMENT_CENTER, 288.0, TABLE_MICRO_LABEL_SIZE, paper.darkened(0.20))
+
 	var any_store := false
 	for store: Storefront in storefronts:
 		any_store = any_store or store.visible
 	if any_store:
 		draw_string(font, Vector2(410.0, 1360.0), "—  THE BLOCK  —",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 19, Feel.COL_NEWSPRINT.darkened(0.38))
-	draw_string(font, Vector2(306.0, 1518.0), "KEEP IT IN THE FAMILY",
-			HORIZONTAL_ALIGNMENT_CENTER, 368.0, 15, Feel.COL_BRASS.darkened(0.48))
+				HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, paper.darkened(0.24))
 
 	if not rollovers.is_empty() and rollovers[0].visible:
 		for i in range(3):
 			var at: Vector2 = ROLLOVER_AT[i]
 			draw_string(font, at + Vector2(-42.0, -18.0), str(i + 1),
-					HORIZONTAL_ALIGNMENT_CENTER, 84.0, 17, Feel.COL_BRASS.darkened(0.45))
+					HORIZONTAL_ALIGNMENT_CENTER, 84.0, TABLE_LABEL_SIZE, brass.darkened(0.32))
 
 	if (spinner != null and spinner.visible) or (orbit != null and orbit.visible):
 		draw_set_transform(Vector2(103.0, 1125.0), -PI * 0.5, Vector2.ONE)
 		draw_string(font, Vector2.ZERO, "NUMBERS  •  GETAWAY",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Feel.COL_BRASS.darkened(0.42))
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, label_col)
 	if wire_bank != null and wire_bank.visible:
 		draw_set_transform(Vector2(882.0, 900.0), -1.91, Vector2.ONE)
 		draw_string(font, Vector2.ZERO, "THE WIRE",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Feel.COL_BRASS.darkened(0.42))
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, label_col)
 	draw_set_transform(Vector2(1007.0, 1710.0), -PI * 0.5, Vector2.ONE)
-	draw_string(font, Vector2.ZERO, "DROP-OFF",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Feel.COL_BRASS.darkened(0.38))
+	draw_string(font, Vector2.ZERO, "SHOOTER LANE",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.30))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -43,6 +43,7 @@ var _left: float = 0.0
 var _walk: float = 0.0
 var _glow: float = 0.0
 var _walk_dir: float = -1.0
+var _resolution: StringName = &"none"
 
 
 func _ready() -> void:
@@ -55,6 +56,7 @@ func drop_at(at: Vector2) -> void:
 	position = at
 	rotation = deg_to_rad(RAKE_DEG)
 	_live = true
+	_resolution = &"none"
 	_left = maxf(lifetime, 0.1)
 	_walk = 0.0
 	_glow = 1.0
@@ -78,6 +80,7 @@ func seconds_left() -> float:
 func clear() -> void:
 	_live = false
 	_walk = 0.0
+	_resolution = &"none"
 	visible = false
 	queue_redraw()
 
@@ -121,6 +124,7 @@ func _toucher() -> Ball:
 func _collect(ball: Ball) -> void:
 	_live = false
 	visible = false
+	_resolution = &"collected"
 	AudioDirector.play(&"drop_clack")
 	TableScore.hit(id, ball)
 	collected.emit(ball)
@@ -130,6 +134,7 @@ func _collect(ball: Ball) -> void:
 func _take_it_back() -> void:
 	_live = false
 	_walk = WALK_SECONDS
+	_resolution = &"expired"
 	AudioDirector.play(&"briefcase_leave")
 	expired.emit()
 	queue_redraw()
@@ -145,19 +150,67 @@ func set_hardware_active(active: bool) -> void:
 		clear()
 
 
+## Draw-only translation. The case never gains a collider or an input state: live is the
+## armed invitation, while a resolved case keeps a completion mark for evidence/a11y probes.
+func visual_state() -> Dictionary:
+	var state := TableVisualState.VisualState.DISABLED
+	var mods: Array[StringName] = []
+	if _live:
+		state = TableVisualState.VisualState.ARMED
+	elif _walk > 0.0 or _resolution == &"collected":
+		state = TableVisualState.VisualState.COMPLETED
+		if _resolution == &"expired":
+			mods.append(&"flash")
+	return TableVisualState.state_token(state, mods)
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _ambient(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.city != null:
+		var city_col := Presentation.city.material_for(role)
+		if city_col.a > 0.0:
+			return city_col
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _draw_case_mark(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
+	var mark := String(token["mark"])
+	if mark == "invitation_pin":
+		draw_circle(center, radius * 0.42, color)
+		draw_line(center + Vector2(0.0, radius * 0.38), center + Vector2(0.0, radius), color, 3.0)
+	elif mark == "check_stamp" or mark == "marked_stamp":
+		draw_rect(Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), color, false, 3.0)
+		draw_line(center + Vector2(-radius * 0.5, 0.0), center + Vector2(-radius * 0.08, radius * 0.4), color, 3.0)
+		draw_line(center + Vector2(-radius * 0.08, radius * 0.4), center + Vector2(radius * 0.56, -radius * 0.5), color, 3.0)
+	else:
+		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
+
+
 # ==================================================================== drawing =====
 
 
 func _draw() -> void:
 	if not _live and _walk <= 0.0:
 		return
+	var token := visual_token()
 	var t := 0.0 if _walk <= 0.0 else 1.0 - _walk / WALK_SECONDS
 	var slide := Vector2(_walk_dir * WALK_DISTANCE * t, -18.0 * sin(t * PI))
 	var fade := 1.0 - t
 	var half := LENGTH * 0.5
-	var body := Feel.COL_INK.lightened(0.16).lerp(Feel.COL_BRASS, _glow * 0.35)
+	var ink := _ambient(&"ink_glass", Feel.COL_INK)
+	var brass := _ambient(&"brass", Feel.COL_BRASS)
+	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
+	var body := ink.lightened(0.16).lerp(brass, _glow * 0.35)
 	body.a = fade
-	var trim := Feel.COL_BRASS.lerp(Feel.COL_NEWSPRINT, _glow * 0.6)
+	var trim := brass.lerp(paper, _glow * 0.6)
 	trim.a = fade
 
 	# the man, when there is one: a coat and a hat, walking out of frame with the case
@@ -169,14 +222,29 @@ func _draw() -> void:
 		draw_circle(at + Vector2(0.0, -26.0), 11.0, coat)
 		draw_line(at + Vector2(-17.0, -32.0), at + Vector2(17.0, -32.0), coat, 5.0)
 
-	var shadow := Feel.COL_INK.darkened(0.3)
+	var shadow := ink.darkened(0.3)
 	shadow.a = fade
-	draw_rect(Rect2(slide + Vector2(-half, -THICK * 0.5), Vector2(LENGTH, THICK)), shadow)
+	draw_rect(Rect2(slide + Vector2(-half - 4.0, -THICK * 0.5 - 4.0),
+			Vector2(LENGTH + 8.0, THICK + 8.0)), shadow)
+	draw_rect(Rect2(slide + Vector2(-half, -THICK * 0.5), Vector2(LENGTH, THICK)), ink)
 	draw_rect(Rect2(slide + Vector2(-half + 2.0, -THICK * 0.5 + 2.0),
 			Vector2(LENGTH - 4.0, THICK - 4.0)), body)
 	# handle, seam and two brass clasps: enough case to read at a glance
 	draw_arc(slide + Vector2(0.0, -THICK * 0.5), 9.0, PI, TAU, 12, trim, 3.0)
 	draw_line(slide + Vector2(-half + 4.0, 0.0), slide + Vector2(half - 4.0, 0.0),
 			trim.darkened(0.45), 2.0)
+	draw_line(slide + Vector2(-half + 4.0, -THICK * 0.26), slide + Vector2(half - 4.0, -THICK * 0.26),
+			paper.darkened(0.30), 2.0)
 	for x: float in [-9.0, 9.0]:
 		draw_rect(Rect2(slide + Vector2(x - 3.0, -2.5), Vector2(6.0, 5.0)), trim)
+	var font := Presentation.theme.font_for(&"annotation") if Presentation != null \
+			and Presentation.theme != null else ThemeDB.fallback_font
+	if font != null and _walk <= 0.0:
+		draw_string(font, slide + Vector2(-half + 6.0, 4.0), "CASE", HORIZONTAL_ALIGNMENT_LEFT,
+				-1.0, 9, paper.darkened(0.12))
+		var seconds := "%02d" % int(ceili(maxf(_left, 0.0)))
+		draw_string(font, slide + Vector2(half + 12.0, 4.0), seconds, HORIZONTAL_ALIGNMENT_LEFT,
+				-1.0, 10, trim)
+	if _live:
+		var cue := Color(trim.r, trim.g, trim.b, fade * (0.30 + _glow * 0.50))
+		_draw_case_mark(slide + Vector2(0.0, -THICK * 0.9), 8.0, token, cue)

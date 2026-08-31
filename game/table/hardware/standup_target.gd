@@ -149,6 +149,48 @@ func set_hardware_active(active: bool) -> void:
 	_apply_collision()
 
 
+## Draw-only classification; marked remains bank bookkeeping and does not alter the target's
+## capsule, face sensor, stall impulse, cooldown, or signal behavior.
+func _visual_state_id() -> int:
+	if not _present:
+		return TableVisualState.VisualState.DISABLED
+	if marked:
+		return TableVisualState.VisualState.COMPLETED
+	if _pulse > 0.0:
+		return TableVisualState.VisualState.ACTIVE
+	return TableVisualState.VisualState.IDLE
+
+
+func visual_state() -> Dictionary:
+	return TableVisualState.state_token(_visual_state_id(), {
+		&"marked": marked, &"pulse": _pulse > 0.0,
+	})
+
+
+func visual_token() -> Dictionary:
+	return visual_state()
+
+
+func _material_fill(role: StringName, fallback: Color) -> Color:
+	if Presentation != null and Presentation.theme != null:
+		var material := Presentation.theme.material_for(role)
+		var fill: Variant = material.get("fill", fallback)
+		if fill is Color:
+			return fill as Color
+	return fallback
+
+
+func _hatch(rect: Rect2, color: Color, spacing: float = 12.0) -> void:
+	var x := rect.position.x - rect.size.y
+	while x < rect.end.x:
+		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
+		x += spacing
+
+
+func _reduced_flash() -> bool:
+	return Presentation.fx != null and Presentation.fx.reduced_flash
+
+
 func _apply_collision() -> void:
 	collision_layer = Feel.LAYER_HARDWARE if _present else 0
 	for area: Area2D in [_face, _ring]:
@@ -160,10 +202,31 @@ func _apply_collision() -> void:
 
 func _draw() -> void:
 	var half := length * 0.5
-	var face := Feel.COL_BRASS if marked else Feel.COL_BRASS.darkened(0.55)
-	face = face.lerp(Feel.COL_NEWSPRINT, _pulse * 0.8)
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), Feel.COL_INK, thickness + 6.0)
+	var token := visual_token()
+	var state := StringName(token["state"])
+	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
+	var brass := _material_fill(&"brass", Feel.COL_BRASS)
+	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
+	var pulse_strength := _pulse * (0.25 if _reduced_flash() else 1.0)
+	var face := brass.darkened(0.55)
+	if state == &"completed":
+		face = brass
+	elif state == &"active":
+		face = brass.lerp(paper, 0.16 + pulse_strength * 0.29)
+	elif state == &"disabled":
+		face = ink.lightened(0.18)
+	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), ink, thickness + 8.0)
 	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), face, thickness)
+	# A raised centre mark, halo, or hatch keeps the state legible without semantic colour alone.
+	if state == &"completed":
+		draw_line(Vector2(-half * 0.62, -2.0), Vector2(half * 0.62, -2.0), paper, 4.0)
+		draw_line(Vector2(-10.0, -10.0), Vector2(-2.0, -2.0), paper, 3.0)
+		draw_line(Vector2(-2.0, -2.0), Vector2(13.0, -15.0), paper, 3.0)
+	elif state == &"active":
+		draw_arc(Vector2.ZERO, thickness * 1.15, 0.0, TAU, 20, paper, 3.0)
+	elif state == &"disabled":
+		_hatch(Rect2(Vector2(-half, -thickness * 0.5), Vector2(length, thickness)),
+			Color(paper.r, paper.g, paper.b, 0.30), 13.0)
 	var sid := String(id)
 	if sid.begins_with("wire_"):
 		# Three payphones, complete with receiver hooks, instead of three anonymous bars.
@@ -192,4 +255,4 @@ func _draw() -> void:
 		draw_line(Vector2(-18.0, -7.0), Vector2(18.0, -7.0), body_col, 10.0)
 	if marked:
 		draw_line(Vector2(-half * 0.6, 0.0), Vector2(half * 0.6, 0.0),
-				Feel.COL_NEWSPRINT, 4.0)
+				paper, 4.0)
