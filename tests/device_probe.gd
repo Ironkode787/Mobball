@@ -157,11 +157,11 @@ func _run() -> void:
 	for i in 6:
 		if Game.state != &"night":
 			break
-		var table: Node2D = main.get("table")
-		var ball: Ball = table.get("ball")
+		var table: Node3D = main.get("table")
+		var ball: Ball = TableAPI.ball(table)
 		if ball != null and is_instance_valid(ball):
-			ball.global_position = Vector2(490.0, 1885.0)
-			ball.linear_velocity = Vector2(0, 400)
+			ball.place(Layout.p3(Layout.CENTRE_DRAIN_AT + Vector2(0.0, -0.4), Feel.BALL_RADIUS + 0.01))
+			ball.set_velocity(Vector3(0.0, 0.0, 6.0))
 		await _frames(90)
 	_check(Game.state == &"count", "the Night reached The Count (state=%s)" % Game.state)
 	_check(Presentation.budget.count(&"emitters") == 0,
