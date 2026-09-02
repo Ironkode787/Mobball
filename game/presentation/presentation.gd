@@ -28,6 +28,9 @@ var safe := PresentationSafeArea.new()
 var fx := EffectBus.new()
 var budget := PresentationBudget.new()
 var settings := PresentationSettings.new()
+## Whoever renders the table registers here (TableView3D) so feedback anchored to a table
+## point lands where that point is drawn, whichever camera is drawing it.
+var projector: Node = null
 var feedback_layer: CanvasLayer = null
 var feedback: Control = null
 var subtitle_layer: CanvasLayer = null
@@ -218,6 +221,8 @@ func _connect_gameplay_events() -> void:
 func _screen_position(node: Node2D) -> Vector2:
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
 		return _effect_source()
+	if projector != null and is_instance_valid(projector) and projector.has_method(&"project_node"):
+		return projector.call(&"project_node", node)
 	var viewport := node.get_viewport()
 	if viewport == null:
 		return _effect_source()

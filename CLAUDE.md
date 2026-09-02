@@ -35,7 +35,7 @@ workstreams live in `specs/`.
 | `project.godot`, `CLAUDE.md`, `docs/`, `specs/`, `game/content/`, `tests/run_tests.gd`, `tests/t.gd`, `game/core/` (frozen — request changes via report), `game/economy/` (frozen) | orchestrator only |
 | `game/flow/` (public surface of `game.gd` is contract-locked), `game/ui/count/`, `game/ui/hud*`, `game/main.gd`, `game/main.tscn`, `tests/sim/night_sim*`, flow tests | flow workstream |
 | `game/meta/` (`stats.gd` API contract-locked), `game/ui/ledger/`, `tests/test_stats.gd`, `tests/test_upgrades_data.gd` | meta workstream |
-| `game/table/` (keep `tests/sim/feel_sim` green; `table_main.tscn` path is contract), `tests/sim/table_growth_sim*` | table workstream |
+| `game/table/` (keep `tests/sim/feel_sim` green; `table_main.tscn` path is contract), `game/table/view3d/` (the 3D renderer of the 2D sim — see `specs/table-3d-flow.md`), `tests/sim/table_growth_sim*`, `tests/shot_table3d*`, `tests/probe_plunger*` | table workstream |
 | `tools/audiogen/`, `assets/audio/`, `game/audio/`, `tests/test_audio_assets.gd` | audio workstream |
 
 Do not edit outside your lane; if you need a change elsewhere (a new Events signal, a Feel
@@ -50,7 +50,11 @@ Workstream agents do **not** commit or push — the orchestrator reviews, commit
 - 120 Hz physics tick, physics interpolation ON, gravity via `project.godot`.
 - Base viewport 1080×1920 portrait, `canvas_items` stretch, expand aspect.
 - Physics layers: 1 walls · 2 ball · 3 flippers · 4 hardware · 5 zones.
-- Renderer: GL Compatibility (low-end Android target).
+- Renderer: GL Compatibility (low-end Android target). The playfield is simulated in 2D and
+  rendered in 3D (`game/table/view3d/`): geometry proxies derive from colliders, never the
+  other way round. `KINGPIN_TABLE_2D=1` shows the flat 2D drawing for debugging.
+- Screenshots: `tools/shot.sh out.png res://tests/shot_table3d.tscn` (Xvfb + software GL);
+  `SHOT3D_VIEW=bare|block|full|deck|stairs|dome` picks the career stage and framing.
 - Input actions are registered **in code** (see `game/core/feel.gd`), not in `project.godot`.
 
 ## Audio contract

@@ -90,7 +90,7 @@ const CHEEK_END := Vector2(598.0, -162.0)
 # ------------------------------------------------------------------ getting up and down
 ## Mouth of the Staircase: the aimed gap between Lucky's low facade and Fat Tony's pawnshop.
 ## It is a centre-right jackpot shot now, not a hidden switch in the shooter gutter.
-const STAIR_MOUTH := Vector2(695.0, 1250.0)
+const STAIR_MOUTH := Vector2(625.0, 1160.0)
 const STAIR_ENTRY_SPEED := 1650.0
 const STAIR_CLIMB_GRAVITY := 460.0
 const STAIR_MAX_SPEED := 1800.0
@@ -100,9 +100,9 @@ const STAIR_MAX_SPEED := 1800.0
 ## whole point of the shot.
 const STAIR_RELEASE_SPEED := 480.0
 const STAIR_PATH: PackedVector2Array = [
-	Vector2(695.0, 1250.0), Vector2(690.0, 1110.0), Vector2(700.0, 950.0),
-	Vector2(735.0, 795.0), Vector2(720.0, 630.0), Vector2(760.0, 470.0),
-	Vector2(820.0, 300.0), Vector2(875.0, 100.0), Vector2(900.0, -140.0),
+	Vector2(625.0, 1160.0), Vector2(628.0, 1000.0), Vector2(645.0, 850.0),
+	Vector2(680.0, 700.0), Vector2(725.0, 560.0), Vector2(775.0, 420.0),
+	Vector2(830.0, 270.0), Vector2(880.0, 100.0), Vector2(905.0, -140.0),
 	Vector2(900.0, -390.0), Vector2(880.0, -620.0), Vector2(850.0, -760.0),
 	Vector2(830.0, -815.0),
 ]

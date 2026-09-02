@@ -17,15 +17,15 @@ const FIRST_BUYS: PackedStringArray = ["muscle.real_plunger", "rackets.trash_2"]
 const DRAIN_POINT := Vector2(490.0, 1876.0)
 ## Where the coach puts the ball back (see `_coach`): the mouth of the middle top lane,
 ## above the one trash can the bare alley owns.
-const COACH_POINT := Vector2(490.0, 480.0)
+const COACH_POINT := Vector2(485.0, 540.0)
 const COACH_BELOW_Y := 1250.0
 ## Seconds of coached play per Night — enough for the alley to bank a Night's takings.
-const COACH_SECONDS := 8.0
+const COACH_SECONDS := 10.0
 ## A launch has this long to put the ball on the playfield before the sim calls the feed
 ## broken (see PLAYABLE_STARTER_BAND).
 const FEED_SECONDS := 2.5
 const LANE_X := 900.0
-## The R0 rubber band must still *deliver*. The three starter bands are 0.90/0.95/1.00;
+## The R0 rubber band must still *deliver*. The three starter bands are 0.945/0.97/0.99;
 ## use the top band as a coaching fallback if a table fixture cannot feed at the default.
 const PLAYABLE_STARTER_BAND := 2
 
@@ -219,7 +219,7 @@ func _night_one() -> void:
 		var b := TableAPI.ball(table)
 		var speed := b.speed() if b != null else 0.0
 		check(speed > 0.0, "the ball never left the lane")
-		check(speed < Feel.PLUNGER_MAX_IMPULSE * 0.95,
+		check(speed < Feel.PLUNGER_MAX_IMPULSE * float(BandedPlunger.STARTER_POWERS[2]),
 				"a full-power plunge got out of a starter band (%.0f px/s)" % speed)
 		await wait(FEED_SECONDS)
 

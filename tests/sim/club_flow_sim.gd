@@ -33,8 +33,8 @@ const PLAYER_POCKET := 1
 const HOUSE_POCKET := 0
 
 const DRAIN_POINT := Vector2(490.0, 1876.0)
-const SAFE_POINT := Vector2(430.0, 760.0)
-const SAFE_POINT_B := Vector2(600.0, 700.0)
+const SAFE_POINT := Vector2(440.0, 1280.0)
+const SAFE_POINT_B := Vector2(560.0, 1280.0)
 ## On the Club deck: anything above y=0 counts as upstairs, which is what keeps a deck visit
 ## open (game/flow/night.gd DECK_LINE).
 const UPSTAIRS_POINT := Vector2(700.0, -320.0)

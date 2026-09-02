@@ -36,7 +36,7 @@ const FLIPPER_DOWN_EASE := 1.8        # >1 = slow start (ease-in) on the return
 const INPUT_BUFFER := 0.05            # seconds of early-press forgiveness
 
 # --- plunger ---
-const PLUNGER_MAX_IMPULSE := 3900.0
+const PLUNGER_MAX_IMPULSE := 4000.0
 const PLUNGER_CHARGE_TIME := 0.9
 const PLUNGER_DETENTS := 4            # audible ratchet clicks across the pull
 const PLUNGER_REST_SPEED := 60.0      # ball must be this calm to be plungeable

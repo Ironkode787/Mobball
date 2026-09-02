@@ -21,6 +21,9 @@ extends Node2D
 ## `TableAPI`: the table lane owns that scene's class and its M1 API arrives in its own time.
 var table: Node2D = null
 var camera: CameraRig = null
+## The 3D room the 2D table is rendered as (game/table/view3d). Null when the 2D fallback
+## is forced with KINGPIN_TABLE_2D=1.
+var view3d: TableView3D = null
 var input: InputController = null
 var nudge: NudgeController = null
 var hud: GameHUD = null
@@ -64,6 +67,11 @@ func _ready() -> void:
 	camera = CameraRig.new()
 	camera.name = "CameraRig"
 	add_child(camera)
+
+	if TableView3D.enabled():
+		view3d = TableView3D.new()
+		add_child(view3d)
+		view3d.setup(table, camera)
 
 	nudge = NudgeController.new()
 	nudge.name = "Nudge"

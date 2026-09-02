@@ -201,69 +201,129 @@ func _progression_lanes_fit_a_ball(t: TestCtx) -> void:
 	t.ok(guide_face - wall_face >= dia + 20.0,
 			"numbers lane %.0f px wide" % (guide_face - wall_face))
 
-	# the getaway arc keeps the same channel width all the way round the top
-	var arch_inner: float = ProgressionTable.ARCH_CENTER.distance_to(ProgressionTable.ARCH_A) \
-			- ProgressionTable.OUTER_THICK * 0.5
-	var arc_outer: float = ProgressionTable.ORBIT_ARC_RADIUS + ProgressionTable.GUIDE_THICK * 0.5
-	t.ok(arch_inner - arc_outer >= dia + 20.0,
-			"orbit channel %.0f px wide at the arch" % (arch_inner - arc_outer))
+	# the Truck Route is the numbers lane's twin down the right side
+	var guide_r_face: float = ProgressionTable.LANE_GUIDE_R_X + ProgressionTable.GUIDE_THICK * 0.5
+	var right_lane: float = ProgressionTable.PLAY_RIGHT - guide_r_face
+	t.ok(right_lane >= dia + 20.0, "truck route lane %.0f px wide" % right_lane)
 
+	# the inner ring meets both lane guides tangentially, so the channel never necks down
+	var ring_c: Vector2 = ProgressionTable.INNER_ARC_CENTER
+	var ring_r: float = ProgressionTable.INNER_ARC_RADIUS
+	t.near(ring_c.x - ring_r, ProgressionTable.LANE_GUIDE_X, 0.001, "ring meets the left guide")
+	t.near(ring_c.x + ring_r, ProgressionTable.LANE_GUIDE_R_X, 0.001, "ring meets the right guide")
+	t.near(ring_c.y, ProgressionTable.LANE_GUIDE_TOP, 0.001, "guides start at the ring's equator")
+	var arch_top: float = ProgressionTable.ARCH_CENTER.y \
+			- ProgressionTable.ARCH_CENTER.distance_to(ProgressionTable.ARCH_A) \
+			+ ProgressionTable.OUTER_THICK * 0.5
+	var ring_top: float = ring_c.y - ring_r - ProgressionTable.GUIDE_THICK * 0.5
+	t.ok(ring_top - arch_top >= dia + 20.0,
+			"orbit channel %.0f px deep over the top lanes" % (ring_top - arch_top))
+
+	# the top lanes hang off the ring and open onto the bumper nest
 	for i in range(ProgressionTable.ROLLOVER_POST_FROM.size() - 1):
 		var gap_from: float = ProgressionTable.ROLLOVER_POST_FROM[i].distance_to(
 				ProgressionTable.ROLLOVER_POST_FROM[i + 1]) - ProgressionTable.ROLLOVER_POST_THICK
 		var gap_to: float = ProgressionTable.ROLLOVER_POST_TO[i].distance_to(
 				ProgressionTable.ROLLOVER_POST_TO[i + 1]) - ProgressionTable.ROLLOVER_POST_THICK
 		var lane: float = minf(gap_from, gap_to)
-		t.ok(lane >= dia + 20.0, "fanned top lane %d is %.0f px at its narrow end" % [i + 1, lane])
+		t.ok(lane >= dia + 20.0, "top lane %d is %.0f px at its narrow end" % [i + 1, lane])
+	for top: Vector2 in ProgressionTable.ROLLOVER_POST_FROM:
+		t.near(ring_c.distance_to(top), ring_r, 0.5, "post at %s hangs from the ring" % str(top))
+	for i in range(ProgressionTable.ROLLOVER_AT.size()):
+		var at: Vector2 = ProgressionTable.ROLLOVER_AT[i]
+		var lo: float = maxf(ProgressionTable.ROLLOVER_POST_FROM[i].x, ProgressionTable.ROLLOVER_POST_TO[i].x)
+		var hi: float = minf(ProgressionTable.ROLLOVER_POST_FROM[i + 1].x, ProgressionTable.ROLLOVER_POST_TO[i + 1].x)
+		t.ok(at.x > lo and at.x < hi, "rollover %d sits inside its lane" % (i + 1))
 
-	# the storefront banks must leave real routes through the midfield, not a wall
+	# the storefront banks must leave real routes through the midfield, not a wall: the
+	# closest approach of any two target rows passes a ball with room
 	var half := Storefront.TARGET_PITCH + Storefront.TARGET_LENGTH * 0.5
 	for i in range(ProgressionTable.STOREFRONT_AT.size()):
 		for j in range(i + 1, ProgressionTable.STOREFRONT_AT.size()):
-			var gap: float = ProgressionTable.STOREFRONT_AT[i].distance_to(
-					ProgressionTable.STOREFRONT_AT[j]) - half * 2.0
+			var a := _bank_ends(i, half)
+			var b := _bank_ends(j, half)
+			var closest: Vector2 = Geometry2D.get_closest_points_between_segments(a[0], a[1], b[0], b[1])[0]
+			var other: Vector2 = Geometry2D.get_closest_points_between_segments(a[0], a[1], b[0], b[1])[1]
+			var gap: float = closest.distance_to(other) - 20.0
 			t.ok(gap >= dia + 20.0,
 					"storefront route %d/%d is %.0f px" % [i + 1, j + 1, gap])
 	var leftmost: float = INF
 	for i in range(ProgressionTable.STOREFRONT_AT.size()):
-		var reach: float = half * cos(deg_to_rad(ProgressionTable.STOREFRONT_RAKE[i]))
-		leftmost = minf(leftmost, ProgressionTable.STOREFRONT_AT[i].x - reach)
+		leftmost = minf(leftmost, ProgressionTable.STOREFRONT_AT[i].x - half)
 	t.ok(leftmost - (ProgressionTable.LANE_GUIDE_X + ProgressionTable.GUIDE_THICK * 0.5)
 			>= dia + 20.0, "the route between the numbers lane and the Block passes a ball")
+
+	# Lucky's lower end and the docks roof: a route, never a V a ball can wedge into
+	var lucky := _bank_ends(0, half)
+	var low: Vector2 = lucky[0] if lucky[0].y > lucky[1].y else lucky[1]
+	var roof_y: float = Docks.ROOF_FROM.y + (low.x - Docks.ROOF_FROM.x) \
+			* (Docks.ROOF_TO.y - Docks.ROOF_FROM.y) / (Docks.ROOF_TO.x - Docks.ROOF_FROM.x)
+	var roof_gap: float = roof_y - Docks.WALL_THICK * 0.5 - low.y - 10.0
+	t.ok(roof_gap >= dia + 20.0, "Lucky's clears the docks roof by %.0f px" % roof_gap)
+
+	# the centre alley under Nonna's stays open felt down to the flippers: neither side bank's
+	# inner end reaches into the 80 px column on the mirror line
+	var alley := 40.0
+	for i in [0, 2]:
+		var ends := _bank_ends(i, half)
+		var inner: float = INF
+		for e: Vector2 in ends:
+			inner = minf(inner, absf(e.x - ProgressionTable.MIRROR_X))
+		t.ok(inner - 10.0 >= alley, "bank %d reaches to %.0f px of the centre alley" % [i + 1, inner])
+
+
+## The two ends of a storefront's target row in table space (thickness not included).
+func _bank_ends(i: int, half: float) -> Array:
+	var at: Vector2 = ProgressionTable.STOREFRONT_AT[i]
+	var facing: Vector2 = (ProgressionTable.STOREFRONT_FACING[i] as Vector2).normalized()
+	var rot: float = facing.angle() - PI * 0.5 + deg_to_rad(ProgressionTable.STOREFRONT_RAKE[i])
+	var axis := Vector2.RIGHT.rotated(rot) * half
+	return [at - axis, at + axis]
 
 
 ## A gap is either a route or a wall — never ball-sized, which is where a ball wedges and
 ## the night quietly ends.
 func _progression_has_no_pinch_points(t: TestCtx) -> void:
 	var dia := Feel.BALL_RADIUS * 2.0
-	var centre: Vector2 = ProgressionTable.ARCH_CENTER
-	var arc_inner: float = ProgressionTable.ORBIT_ARC_RADIUS - ProgressionTable.GUIDE_THICK * 0.5
+	var ring_c: Vector2 = ProgressionTable.INNER_ARC_CENTER
+	var ring_inner: float = ProgressionTable.INNER_ARC_RADIUS - ProgressionTable.GUIDE_THICK * 0.5
 
-	# the top-lane posts sit inside the getaway arc: prove they are clear of it
+	# the top-lane posts start on the ring: either inside its thickness (a wall) or a full ball
+	# clear of it (a route), never a slot
 	for top: Vector2 in ProgressionTable.ROLLOVER_POST_FROM:
-		var clearance: float = arc_inner - centre.distance_to(top) \
+		var clearance: float = ring_inner - ring_c.distance_to(top) \
 				- ProgressionTable.ROLLOVER_POST_THICK * 0.5
 		t.ok(clearance >= dia or clearance <= 0.0,
-				"post at %s leaves a %.0f px pinch under the orbit arc" % [str(top), clearance])
+				"post at %s leaves a %.0f px pinch under the ring" % [str(top), clearance])
 
-	# the right-hand storefront and the wire bank stop short of the divider by less than a
-	# ball, so nothing can crawl in behind them
+	# the outer posts and the ring's arms make a notch each side of the lanes; its floor
+	# opening (post bottom to the arm) must pass a ball, not hold one
+	var posts_to: Array = ProgressionTable.ROLLOVER_POST_TO
+	for side in [[0, -1.0], [posts_to.size() - 1, 1.0]]:
+		var bottom: Vector2 = posts_to[side[0]]
+		var dy: float = ring_c.y - bottom.y
+		var arm_x: float = ring_c.x + float(side[1]) * sqrt(maxf(
+				ProgressionTable.INNER_ARC_RADIUS * ProgressionTable.INNER_ARC_RADIUS - dy * dy, 0.0))
+		var opening: float = absf(arm_x - bottom.x) - ProgressionTable.GUIDE_THICK * 0.5 \
+				- ProgressionTable.ROLLOVER_POST_THICK * 0.5
+		t.ok(opening >= dia + 20.0, "notch beside post %d opens %.0f px" % [side[0] + 1, opening])
+
+	# Fat Tony's is sealed against the truck-route guide so nothing can crawl in behind it
 	var half := Storefront.TARGET_PITCH + Storefront.TARGET_LENGTH * 0.5
 	var pawn: Vector2 = ProgressionTable.STOREFRONT_AT[2]
-	var pawn_right: float = pawn.x + half * cos(deg_to_rad(ProgressionTable.STOREFRONT_RAKE[2]))
-	t.ok(ProgressionTable.PLAY_RIGHT - pawn_right < dia,
-			"Fat Tony's leaves a %.0f px slot against the divider"
-			% (ProgressionTable.PLAY_RIGHT - pawn_right))
+	var guide_r_face: float = ProgressionTable.LANE_GUIDE_R_X - ProgressionTable.GUIDE_THICK * 0.5
+	t.ok(guide_r_face - (pawn.x + half) < dia,
+			"Fat Tony's leaves a %.0f px slot against the truck-route guide"
+			% (guide_r_face - (pawn.x + half)))
 
-	# the payphones are close enough together to read as one bank and to seal
+	# the payphones are close enough together to read as one bank and to seal, and each
+	# one's back is sealed against the guide
 	var wire: Array = ProgressionTable.WIRE_AT
 	for i in range(wire.size() - 1):
 		var gap: float = wire[i + 1].distance_to(wire[i]) \
 				- (ProgressionTable.WIRE_LENGTHS[i] + ProgressionTable.WIRE_LENGTHS[i + 1]) * 0.5
 		t.ok(gap < dia, "payphones %d and %d leave a %.0f px slot" % [i + 1, i + 2, gap])
-
-	# the wire bank still leaves the right-hand lane open
-	var wire_right: float = ProgressionTable.WIRE_AT[-1].x \
-			+ absf(ProgressionTable.WIRE_FACE.y) * ProgressionTable.WIRE_LENGTHS[-1] * 0.5
-	var corridor: float = ProgressionTable.PLAY_RIGHT - wire_right
-	t.ok(corridor >= dia + 20.0, "the lane outside the diagonal Wire is %.0f px" % corridor)
+	for i in range(wire.size()):
+		var reach: float = absf(ProgressionTable.WIRE_FACE.y) * ProgressionTable.WIRE_LENGTHS[i] * 0.5
+		var behind: float = guide_r_face - (wire[i].x + reach)
+		t.ok(behind < dia and behind >= 0.0, "payphone %d sits %.0f px off the guide" % [i + 1, behind])

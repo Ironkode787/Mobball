@@ -33,6 +33,20 @@ Decision: **Godot 4.5+, GDScript** (typed), C++/GDExtension reserved for the phy
   regression tests: golden replays must land within tolerance after physics changes).
 - Magnet hardware (cranes, cop magnets) = scripted force fields with authored telegraph timing.
 
+### 2b. Presentation of the physics: the 3D playfield
+
+The simulation is 2D and stays 2D (every rule above). What the player sees is a 3D room built
+from it at runtime by `game/table/view3d/` (`TableView3D`): walls extruded from the same
+capsule chains the colliders use, hardware mirrored by per-class proxies that follow the 2D
+node's interpolated transform and restyle themselves from its `visual_state()` token, a
+perspective `Camera3D` slaved to the 2D `CameraRig` through the canvas transform (so framing,
+look-ahead and the nudge kick are authored once), and `Presentation.projector` so feedback
+anchored to a table point lands where that point is drawn. The upper career segments (Club,
+Penthouse, City Hall) sit on a second storey 1.15 m above the field; ramps are wireforms whose
+height profile is also the lift applied to the ball while it rides. `specs/table-3d-flow.md`
+carries the layout and the rules. Budget: one draw call per wall body, ≤ 6 real omni lights,
+one shadowed directional light — everything else is emissive material.
+
 ## 3. Project architecture
 
 ### Session state flow

@@ -547,7 +547,7 @@ func _s5_crane() -> void:
 	crane.self_driven = false
 
 	# out of the yard is out of reach: no force field on the main playfield
-	await drop_at(Vector2(600.0, 1000.0))
+	await drop_at(Vector2(560.0, 1000.0))
 	check(not crane.has_target(), "the crane reached a ball on the main field")
 	check(not crane.pull(), "the crane pulled a ball that was not in the yard")
 	table.despawn_ball()

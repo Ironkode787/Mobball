@@ -29,7 +29,7 @@ const FIXTURE: PackedStringArray = [
 ]
 
 const DRAIN_POINT := Vector2(490.0, 1876.0)
-const SAFE_POINT := Vector2(430.0, 760.0)
+const SAFE_POINT := Vector2(440.0, 1280.0)
 ## Two minutes of federal raid is two minutes of CI; the branch logic is what is under test.
 const RICO_SECONDS := 6.0
 

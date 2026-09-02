@@ -20,14 +20,14 @@ func run(t: TestCtx) -> void:
 
 func _starter_bands(t: TestCtx) -> void:
 	var plunger := BandedPlunger.new()
-	t.eq(BandedPlunger.STARTER_POWERS, [0.90, 0.95, 1.00],
-			"starter powers stay at three safe coarse bands")
+	t.eq(BandedPlunger.STARTER_POWERS, [0.945, 0.97, 0.99],
+			"starter powers are the three Drop-Off lanes: right, centre, left")
 	plunger.set_starter_pull(0.0)
-	t.near(plunger.starter_power(), 0.90, 1e-9, "short pull selects the safe low band")
+	t.near(plunger.starter_power(), 0.945, 1e-9, "short pull selects the safe low band")
 	plunger.set_starter_pull(BandedPlunger.STARTER_BAND_DISTANCE_PX)
-	t.near(plunger.starter_power(), 0.95, 1e-9, "middle pull selects the middle band")
+	t.near(plunger.starter_power(), 0.97, 1e-9, "middle pull selects the middle band")
 	plunger.set_starter_pull(BandedPlunger.STARTER_BAND_DISTANCE_PX * 2.0)
-	t.near(plunger.starter_power(), 1.00, 1e-9, "long pull selects the high band")
+	t.near(plunger.starter_power(), 0.99, 1e-9, "long pull selects the high band")
 	var selected := plunger.starter_band
 	plunger.bands_enabled = true
 	plunger.set_starter_pull(0.0)

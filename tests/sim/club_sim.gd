@@ -415,7 +415,9 @@ func _s3_staircase_gate() -> void:
 			"a refused shot did not stay a normal ball")
 	await wait(0.8)
 	if weak != null and is_instance_valid(weak):
-		check(weak.linear_velocity.y > 0.0, "the refused shot never came back down")
+		# falling, or already back below the mouth and into the slings' hands
+		check(weak.linear_velocity.y > 0.0 or weak.global_position.y > ClubDeck.STAIR_MOUTH.y + 60.0,
+				"the refused shot never came back down")
 	table.despawn_ball()
 
 	# a ball falling *down* through the mouth is not a ramp shot however fast it is
@@ -792,7 +794,7 @@ func _s12_camera() -> void:
 	var legs: Array = [
 		{"at": Vector2(880.0, -820.0), "s": 1.6},
 		{"at": Vector2(700.0, -300.0), "s": 1.2},
-		{"at": Vector2(490.0, 900.0), "s": 1.6},
+		{"at": Vector2(490.0, 1000.0), "s": 1.6},
 		{"at": Vector2(490.0, 1700.0), "s": 1.6},
 	]
 	# A teleport between stations is not a shot; the frame is given a beat to catch up before

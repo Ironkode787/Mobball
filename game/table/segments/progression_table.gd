@@ -132,15 +132,29 @@ const OUTLANE_DRAIN_Y := 1545.0
 ## A broad avenue down the left wall. The old 90 px gutter read like plumbing; this one is a
 ## committed orbit with enough daylight to see the ball accelerate through the spinner.
 const LANE_GUIDE_X := 180.0
-const LANE_GUIDE_TOP := 486.0
+const LANE_GUIDE_TOP := 569.375
 const LANE_GUIDE_BOTTOM := 1180.0
 const CHANNEL_WIDTH := 113.0
-const ORBIT_ARC_RADIUS := 370.0
+## The orbit channel's inner guide is a half-ring centred on the play area (not the arch,
+## which is centred on the cabinet including the shooter lane): its two ends meet the lane
+## guides tangentially at LANE_GUIDE_TOP on both sides. The top lanes hang off the ring
+## between INNER_ARC_LEFT_TO_DEG and INNER_ARC_RIGHT_FROM_DEG; a fast orbit ball skims past
+## their openings on the outer arch, a slow one drops into a lane (docs/01 §6 "The Drop-Off").
+const INNER_ARC_CENTER := Vector2(500.0, 569.375)
+const INNER_ARC_RADIUS := 320.0
+const INNER_ARC_LEFT_FROM_DEG := 180.0
+const INNER_ARC_LEFT_TO_DEG := 235.0
+const INNER_ARC_RIGHT_FROM_DEG := 305.0
+const INNER_ARC_RIGHT_TO_DEG := 360.0
+## Right-hand twin of LANE_GUIDE_X: the Truck Route runs between it and the shooter divider.
+const LANE_GUIDE_R_X := 820.0
+const LANE_GUIDE_R_BOTTOM := 1000.0
+const ORBIT_ARC_RADIUS := INNER_ARC_RADIUS
 const ORBIT_ARC_FROM_DEG := -167.0
 ## Stops short of the apex on purpose: at the very top the arc's own surface is level enough
 ## for a ball to sit down on it, and a ball parked on the roof of the orbit ends the night.
 const ORBIT_ARC_TO_DEG := -112.0
-const SPINNER_AT := Vector2(114.5, 900.0)
+const SPINNER_AT := Vector2(114.5, 1000.0)
 const ORBIT_ENTRY_AT := Vector2(114.5, 1120.0)
 const ORBIT_ENTRY_SIZE := Vector2(104.0, 56.0)
 const ORBIT_EXIT_DEG := -120.0
@@ -162,44 +176,59 @@ const ORBIT_R_EXIT_DEG := -60.0
 # ---------------------------------------------------------------- the top lanes
 ## Four splayed rails turn the old comb of parallel posts into a three-way fan. The approach
 ## pinches toward the inserts, then opens into three visibly different exits under the arch.
+## Four posts hang from the inner ring (its 235°/281°/259°/305° points) and splay slightly
+## outward to y=400, making three lane mouths of ~130 px under the arch and three exits
+## straight onto the bumper nest.
 const ROLLOVER_POST_FROM: Array = [
-	Vector2(260.0, 500.0), Vector2(385.0, 450.0),
-	Vector2(525.0, 430.0), Vector2(690.0, 485.0),
+	Vector2(316.5, 307.2), Vector2(438.9, 255.2),
+	Vector2(561.1, 255.2), Vector2(683.5, 307.2),
 ]
 const ROLLOVER_POST_TO: Array = [
-	Vector2(320.0, 630.0), Vector2(420.0, 610.0),
-	Vector2(525.0, 590.0), Vector2(650.0, 620.0),
+	Vector2(330.0, 400.0), Vector2(432.0, 400.0),
+	Vector2(568.0, 400.0), Vector2(670.0, 400.0),
 ]
 const ROLLOVER_AT: Array = [
-	Vector2(365.0, 565.0), Vector2(472.0, 560.0), Vector2(585.0, 570.0),
+	Vector2(370.0, 352.0), Vector2(500.0, 336.0), Vector2(630.0, 352.0),
 ]
 const ROLLOVER_POST_THICK := 16.0
 
 # ---------------------------------------------------------------- the alley & the corner
 ## The cans now own an offset left-side neighborhood. A clean right diagonal stays open for
 ## aimed Wire and Staircase shots instead of every upper-field device sharing one triangle.
+## The nest sits well below the lane exits and off their centre lines: a ball leaving a lane
+## meets a can on its shoulder and careens, never on its crown (a can dead under a lane makes
+## the ball pogo in the lane forever). The starter can is the low one in the middle.
 const BUMPER_AT: Array = [
-	Vector2(480.0, 700.0), Vector2(300.0, 735.0), Vector2(390.0, 890.0),
+	Vector2(500.0, 690.0), Vector2(440.0, 600.0), Vector2(560.0, 600.0),
 ]
 const BUMPER_SCALE: PackedFloat32Array = [1.14, 0.92, 1.02]
 ## The payphones make a real diagonal bank whose face looks down the main shooting line.
 ## Their centres are close enough to deny a ball-sized hiding place between cabinets.
+## A diagonal bank stepping in toward the right lane guide, facing the left flipper. The
+## gaps behind each phone to the guide are all under a ball so nothing can hide there.
 const WIRE_AT: Array = [
-	Vector2(750.0, 600.0), Vector2(792.0, 720.0), Vector2(834.0, 840.0),
+	Vector2(735.0, 640.0), Vector2(755.0, 740.0), Vector2(775.0, 840.0),
 ]
-const WIRE_FACE := Vector2(-0.943858, 0.330350)
-const WIRE_LENGTHS: PackedFloat32Array = [94.0, 82.0, 70.0]
+const WIRE_FACE := Vector2(-0.496139, 0.868242)
+const WIRE_LENGTHS: PackedFloat32Array = [80.0, 76.0, 72.0]
 const TARGET_LENGTH := 76.0
 
 # ---------------------------------------------------------------- the block
+## The Block, 90s style: one bank per flipper plus a centre bank under the pops. Lucky's
+## faces the right flipper from the left, Fat Tony's faces the left flipper from the right,
+## Nonna's stands across the centre lane. The centre column (x 430–600) below Nonna's stays
+## open felt all the way to the flippers — the alley every shot returns through.
 const STOREFRONT_AT: Array = [
-	Vector2(570.0, 1280.0),      # Lucky's Laundromat: the lower centre anchor
-	Vector2(475.0, 1030.0),      # Nonna's Pizzeria: the block's high point
-	Vector2(820.0, 1240.0),      # Fat Tony's Pawn: low right
+	Vector2(345.0, 1030.0),      # Lucky's Laundromat: left, off the right flipper
+	Vector2(490.0, 890.0),       # Nonna's Pizzeria: centre, under the bumper nest
+	Vector2(745.0, 1085.0),      # Fat Tony's Pawn: right, off the left flipper
 ]
-## Banks are raked off square so a ball coming down from above sheds sideways into a gap
-## instead of parking on 148 px of flat drop-target roof.
-const STOREFRONT_RAKE: PackedFloat32Array = [18.0, -12.0, -18.0]
+## Banks face their flipper; Nonna's is raked off square so a ball coming down from the pops
+## sheds sideways into a gap instead of parking on 148 px of flat drop-target roof.
+const STOREFRONT_FACING: Array = [
+	Vector2(0.28, 0.96), Vector2(0.0, 1.0), Vector2(-0.621059, 0.783763),
+]
+const STOREFRONT_RAKE: PackedFloat32Array = [0.0, -12.0, 0.0]
 const STOREFRONT_IDS: Array[StringName] = [
 	&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn",
 ]
@@ -209,13 +238,15 @@ const STOREFRONT_SIGNS: Array[StringName] = [&"LUCKY'S", &"NONNA'S", &"FAT TONY'
 ## The donut shop stands square to the field, not raked across it: a bar angled into the
 ## right-hand wall is a corner, and a soak found the ball asleep in it for forty seconds.
 ## Vertical faces have no roof to sit on.
-const BRIBE_AT := Vector2(870.0, 540.0)
-const BRIBE_FACE := Vector2(-0.98, 0.20)
+## The donut shop sits in the notch between the right bumper and the ring's right arm, a
+## steep shot off either bat that has to thread the Wire and Fat Tony's on the way up.
+const BRIBE_AT := Vector2(700.0, 470.0)
+const BRIBE_FACE := Vector2(-0.5, 0.866025)
 ## Raid officers occupy four different intersections in the new crooked street plan. The
 ## fourth closes the southern briefcase court while leaving a fair drop elsewhere.
 const COP_AT: Array = [
-	Vector2(270.0, 1010.0), Vector2(860.0, 1000.0),
-	Vector2(350.0, 1180.0), Vector2(540.0, 1370.0),
+	Vector2(240.0, 800.0), Vector2(740.0, 940.0),
+	Vector2(700.0, 1330.0), Vector2(540.0, 1370.0),
 ]
 ## Steep enough that the ball outruns rubber friction (0.30) on the way down their backs.
 const COP_RAKE: PackedFloat32Array = [22.0, -22.0, 22.0, -22.0]
@@ -243,8 +274,8 @@ const FEDERAL_TINT: PackedFloat32Array = [0.0, 0.16, 0.20, 0.25]
 ## collision of its own. The first two are also clear of the raid's cops; the third is the
 ## roomiest spot on the table and the cops stand right next to it.
 const BRIEFCASE_SPOTS: Array = [
-	Vector2(700.0, 870.0),       # the court below the diagonal Wire
-	Vector2(700.0, 1000.0),      # the court above the stepped Block
+	Vector2(560.0, 1300.0),      # the court between the Staircase mouth and the slings
+	Vector2(510.0, 1130.0),      # the centre alley below Nonna's
 	Vector2(520.0, 1450.0),      # southern court; the fourth raid cop closes it
 ]
 ## Centre-to-centre room a piece of *transient* hardware has to leave a spot before the case
@@ -255,14 +286,14 @@ const BRIEFCASE_CLEAR_VEHICLE := 170.0
 # ---------------------------------------------------------------- the Commission
 ## Sammy's sedan crosses the waist on a rail between the bumper nest and the block: high
 ## enough that a bumper cannot shield it, low enough to be reachable off either bat.
-const SEDAN_RAIL_Y := 920.0
-const SEDAN_RAIL_FROM_X := 270.0
+const SEDAN_RAIL_Y := 960.0
+const SEDAN_RAIL_FROM_X := 440.0
 const SEDAN_RAIL_TO_X := 700.0
-const SEDAN_PARK := Vector2(490.0, 940.0)
+const SEDAN_PARK := Vector2(570.0, 960.0)
 const SEDAN_LENGTH := 150.0
 const SEDAN_THICK := 46.0
 ## Three goons standing in front of the cans. Raked like the cops so nothing sits on them.
-const GOON_AT: Array = [Vector2(300.0, 760.0), Vector2(680.0, 760.0), Vector2(490.0, 930.0)]
+const GOON_AT: Array = [Vector2(300.0, 760.0), Vector2(680.0, 760.0), Vector2(490.0, 1040.0)]
 const GOON_RAKE: PackedFloat32Array = [18.0, -18.0, -18.0]
 ## The meat truck rides the getaway channel itself: it is 56 px across in a 108 px lane, so
 ## while it is up there the orbit is the Butcher's, not yours.
@@ -288,11 +319,11 @@ const BOSS_METER_SIZE := Vector2(420.0, 30.0)
 ## clears the shooter lane on this geometry. Three safe powers let a new player choose a
 ## broad pull without pretending the rubber band is a precision plunger. `A Real Plunger`
 ## replaces these bands with the inherited continuous charge and detents.
-const PLUNGER_STARTER_POWERS := [0.90, 0.95, 1.00]
+const PLUNGER_STARTER_POWERS := [0.945, 0.97, 0.99]
 const PLUNGER_STARTER_DEFAULT_BAND := 1
 ## Legacy fixture alias: old growth probes read this as the desktop/default middle band. The
 ## live starter plunger is no longer fixed; touch pulls select all three values above.
-const PLUNGER_FIXED_POWER := 0.95
+const PLUNGER_FIXED_POWER := 0.945
 
 # ---------------------------------------------------------------- ball search
 ## Real machines hunt for a lost ball, and this one has to as well. The playfield grows new
@@ -562,8 +593,8 @@ func _build_left_channel() -> void:
 	var arc := WallPiece.new()
 	arc.name = "GetawayArc"
 	add_child(arc)
-	arc.arc(ARCH_CENTER, ORBIT_ARC_RADIUS, deg_to_rad(ORBIT_ARC_FROM_DEG),
-			deg_to_rad(ORBIT_ARC_TO_DEG), 40, GUIDE_THICK)
+	arc.arc(INNER_ARC_CENTER, INNER_ARC_RADIUS, deg_to_rad(INNER_ARC_LEFT_FROM_DEG),
+			deg_to_rad(INNER_ARC_LEFT_TO_DEG), 24, GUIDE_THICK)
 	_register([&"orbit_left"], arc)
 
 	spinner = Spinner.new()
@@ -650,7 +681,7 @@ func _build_storefronts() -> void:
 	for i in range(STOREFRONT_AT.size()):
 		var s := Storefront.new()
 		s.name = "Storefront%d" % (i + 1)
-		s.configure(STOREFRONT_IDS[i], STOREFRONT_AT[i], Vector2.DOWN, STOREFRONT_RAKE[i],
+		s.configure(STOREFRONT_IDS[i], STOREFRONT_AT[i], STOREFRONT_FACING[i], STOREFRONT_RAKE[i],
 				STOREFRONT_SIGNS[i])
 		add_child(s)
 		s.collected.connect(_on_storefront_collected)
@@ -712,8 +743,20 @@ func _build_extras() -> void:
 	briefcase.collected.connect(_on_briefcase_collected)
 	briefcase.expired.connect(func() -> void: briefcase_expired.emit())
 
-	# THE TRUCK ROUTE (M3). Two gates on the corridor outside the payphones and the top of
-	# the arch — no new walls, see ORBIT_R_ENTRY_AT.
+	# THE TRUCK ROUTE (M3): the right lane guide and the ring's right arm make a real lane
+	# down the right side, the twin of the Getaway Loop; two gates time the lap.
+	var guide_r := WallPiece.new()
+	guide_r.name = "TruckRouteGuide"
+	add_child(guide_r)
+	guide_r.bar(Vector2(LANE_GUIDE_R_X, LANE_GUIDE_TOP), Vector2(LANE_GUIDE_R_X, LANE_GUIDE_R_BOTTOM),
+			GUIDE_THICK)
+	_register([&"orbit_right"], guide_r)
+	var arc_r := WallPiece.new()
+	arc_r.name = "TruckRouteArc"
+	add_child(arc_r)
+	arc_r.arc(INNER_ARC_CENTER, INNER_ARC_RADIUS, deg_to_rad(INNER_ARC_RIGHT_FROM_DEG),
+			deg_to_rad(INNER_ARC_RIGHT_TO_DEG), 24, GUIDE_THICK)
+	_register([&"orbit_right"], arc_r)
 	orbit_right = OrbitLane.new()
 	orbit_right.name = "OrbitRight"
 	add_child(orbit_right)
