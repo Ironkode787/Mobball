@@ -86,11 +86,10 @@ func _build_shell() -> void:
 	_shell.bar(ROOF_FROM, ROOF_TO, WALL_THICK)
 	_shell.bar(RIGHT_FROM, RIGHT_TO, WALL_THICK)
 	_shell.bar(BED_FROM, BED_TO, WALL_THICK)
-	# a gangway just inside the gate slides an arriving ball off the left wall toward the scoop,
-	# and a bollard rail above the water does the same for anything rolling down the wall: only
-	# the crane puts a ball in the harbour
+	# a gangway just inside the gate slides an arriving ball off the left wall toward the scoop;
+	# the table's own left lane-return rail fences the water from anything rolling down the
+	# wall, so only the crane puts a ball in the harbour
 	_shell.bar(Vector2(-2.51, 0.14), Vector2(-2.20, 0.60), Layout.GUIDE_THICK)
-	_shell.bar(Vector2(-2.52, 1.24), Vector2(-2.28, 1.50), Layout.GUIDE_THICK)
 
 
 func _build_gate() -> void:

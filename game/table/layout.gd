@@ -114,6 +114,11 @@ const SLING_OUTER_TOP := Vector2(1.535, 2.55)
 const SLING_OUTER_BOTTOM := Vector2(1.535, 2.98)
 const SLING_INNER := Vector2(0.865, 3.42)
 const OUTLANE_DRAIN_Z := 3.6
+## Lane returns: a ball coming down either side lane is turned in toward the inlane rather
+## than fed straight into the outlane; the outlanes stay open to anything arriving from the
+## middle of the playfield.
+const LANE_RETURN_R: Array = [Vector2(2.12, 1.20), Vector2(1.90, 1.70)]
+const LANE_RETURN_L: Array = [Vector2(-2.52, 1.22), Vector2(-2.26, 1.62)]
 const KICKBACK_AT := Vector2(-2.345, 3.5)
 const KICKBACK_SIZE := Vector2(0.32, 0.30)
 const CENTRE_DRAIN_AT := Vector2(MIRROR_X, 5.15)

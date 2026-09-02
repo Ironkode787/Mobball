@@ -20,7 +20,7 @@ const FIXTURE: PackedStringArray = [
 
 const DRAIN_POINT := Vector3(Layout.MIRROR_X, Feel.BALL_RADIUS + 0.01, Layout.CENTRE_DRAIN_AT.y + 0.05)
 const SAFE_POINT := Vector3(Layout.MIRROR_X, Feel.BALL_RADIUS + 0.01, 0.6)
-const KEEP_ALIVE_Z := 3.9
+const KEEP_ALIVE_Z := 3.5
 
 ## Headless physics runs at 1x wall clock, so every second of scripted play costs a second
 ## of CI. Nights are played on a budget and the Raid's 45 s is shortened to RAID_SECONDS —
@@ -492,10 +492,6 @@ func _s7_raid_pending_at_open() -> void:
 		plunger.launch(1.0)
 	await wait(RAID_SECONDS + 1.2)
 	_keep_alive = false
-	print("        raid debug: results=%s state=%s night=%s raid=%s ended=%d pinched=%d nights_ended=%d ball=%s"
-			% [str(_raid_results), str(Game.state), str(main.night),
-			str(main.night.raid) if main.night != null else "-", count_of("raid_ended"),
-			count_of("guy_pinched"), count_of("night_ended"), str(TableAPI.ball(table))])
 	check(_raid_results.size() > 0 and _raid_results[-1] == true,
 			"the raid the latch opened never finished")
 	check(not Game.heat.is_raid_pending(), "reset_after_raid did not clear the latch")

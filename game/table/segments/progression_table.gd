@@ -388,10 +388,12 @@ func _build_walls() -> void:
 			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
 	walls.bar(Vector2(Layout.DIVIDER_X, Layout.LANE_FLOOR_Z), Vector2(Layout.PLAY_RIGHT, Layout.LANE_FLOOR_Z),
 			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
-	# the inlane return sweeps: starter furniture
+	# the inlane return sweeps and the lane-return deflectors: starter furniture
 	for s: float in [1.0, -1.0]:
 		walls.bar(Vector2(Layout.inlane_guide_x(s), Layout.INLANE_GUIDE_BOTTOM),
 				Layout.mx(Layout.INLANE_END, s), Layout.GUIDE_THICK, Layout.GUIDE_HEIGHT)
+	walls.bar(Layout.LANE_RETURN_R[0], Layout.LANE_RETURN_R[1], Layout.GUIDE_THICK, Layout.GUIDE_HEIGHT)
+	walls.bar(Layout.LANE_RETURN_L[0], Layout.LANE_RETURN_L[1], Layout.GUIDE_THICK, Layout.GUIDE_HEIGHT)
 	walls.build_mesh(_lib.wood(), _lib.brass())
 
 	# Guard Rails: the vertical outlane guards are an upgrade (docs/02 §2 R0)

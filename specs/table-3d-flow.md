@@ -52,6 +52,10 @@ All constants live in `game/core/feel.gd`; all positions in `game/table/layout.g
 The play axis is `Layout.MIRROR_X = -0.185` because the shooter lane lives inside the arch;
 the bottom assembly is symmetric about it.
 
+Both side lanes end in a **lane-return rail** that turns a ball coming down the lane in toward
+the inlane, so an orbit comes back to the flipper; the outlanes stay open to balls arriving
+from the middle. On the left the same rail fences the Docks' water from the lane.
+
 **From the left bat (steep → shallow):** bribe notch · Staircase mouth · Fat Tony's · payphones
 · right orbit (Truck Route). **From the right bat:** left orbit (Getaway Loop, spinner,
 rollover 1) · Lucky's · the docks gate (R5) · bribe notch. **Both:** the centre alley into
