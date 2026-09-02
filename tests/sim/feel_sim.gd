@@ -157,6 +157,9 @@ func _s_soak() -> void:
 	check(escapes == 0, "the ball left the cabinet %d ticks" % escapes)
 	check(worst_still < ticks(4.0), "a ball sat still for %.1f s at %s" % [float(worst_still) / float(Engine.physics_ticks_per_second), str(worst_at)])
 	check(flips > 5, "the soak barely flipped (%d)" % flips)
+	for f: Flipper in [table.flipper_left, table.flipper_right]:
+		var walked := f.position.distance_to(f.pivot())
+		check(walked < 0.0005, "the %s bat walked %.4f u off its pivot" % [f.side, walked])
 	print("        %d flips, %d drains, longest still %.1fs" % [flips, _drains, float(worst_still) / float(Engine.physics_ticks_per_second)])
 	table.auto_respawn = false
 	table.despawn_ball()

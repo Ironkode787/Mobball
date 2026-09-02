@@ -255,6 +255,19 @@ func neon(color: Color, energy: float = 2.6) -> StandardMaterial3D:
 		m.emission_energy_multiplier = energy)
 
 
+## Authored art printed onto a piece's own surface (a cap, a blade): opaque, lit, mipmapped
+## by the importer so it stays calm at table scale.
+func decal(texture: Texture2D, two_sided: bool = false) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = texture
+	m.roughness = 0.6
+	m.metallic = 0.1
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	if two_sided:
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+
 ## Authored art on a standing quad. Alpha-scissored so the cut-out edge stays crisp.
 func art(texture: Texture2D, emissive: float = 0.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()

@@ -6,6 +6,11 @@ extends AnimatableBody3D
 ##
 ## Local geometry always points along +X; the right bat is the same shape turned around
 ## (see Feel.flipper_rest_rotation). The striking face is local -Z on the left, +Z on the right.
+##
+## The bat's transform is rebuilt from its pivot every tick, never nudged incrementally, and
+## the physics state is not synced back onto the node: the round trip through the server
+## and the inclined root loses a fraction of a millimetre each tick, and over a night the
+## bat would walk away from its pivot.
 
 enum State { REST, RISING, HELD, FALLING }
 
@@ -32,19 +37,30 @@ var _jam: float = 0.0
 var _telegraph: float = 0.0
 var _bat_mesh: MeshInstance3D = null
 var _lamp: StandardMaterial3D = null
+var _pivot: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
 	process_physics_priority = 10
-	sync_to_physics = true
+	sync_to_physics = false
 	collision_layer = Feel.LAYER_FLIPPERS
 	collision_mask = 0
 	physics_material_override = Feel.make_material(Feel.FLIPPER_FRICTION, Feel.FLIPPER_BOUNCE)
 	_rest_rot = Feel.flipper_rest_rotation(side)
 	_strike_sign = 1.0 if side == &"right" else -1.0
-	rotation.y = _rest_rot
+	_pivot = position
+	_set_yaw(_rest_rot)
 	_build_shapes()
 	_build_look()
+
+
+## Table-space pivot the bat turns about.
+func pivot() -> Vector3:
+	return _pivot
+
+
+func _set_yaw(yaw: float) -> void:
+	transform = Transform3D(Basis(Vector3.UP, yaw), _pivot)
 
 
 func bat_length() -> float:
@@ -197,7 +213,7 @@ func set_hardware_active(active: bool) -> void:
 	_buffered_at = -1000.0
 	state = State.REST
 	progress = 0.0
-	rotation.y = _rest_rot
+	_set_yaw(_rest_rot)
 
 
 func is_hardware_active() -> bool:
@@ -299,7 +315,7 @@ func _physics_process(delta: float) -> void:
 	if _telegraph > 0.0:
 		_telegraph = maxf(_telegraph - delta, 0.0)
 	_advance(delta)
-	rotation.y = FlipperCurve.rotation_for(side, progress)
+	_set_yaw(FlipperCurve.rotation_for(side, progress))
 	if _glow > 0.0:
 		_glow = maxf(_glow - delta * 5.0, 0.0)
 

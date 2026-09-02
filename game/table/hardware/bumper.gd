@@ -90,12 +90,12 @@ func _build_look() -> void:
 	if Presentation != null and Presentation.art != null:
 		tex = Presentation.art.resolve(&"prop.trash_can", null, false)
 	if tex != null:
-		var decal := PlaneMesh.new()
-		decal.size = Vector2.ONE * r * 2.0
+		# the art is a top-down lid on ink: printed on a disc the size of the cap's top, the
+		# inscribed circle of the square lands on the cap and the corners are never built
+		var st_lid := MeshLib.begin()
+		MeshLib.disc(st_lid, Vector3(0.0, 0.522, 0.0), r * 1.06, 32)
 		var dm := MeshInstance3D.new()
-		dm.mesh = decal
-		dm.material_override = lib.art(tex)
-		dm.position.y = 0.525
+		dm.mesh = MeshLib.finish(st_lid, lib.decal(tex))
 		dm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		dm.name = "CapArt"
 		add_child(dm)

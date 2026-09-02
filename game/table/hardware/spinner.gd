@@ -70,11 +70,12 @@ func _build_look() -> void:
 		tex = Presentation.art.resolve(&"prop.bicycle_spinner", null, false)
 	var mi := MeshInstance3D.new()
 	if tex != null:
-		var quad := PlaneMesh.new()
-		quad.size = Vector2(radius * 2.0, radius * 2.0)
-		quad.orientation = PlaneMesh.FACE_Z
-		mi.mesh = quad
-		mi.material_override = lib.art(tex)
+		# the wheel art is a top-down disc on ink: print it on a round blade, both faces
+		var st_wheel := MeshLib.begin()
+		MeshLib.disc(st_wheel, Vector3.ZERO, radius, 32, true)
+		MeshLib.disc(st_wheel, Vector3.ZERO, radius, 32, false)
+		mi.mesh = MeshLib.finish(st_wheel, lib.decal(tex, true))
+		mi.rotation.x = PI * 0.5
 	else:
 		var plate := BoxMesh.new()
 		plate.size = Vector3(radius * 2.0, radius * 1.4, 0.012)
