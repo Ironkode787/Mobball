@@ -71,8 +71,15 @@ const HARDWARE_STALL_SPEED := 0.8     # a ball asleep on live hardware gets popp
 const FLIPPER_PIVOT_POP := 5.0
 const FLIPPER_PIVOT_STALL_SECONDS := 2.0
 const BUMPER_VALUE := 10
-const SLING_IMPULSE := 16.0
-const SLING_COOLDOWN := 0.08
+# A real slingshot is a switch behind the rubber and a kicker arm: nothing happens until the
+# ball actually compresses the long face hard enough to close the switch, then the arm throws
+# the ball out perpendicular to the rubber at the kicker's own pace, keeping most of the slide
+# the ball had along the band. The short faces and the posts are plain rubber.
+const SLING_KICK_SPEED := 24.0        # u/s out along the face normal, whatever came in
+const SLING_KICK_GAIN := 0.25         # plus this share of the approach speed
+const SLING_TRIGGER_SPEED := 2.5      # approach speed that closes the switch; slower is silent rubber
+const SLING_TANGENT_KEEP := 0.8       # how much of the slide along the rubber survives the throw
+const SLING_COOLDOWN := 0.12          # the arm's dead time
 const SLING_VALUE := 5
 const KICKBACK_IMPULSE := 30.0
 const MAGNET_IMPULSE := 9.0

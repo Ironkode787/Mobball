@@ -1,8 +1,11 @@
 class_name Slingshot
 extends StaticBody3D
-## The sling triangle: rubber over a lit plastic plinth, with a kicker behind the long face.
-## The starter table's slings are dead rubber — present, bouncy, silent — until Corner Boys
-## power the face.
+## The sling triangle: rubber over a lit plastic plinth, with a switch and a kicker arm behind
+## the long face. The ball has to hit that face hard enough to close the switch (a slow roll
+## along the rubber is just rubber); then the arm throws it out perpendicular to the band at
+## the kicker's pace, keeping most of the slide it arrived with. The short faces and the
+## posts never fire. The starter table's slings are dead rubber — present, bouncy, silent —
+## until Corner Boys power the face.
 
 @export var id: StringName = &"sling"
 @export var value: int = Feel.SLING_VALUE
@@ -18,6 +21,9 @@ var _pulse: float = 0.0
 var _band: Area3D = null
 var _inside: Array[Ball] = []
 var _lamp: StandardMaterial3D = null
+var _band_mesh: MeshInstance3D = null
+var _face_a: Vector2 = Vector2.ZERO
+var _face_b: Vector2 = Vector2.ZERO
 
 
 func configure(p_id: StringName, p0: Vector2, p1: Vector2, p2: Vector2) -> void:
@@ -51,6 +57,10 @@ func _ready() -> void:
 	if n.dot((a + b) * 0.5) < 0.0:
 		n = -n
 	face_normal = n
+	_face_a = a
+	_face_b = b
+	# the pocket a ball rests in when it stalls against the live face: a slab hugging the
+	# rubber where a touching ball's centre sits, so it never fires on approach
 	_band = Area3D.new()
 	_band.name = "Face"
 	_band.collision_layer = Feel.LAYER_ZONES
@@ -58,9 +68,9 @@ func _ready() -> void:
 	_band.monitorable = false
 	var bs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(edge.length(), 0.5, Feel.BALL_RADIUS * 1.5)
+	box.size = Vector3(edge.length(), 0.5, Feel.BALL_RADIUS * 0.5)
 	bs.shape = box
-	var mid := (a + b) * 0.5 + n * (Feel.BALL_RADIUS * 0.75)
+	var mid := (a + b) * 0.5 + n * (Feel.BALL_RADIUS * 1.0)
 	bs.position = Vector3(mid.x, 0.25, mid.y)
 	bs.rotation.y = atan2(-edge.y, edge.x)
 	_band.add_child(bs)
@@ -78,10 +88,10 @@ func _build_look() -> void:
 		inner.append(p * 0.62)
 	var st := MeshLib.begin()
 	MeshLib.prism(st, points, 0.26, 0.04, false, 1.0)
-	var band := MeshInstance3D.new()
-	band.mesh = MeshLib.finish(st, lib.rubber())
-	band.name = "Band"
-	add_child(band)
+	_band_mesh = MeshInstance3D.new()
+	_band_mesh.mesh = MeshLib.finish(st, lib.rubber())
+	_band_mesh.name = "Band"
+	add_child(_band_mesh)
 	_lamp = lib.lamp(Color(1.0, 0.72, 0.30))
 	var st2 := MeshLib.begin()
 	MeshLib.prism(st2, inner, 0.36, 0.0, false, 1.0)
@@ -104,6 +114,9 @@ func _process(delta: float) -> void:
 	if _lamp != null:
 		_lamp.emission_energy_multiplier = lerpf(_lamp.emission_energy_multiplier,
 				(0.25 if _powered else 0.0) + _pulse * 3.0, 1.0 - exp(-18.0 * delta))
+	if _band_mesh != null:
+		# the rubber snaps out with the arm and settles back
+		_band_mesh.position = Vector3(face_normal.x, 0.0, face_normal.y) * (_pulse * 0.04)
 
 
 func _physics_process(delta: float) -> void:
@@ -117,7 +130,10 @@ func _physics_process(delta: float) -> void:
 		return
 	for b in _inside:
 		if b.speed() < Feel.HARDWARE_STALL_SPEED:
-			_kick(b)
+			# a ball asleep against a live band gets nudged loose, gently and unscored
+			_cooldown = Feel.SLING_COOLDOWN
+			b.kick(_normal3() * Feel.SLING_KICK_SPEED * 0.3)
+			AudioDirector.play(&"wall_tap")
 			return
 
 
@@ -127,23 +143,49 @@ func _on_ball_exited(body: Node3D) -> void:
 
 
 func _on_ball_entered(body: Node3D) -> void:
-	if not (body is Ball):
-		return
-	_inside.append(body as Ball)
+	if body is Ball:
+		_inside.append(body as Ball)
+
+
+func _normal3() -> Vector3:
+	return Vector3(face_normal.x, 0.0, face_normal.y).rotated(Vector3.UP, rotation.y).normalized()
+
+
+## Plan-space test: did the ball meet the long face (between its two posts, in front of the
+## rubber) rather than a short face or a post?
+func hit_long_face(ball_plan: Vector2) -> bool:
+	var rel := (ball_plan - Layout.plan(position)).rotated(-rotation.y)
+	var edge := _face_b - _face_a
+	var t := (rel - _face_a).dot(edge) / maxf(edge.length_squared(), 1e-6)
+	var d := (rel - _face_a).dot(face_normal)
+	return t >= -0.08 and t <= 1.08 and d > 0.0 and d <= Feel.BALL_RADIUS * 1.6
+
+
+## The switch: the ball's own contact report. Fires only for a hard enough hit on the band.
+func on_ball_contact(ball: Ball) -> void:
 	if not _powered or _cooldown > 0.0:
 		return
-	_kick(body as Ball)
-
-
-func _kick(ball: Ball) -> void:
-	if not _powered:
+	if not hit_long_face(Layout.plan(ball.table_position())):
 		return
+	var n := _normal3()
+	var approach := -ball.approach_velocity().dot(n)
+	if approach < Feel.SLING_TRIGGER_SPEED:
+		return
+	_fire(ball, n, approach)
+
+
+## The kicker arm: the ball leaves along the face normal at the kicker's pace (plus a share
+## of how hard it came in), keeping most of the slide it had along the rubber.
+func _fire(ball: Ball, n: Vector3, approach: float) -> void:
 	_cooldown = Feel.SLING_COOLDOWN
-	var n := Vector3(face_normal.x, 0.0, face_normal.y).rotated(Vector3.UP, rotation.y).normalized()
-	ball.kick(n * Feel.SLING_IMPULSE)
+	var v := ball.local_velocity()
+	var tangent := v - n * v.dot(n)
+	tangent.y = 0.0
+	var out_speed := Feel.SLING_KICK_SPEED + approach * Feel.SLING_KICK_GAIN
+	ball.set_velocity(tangent * Feel.SLING_TANGENT_KEEP + n * out_speed)
 	_pulse = 1.0
 	AudioDirector.play(&"sling_hit")
-	TableScore.earn(group, float(value), id, ball, Feel.SLING_IMPULSE)
+	TableScore.earn(group, float(value), id, ball, out_speed)
 
 
 func set_hardware_active(active: bool) -> void:

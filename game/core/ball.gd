@@ -14,6 +14,10 @@ const WALL_TAP_SPEED := 7.0     ## below this a wall hit is silent — no machin
 
 var top_speed: float = 0.0
 var launched: bool = false
+## Velocity going into the current physics step (world space): what a piece the ball just
+## hit sees as the approach, since by the time the contact is reported the solver has already
+## bounced `linear_velocity`. Captured in _physics_process, which runs before the step.
+var _step_velocity: Vector3 = Vector3.ZERO
 var _design: Dictionary = BallDesign.anonymous()
 var _mesh: MeshInstance3D = null
 var _skin_dirty: bool = true
@@ -54,6 +58,10 @@ func _ready() -> void:
 	body_entered.connect(_on_body_entered)
 
 
+func _physics_process(_delta: float) -> void:
+	_step_velocity = linear_velocity
+
+
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var v := state.linear_velocity
 	var speed := v.length()
@@ -85,6 +93,11 @@ func local_velocity() -> Vector3:
 ## Table-space position (the playfield is the parent; a ball is always a direct child).
 func table_position() -> Vector3:
 	return position
+
+
+## Table-space velocity the ball approached its latest contact with.
+func approach_velocity() -> Vector3:
+	return _basis().inverse() * _step_velocity
 
 
 func speed() -> float:
@@ -122,6 +135,9 @@ func design() -> Dictionary:
 
 
 func _on_body_entered(body: Node) -> void:
+	# hardware that reads a real contact (a slingshot's switch) hears about it here
+	if body.has_method(&"on_ball_contact"):
+		body.call(&"on_ball_contact", self)
 	if not (body is StaticBody3D) or ((body as StaticBody3D).collision_layer & Feel.LAYER_WALLS) == 0:
 		return
 	var s := speed()

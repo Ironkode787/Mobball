@@ -26,6 +26,7 @@ func _run() -> void:
 	await _s_roll_and_drain()
 	await _s_plunge_serves()
 	await _s_flip_pace()
+	await _s_slingshot()
 	await _s_trap()
 	await _s_soak()
 	report("feel")
@@ -89,6 +90,48 @@ func _s_flip_pace() -> void:
 		check(min_z < 2.0, "%s flip did not send the ball up the field (min z %.2f)" % [side, min_z])
 		await wait(0.3)
 	check(int(_fired[&"left"]) >= 1 and int(_fired[&"right"]) >= 1, "flipper_fired did not fire for both bats")
+	table.despawn_ball()
+	finish()
+
+
+## 3b — a slingshot is a switch and a kicker: a hit on the band throws the ball across the
+## field at the kicker's pace; a slow roll along the rubber is just rubber.
+func _s_slingshot() -> void:
+	begin("a slingshot throws a hit and ignores a roll")
+	var sling: Slingshot = null
+	for s in table.get_children():
+		if s is Slingshot and (s as Slingshot).id == &"sling_r":
+			sling = s
+	if sling == null:
+		check(false, "no right slingshot on the table")
+		finish()
+		return
+	# the starter table's slings are dead rubber: power this one for the scenario
+	var was_powered := sling.is_powered()
+	sling.set_hardware_active(true)
+	var n2 := sling.face_normal
+	var mid: Vector2 = Layout.plan(sling.position) + (sling._face_a + sling._face_b) * 0.5
+	var n3 := Vector3(n2.x, 0.0, n2.y)
+	# the hit: straight into the band at 10 u/s
+	var before := _switches.count("sling_r")
+	var b := await drop_at(mid + n2 * 0.6, -n3 * 10.0, 1)
+	var out := 0.0
+	for i in range(ticks(0.4)):
+		await step(1)
+		if b == null or not is_instance_valid(b):
+			break
+		out = maxf(out, b.local_velocity().dot(n3))
+	var hits := _switches.count("sling_r") - before
+	check(hits == 1, "the band fired %d times for one hit (want 1)" % hits)
+	check(out >= Feel.SLING_KICK_SPEED * 0.85 and out <= Feel.SLING_KICK_SPEED * 1.6,
+			"the kicker threw the ball out at %.1f u/s along the face normal (want ~%.0f)" % [out, Feel.SLING_KICK_SPEED])
+	# the roll: eased onto the band slower than the switch closes
+	before = _switches.count("sling_r")
+	b = await drop_at(mid + n2 * (Feel.BALL_RADIUS + 0.015), -n3 * 0.4, 1)
+	await wait(0.2)
+	hits = _switches.count("sling_r") - before
+	check(hits == 0, "a slow roll onto the rubber closed the switch %d times" % hits)
+	sling.set_hardware_active(was_powered)
 	table.despawn_ball()
 	finish()
 
