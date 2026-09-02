@@ -19,33 +19,26 @@ Decision: **Godot 4.5+, GDScript** (typed), C++/GDExtension reserved for the phy
 
 ## 2. Physics (the sacred module)
 
-- **Fixed 120 Hz sim tick**, render 60fps with interpolation. Ball = custom integrator or
-  RigidBody2D with CCD enabled + speed clamp; **swept-sphere test** against flipper surfaces at
-  high relative speed (belt + suspenders vs. tunneling).
-- **Flippers:** animated kinematic bodies driven by an authored angular-velocity curve (not
-  motors — curves give designed, deterministic feel), with proper impulse transfer from surface
-  velocity at contact point. 50ms input buffer; coyote-window on release passes.
-- **Materials:** per-surface restitution/friction (steel, rubber, wood, felt); rubber gets a
-  velocity-dependent restitution curve (real pinball rubbers are lively at low speed, deadish at high).
-- **Nudge:** applies a table-space impulse to ball + a spring-damped cabinet offset (visual);
+- **A real machine in 3D.** Jolt Physics at a **fixed 240 Hz tick**, rendered at 60 fps with
+  interpolation. The playfield is built at 1 unit = 10 cm and inclined 6.5° under real
+  gravity; the ball is a `RigidBody3D` sphere with continuous collision and a hard speed
+  clamp that rolls because the waxed playfield has friction — nothing fakes spin, rolling or
+  the climb up a ramp.
+- **Flippers:** `AnimatableBody3D` bats swept along an authored angular curve (not motors —
+  curves give designed, deterministic feel), synced to physics so Jolt hands the ball the
+  bat's surface velocity through the solver. 50 ms input buffer; coyote-window on release.
+- **Materials:** per-surface friction/restitution (waxed wood, rubber, steel rails). The ball
+  carries friction 1.0 / bounce 0.0 so each surface decides.
+- **Ramps and wireforms:** swept steel channels (`ConcavePolygonShape3D`) with a flared mouth
+  and inward lips; `Area3D` sensors at the mouth and crest turn a real trajectory into
+  `entered` / `crested` / `rolled_back`. A soft shot rolls back out by gravity.
+- **Upper storeys:** the Club and the Penthouse are raised slabs 0.9 units up; the ball reaches
+  them only by ramp and leaves only by wireform.
+- **Nudge:** a table-space impulse on every live ball plus a spring-damped camera kick;
   Inspector suspicion consumes discrete "leans" (see [01](01-CORE-GAMEPLAY.md) §5).
-- **Determinism-adjacent:** fixed tick + recorded-input replay for QA (bug repros, feel
-  regression tests: golden replays must land within tolerance after physics changes).
+- **Determinism-adjacent:** fixed tick + `--fixed-fps` sims: the gate runs every scenario
+  without wall-clock pacing so outcomes depend on ticks, never on the machine.
 - Magnet hardware (cranes, cop magnets) = scripted force fields with authored telegraph timing.
-
-### 2b. Presentation of the physics: the 3D playfield
-
-The simulation is 2D and stays 2D (every rule above). What the player sees is a 3D room built
-from it at runtime by `game/table/view3d/` (`TableView3D`): walls extruded from the same
-capsule chains the colliders use, hardware mirrored by per-class proxies that follow the 2D
-node's interpolated transform and restyle themselves from its `visual_state()` token, a
-perspective `Camera3D` slaved to the 2D `CameraRig` through the canvas transform (so framing,
-look-ahead and the nudge kick are authored once), and `Presentation.projector` so feedback
-anchored to a table point lands where that point is drawn. The upper career segments (Club,
-Penthouse, City Hall) sit on a second storey 1.15 m above the field; ramps are wireforms whose
-height profile is also the lift applied to the ball while it rides. `specs/table-3d-flow.md`
-carries the layout and the rules. Budget: one draw call per wall body, ≤ 6 real omni lights,
-one shadowed directional light — everything else is emissive material.
 
 ## 3. Project architecture
 
@@ -87,13 +80,15 @@ descriptor is presentation data, not save data.
 ```
 res://
   game/
-    core/           # Ball, BallDesign, flipper, nudge, camera, haptics, input
+    core/           # Ball (3D), BallDesign, plunger, nudge, camera rig, input
     economy/        # currencies, BigMoney, rates, Heat, offline calc (pure logic, no nodes)
     flow/           # Game state machine, Roll Call handoff, Night, jobs, Bench, modes
     content/        # upgrades.json, jobs.json, names and other data-driven content
     table/
-      segments/     # one scene per zone (alley, club, docks...)
-      hardware/     # bumper, spinner, storefront bank, ... (reusable, skinnable)
+      layout.gd     # every position on the machine, in table units
+      segments/     # the machine root and the Club / Docks / Penthouse / City Hall
+      hardware/     # bumper, spinner, storefront bank, ramp channel, ... (3D, colliders first)
+      look/         # material library, mesh builders, playfield shader, dressing
     ui/             # Roll Call/BallPreview, ledger corkboard, count, HUD, rapsheet
     audio/          # stem stacks, event map, buses
     sim/            # headless autoplayer + balance harness (runs in CI)

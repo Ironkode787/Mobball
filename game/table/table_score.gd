@@ -57,16 +57,16 @@ static var _idle_rates: Dictionary = {}
 
 
 ## A switch that reports but does not pay (kickback, bribe, gate switches).
-static func hit(id: StringName, ball: Node2D, strength: float = 0.0) -> void:
+static func hit(id: StringName, ball: Node3D, strength: float = 0.0) -> void:
 	Events.switch_hit.emit(id, ball, strength)
 
 
-static func earn(group: StringName, base: float, id: StringName, ball: Node2D,
+static func earn(group: StringName, base: float, id: StringName, ball: Node3D,
 		strength: float = 0.0) -> BigMoney:
 	return earn_big(group, BigMoney.from_float(base), id, ball, strength)
 
 
-static func earn_big(group: StringName, base: BigMoney, id: StringName, ball: Node2D,
+static func earn_big(group: StringName, base: BigMoney, id: StringName, ball: Node3D,
 		strength: float = 0.0) -> BigMoney:
 	Events.switch_hit.emit(id, ball, strength)
 	Events.scored.emit(id, int(round(base.approx_float())))

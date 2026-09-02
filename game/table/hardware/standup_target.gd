@@ -1,95 +1,110 @@
 class_name StandupTarget
-extends StaticBody2D
-## A standup: a payphone on The Wire, a cop during a raid, the beat cop's donut shop. It
-## never leaves the playfield — it lights instead of dropping — so the geometry a player
-## learns stays put. Whether a hit pays, and how much, is the owner's business: this only
-## reports the strike.
+extends StaticBody3D
+## A standup: a plate on a post whose face is a switch. Banks mark them; a cop or a goon is
+## one of these with a police-blue face. A ball asleep against one is thrown off.
 
 signal struck(target: StandupTarget, ball: Ball)
 
 const COOLDOWN := 0.22
-## A standup is a capsule, and a capsule has two rounded caps. Top-down gravity gives the top
-## of a cap a perfect balance point: a seeded soak found a ball asleep on the end of a
-## Commission chair for 3.3 s and still going, and the M1 table's own header records the same
-## thing happening on a payphone for seventy seconds. The coils hunt for that eventually
-## (ProgressionTable.BALL_SEARCH_DELAY), but the piece the ball is asleep on can do better —
-## so a standup pops it loose itself, which is the rule bumpers, slings and the Commission's
-## vehicles already keep (Feel.HARDWARE_STALL_SPEED).
-const STALL_IMPULSE := 560.0
+const STALL_IMPULSE := 6.0
 const STALL_COOLDOWN := 0.6
+const PLATE_HEIGHT := 0.42
 
 @export var id: StringName = &"standup"
 
-var marked: bool = false            ## bank bookkeeping: already collected this round
-var length: float = 76.0
-var thickness: float = 18.0
-var facing: Vector2 = Vector2.LEFT
+var marked: bool = false
+var length: float = Layout.TARGET_LENGTH
+var thickness: float = Layout.TARGET_THICK
+var facing: Vector2 = Vector2(0.0, 1.0)
+var lamp_color: Color = Color(1.0, 0.86, 0.55)
 
 var _present: bool = true
-var _face: Area2D = null
-var _ring: Area2D = null
+var _face: Area3D = null
+var _ring: Area3D = null
 var _cooldown: float = 0.0
 var _stall_cool: float = 0.0
 var _pulse: float = 0.0
 var _inside: Array[Ball] = []
+var _lamp: StandardMaterial3D = null
 
 
-func configure(p_id: StringName, center: Vector2, p_facing: Vector2, p_length: float = 76.0) -> void:
+## `center` in plan space; the plate faces along `p_facing` (its +Z).
+func configure(p_id: StringName, center: Vector2, p_facing: Vector2, p_length: float = Layout.TARGET_LENGTH) -> void:
 	id = p_id
-	position = center
+	position = Layout.p3(center)
 	facing = p_facing.normalized()
 	length = p_length
-	rotation = facing.angle() - PI * 0.5
+	rotation.y = Layout.yaw_facing(facing)
 
 
 func _ready() -> void:
 	collision_layer = Feel.LAYER_HARDWARE
 	collision_mask = 0
 	physics_material_override = Feel.make_material(Feel.RUBBER_FRICTION, 0.30)
-
-	var shape := CollisionShape2D.new()
-	var cap := CapsuleShape2D.new()
-	cap.radius = thickness * 0.5
-	cap.height = length + thickness
-	shape.shape = cap
-	shape.rotation = PI * 0.5
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(length, PLATE_HEIGHT, thickness)
+	shape.shape = box
+	shape.position.y = PLATE_HEIGHT * 0.5
 	shape.name = "Body"
 	add_child(shape)
 
-	_face = Area2D.new()
-	_face.name = "Face"
-	_face.collision_layer = Feel.LAYER_ZONES
-	_face.collision_mask = Feel.LAYER_BALL
-	_face.monitorable = false
-	var fs := CollisionShape2D.new()
-	var rect := RectangleShape2D.new()
-	rect.size = Vector2(length, Feel.BALL_RADIUS * 0.8)
-	fs.shape = rect
-	fs.position = Vector2(0.0, thickness * 0.5 + Feel.BALL_RADIUS * 0.4)
-	_face.add_child(fs)
-	add_child(_face)
+	_face = _zone("Face", Vector3(length, PLATE_HEIGHT, Feel.BALL_RADIUS * 0.8),
+			Vector3(0.0, PLATE_HEIGHT * 0.5, thickness * 0.5 + Feel.BALL_RADIUS * 0.4))
 	_face.body_entered.connect(_on_face_entered)
-
-	_ring = Area2D.new()
-	_ring.name = "Ring"
-	_ring.collision_layer = Feel.LAYER_ZONES
-	_ring.collision_mask = Feel.LAYER_BALL
-	_ring.monitorable = false
-	var rs := CollisionShape2D.new()
-	var ring := CapsuleShape2D.new()
-	ring.radius = thickness * 0.5 + Feel.BALL_RADIUS
-	ring.height = length + thickness + Feel.BALL_RADIUS * 2.0
-	rs.shape = ring
-	rs.rotation = PI * 0.5
-	_ring.add_child(rs)
-	add_child(_ring)
-	_ring.body_entered.connect(func(body: Node2D) -> void:
+	_ring = _zone("Ring", Vector3(length + Feel.BALL_RADIUS * 2.0, PLATE_HEIGHT,
+			thickness + Feel.BALL_RADIUS * 2.0), Vector3(0.0, PLATE_HEIGHT * 0.5, 0.0))
+	_ring.body_entered.connect(func(body: Node3D) -> void:
 		if body is Ball and not _inside.has(body):
 			_inside.append(body as Ball))
-	_ring.body_exited.connect(func(body: Node2D) -> void:
+	_ring.body_exited.connect(func(body: Node3D) -> void:
 		if body is Ball:
 			_inside.erase(body as Ball))
+	_build_look()
 	_apply_collision()
+
+
+func _zone(p_name: String, size: Vector3, at: Vector3) -> Area3D:
+	var a := Area3D.new()
+	a.name = p_name
+	a.collision_layer = Feel.LAYER_ZONES
+	a.collision_mask = Feel.LAYER_BALL
+	a.monitorable = false
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	cs.shape = box
+	cs.position = at
+	a.add_child(cs)
+	add_child(a)
+	return a
+
+
+func _build_look() -> void:
+	var lib := MaterialLib.shared()
+	var body := BoxMesh.new()
+	body.size = Vector3(length, PLATE_HEIGHT, thickness)
+	var bm := MeshInstance3D.new()
+	bm.mesh = body
+	bm.material_override = lib.ink()
+	bm.position.y = PLATE_HEIGHT * 0.5
+	bm.name = "Plate"
+	add_child(bm)
+	_lamp = lib.lamp(lamp_color)
+	var face := BoxMesh.new()
+	face.size = Vector3(length * 0.78, PLATE_HEIGHT * 0.6, 0.012)
+	var fm := MeshInstance3D.new()
+	fm.mesh = face
+	fm.material_override = _lamp
+	fm.position = Vector3(0.0, PLATE_HEIGHT * 0.55, thickness * 0.5 + 0.006)
+	fm.name = "Lamp"
+	add_child(fm)
+	var st := MeshLib.begin()
+	MeshLib.post(st, Vector2(0.0, -thickness * 0.5 - 0.03), 0.03, PLATE_HEIGHT * 0.7, 0.0, 8)
+	var pm := MeshInstance3D.new()
+	pm.mesh = MeshLib.finish(st, lib.chrome_dark())
+	pm.name = "Post"
+	add_child(pm)
 
 
 func _physics_process(delta: float) -> void:
@@ -98,10 +113,6 @@ func _physics_process(delta: float) -> void:
 	_pop_stalled()
 
 
-## A ball asleep on this target — on a cap, or leaned against a flank — gets a shove off it,
-## off the side it is actually resting on. The normal is read from `rotation`, not from
-## `facing`: callers rake these by adding to `rotation` after `configure`, so the stored
-## facing is the square one and only the live transform knows which way the bar is really lying.
 func _pop_stalled() -> void:
 	if not _present or _stall_cool > 0.0 or _inside.is_empty():
 		return
@@ -112,34 +123,46 @@ func _pop_stalled() -> void:
 		if BallHold.is_held(b) or b.speed() >= Feel.HARDWARE_STALL_SPEED:
 			continue
 		_stall_cool = STALL_COOLDOWN
-		var away := b.global_position - global_position
-		var normal := Vector2(0.0, 1.0).rotated(rotation)
+		var away := b.table_position() - position
+		away.y = 0.0
+		var normal := Vector3(0.0, 0.0, 1.0).rotated(Vector3.UP, rotation.y)
 		var side := 1.0 if away.dot(normal) >= 0.0 else -1.0
 		var mixed := normal * side * 1.3 + away.normalized() * 0.7
-		b.kick((mixed.normalized() if mixed.length() > 0.001 else Vector2.UP) * STALL_IMPULSE)
+		b.kick((mixed.normalized() if mixed.length() > 0.001 else Vector3(0, 0, 1)) * STALL_IMPULSE)
 		return
 
 
 func _process(delta: float) -> void:
 	if _pulse > 0.0:
 		_pulse = maxf(_pulse - delta * 5.0, 0.0)
-		queue_redraw()
+	if _lamp == null:
+		return
+	var wanted := 0.12
+	if marked:
+		wanted = 0.8
+	if String(id).begins_with("cop_"):
+		wanted = 2.0
+	_lamp.emission_energy_multiplier = lerpf(_lamp.emission_energy_multiplier,
+			wanted + _pulse * 3.0, 1.0 - exp(-16.0 * delta))
 
 
-func _on_face_entered(body: Node2D) -> void:
+func _on_face_entered(body: Node3D) -> void:
 	if not (body is Ball) or not _present or _cooldown > 0.0:
 		return
 	_cooldown = COOLDOWN
 	_pulse = 1.0
-	queue_redraw()
 	struck.emit(self, body as Ball)
 
 
 func set_marked(value: bool) -> void:
-	if marked == value:
-		return
 	marked = value
-	queue_redraw()
+
+
+func set_lamp_color(c: Color) -> void:
+	lamp_color = c
+	if _lamp != null:
+		_lamp.emission = c
+		_lamp.albedo_color = c.darkened(0.55)
 
 
 func set_hardware_active(active: bool) -> void:
@@ -149,8 +172,10 @@ func set_hardware_active(active: bool) -> void:
 	_apply_collision()
 
 
-## Draw-only classification; marked remains bank bookkeeping and does not alter the target's
-## capsule, face sensor, stall impulse, cooldown, or signal behavior.
+func is_hardware_active() -> bool:
+	return _present
+
+
 func _visual_state_id() -> int:
 	if not _present:
 		return TableVisualState.VisualState.DISABLED
@@ -162,97 +187,17 @@ func _visual_state_id() -> int:
 
 
 func visual_state() -> Dictionary:
-	return TableVisualState.state_token(_visual_state_id(), {
-		&"marked": marked, &"pulse": _pulse > 0.0,
-	})
+	return TableVisualState.state_token(_visual_state_id(), {&"marked": marked, &"pulse": _pulse > 0.0})
 
 
 func visual_token() -> Dictionary:
 	return visual_state()
 
 
-func _material_fill(role: StringName, fallback: Color) -> Color:
-	if Presentation != null and Presentation.theme != null:
-		var material := Presentation.theme.material_for(role)
-		var fill: Variant = material.get("fill", fallback)
-		if fill is Color:
-			return fill as Color
-	return fallback
-
-
-func _hatch(rect: Rect2, color: Color, spacing: float = 12.0) -> void:
-	var x := rect.position.x - rect.size.y
-	while x < rect.end.x:
-		draw_line(Vector2(x, rect.position.y), Vector2(x + rect.size.y, rect.end.y), color, 2.0)
-		x += spacing
-
-
-func _reduced_flash() -> bool:
-	return Presentation.fx != null and Presentation.fx.reduced_flash
-
-
 func _apply_collision() -> void:
 	collision_layer = Feel.LAYER_HARDWARE if _present else 0
-	for area: Area2D in [_face, _ring]:
+	for area: Area3D in [_face, _ring]:
 		if area == null:
 			continue
 		area.collision_layer = Feel.LAYER_ZONES if _present else 0
 		area.collision_mask = Feel.LAYER_BALL if _present else 0
-
-
-func _draw() -> void:
-	var half := length * 0.5
-	var token := visual_token()
-	var state := StringName(token["state"])
-	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
-	var brass := _material_fill(&"brass", Feel.COL_BRASS)
-	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
-	var pulse_strength := _pulse * (0.25 if _reduced_flash() else 1.0)
-	var face := brass.darkened(0.55)
-	if state == &"completed":
-		face = brass
-	elif state == &"active":
-		face = brass.lerp(paper, 0.16 + pulse_strength * 0.29)
-	elif state == &"disabled":
-		face = ink.lightened(0.18)
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), ink, thickness + 8.0)
-	draw_line(Vector2(-half, 0.0), Vector2(half, 0.0), face, thickness)
-	# A raised centre mark, halo, or hatch keeps the state legible without semantic colour alone.
-	if state == &"completed":
-		draw_line(Vector2(-half * 0.62, -2.0), Vector2(half * 0.62, -2.0), paper, 4.0)
-		draw_line(Vector2(-10.0, -10.0), Vector2(-2.0, -2.0), paper, 3.0)
-		draw_line(Vector2(-2.0, -2.0), Vector2(13.0, -15.0), paper, 3.0)
-	elif state == &"active":
-		draw_arc(Vector2.ZERO, thickness * 1.15, 0.0, TAU, 20, paper, 3.0)
-	elif state == &"disabled":
-		_hatch(Rect2(Vector2(-half, -thickness * 0.5), Vector2(length, thickness)),
-			Color(paper.r, paper.g, paper.b, 0.30), 13.0)
-	var sid := String(id)
-	if sid.begins_with("wire_"):
-		# Three payphones, complete with receiver hooks, instead of three anonymous bars.
-		var booth := Rect2(Vector2(-half * 0.64, -54.0), Vector2(half * 1.28, 51.0))
-		var phone_art := Presentation.art.resolve(&"prop.payphone_bank", null, false)
-		if phone_art != null:
-			draw_texture_rect(phone_art, booth, false, Color(1.0, 1.0, 1.0, 0.92))
-		else:
-			draw_rect(booth, Feel.COL_INK.lightened(0.06))
-		draw_rect(booth, face.darkened(0.15), false, 3.0)
-		draw_arc(Vector2(0.0, -16.0), 9.0, 0.15, PI - 0.15, 10, face, 4.0)
-		draw_line(Vector2(-10.0, -15.0), Vector2(-14.0, -8.0), face, 4.0)
-		draw_line(Vector2(10.0, -15.0), Vector2(14.0, -8.0), face, 4.0)
-	elif sid == "bribe_target":
-		# An envelope tucked under the donut-shop counter.
-		var note := Rect2(Vector2(-22.0, -27.0), Vector2(44.0, 24.0))
-		draw_rect(note, Feel.COL_NEWSPRINT.darkened(0.12))
-		draw_line(note.position, note.get_center() + Vector2(0.0, 4.0), face, 2.0)
-		draw_line(Vector2(note.end.x, note.position.y), note.get_center() + Vector2(0.0, 4.0),
-				face, 2.0)
-	elif sid.begins_with("cop_") or sid.begins_with("boss_goon_"):
-		# Hat-and-shoulders target: enough character to read at speed, still a clean face.
-		var body_col := Feel.COL_INK.lightened(0.16)
-		draw_circle(Vector2(0.0, -19.0), 9.0, body_col)
-		draw_line(Vector2(-15.0, -27.0), Vector2(15.0, -27.0), body_col, 5.0)
-		draw_line(Vector2(-18.0, -7.0), Vector2(18.0, -7.0), body_col, 10.0)
-	if marked:
-		draw_line(Vector2(-half * 0.6, 0.0), Vector2(half * 0.6, 0.0),
-				paper, 4.0)

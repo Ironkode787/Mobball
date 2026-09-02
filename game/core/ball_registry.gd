@@ -69,12 +69,12 @@ func count() -> int:
 func primary() -> Ball:
 	_prune()
 	var best: Ball = null
-	var best_y := -INF
+	var best_z := -INF
 	for b in _balls:
-		var y := b.global_position.y if b.is_inside_tree() else b.position.y
-		if best == null or y > best_y:
+		var z := b.position.z
+		if best == null or z > best_z:
 			best = b
-			best_y = y
+			best_z = z
 	return best
 
 

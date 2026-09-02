@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://kingpin_machine_sim3d"]
+
+[ext_resource type="Script" path="res://tests/sim/machine_sim.gd" id="1"]
+
+[node name="MachineSim" type="Node3D"]
+script = ExtResource("1")

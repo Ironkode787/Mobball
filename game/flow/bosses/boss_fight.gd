@@ -46,7 +46,7 @@ var secured: bool = false
 ## 0 before the first phase, 1..phases while fighting, phases+1 once he is down.
 var phase: int = 0
 
-var table: Node2D = null
+var table: Node3D = null
 ## The NightController running this Night (typed loosely — night.gd and this file must not
 ## reference each other's classes).
 var night: Node = null
@@ -79,7 +79,7 @@ static func make(fight_id: StringName) -> BossFight:
 # ================================================================== lifecycle =====
 
 
-func begin(p_table: Node2D, p_night: Node) -> void:
+func begin(p_table: Node3D, p_night: Node) -> void:
 	if active:
 		return
 	table = p_table

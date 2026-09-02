@@ -1,4 +1,4 @@
-extends Node2D
+extends Node3D
 ## THE ACCEPTANCE PATH (specs/m1-hook.md §Acceptance): the first ten minutes, scripted.
 ##
 ##   boot fresh → attract → Night 1 → earn → The Count shows pocket-money clean →
@@ -14,23 +14,23 @@ const SIM_SAVE := "user://sim_first10_save.json"
 const SEED := 0x310A
 const FIRST_BUYS: PackedStringArray = ["muscle.real_plunger", "rackets.trash_2"]
 
-const DRAIN_POINT := Vector2(490.0, 1876.0)
-## Where the coach puts the ball back (see `_coach`): the mouth of the middle top lane,
-## above the one trash can the bare alley owns.
-const COACH_POINT := Vector2(485.0, 540.0)
-const COACH_BELOW_Y := 1250.0
+const DRAIN_POINT := Vector3(Layout.MIRROR_X, Feel.BALL_RADIUS + 0.01, Layout.CENTRE_DRAIN_AT.y + 0.05)
+## Where the coach puts the ball back (see `_coach`): just above the one trash can the bare
+## alley owns, a shoulder's width off its crown so it careens rather than pogos.
+const COACH_POINT := Vector3(Layout.BUMPER_AT[0].x + 0.12, Feel.BALL_RADIUS + 0.01, Layout.BUMPER_AT[0].y - 1.45)
+const COACH_BELOW_Z := 3.2
 ## Seconds of coached play per Night — enough for the alley to bank a Night's takings.
-const COACH_SECONDS := 10.0
+const COACH_SECONDS := 20.0
 ## A launch has this long to put the ball on the playfield before the sim calls the feed
 ## broken (see PLAYABLE_STARTER_BAND).
 const FEED_SECONDS := 2.5
-const LANE_X := 900.0
+const LANE_X := Layout.DIVIDER_X - 0.2
 ## The R0 rubber band must still *deliver*. The three starter bands are 0.945/0.97/0.99;
 ## use the top band as a coaching fallback if a table fixture cannot feed at the default.
 const PLAYABLE_STARTER_BAND := 2
 
 var main: Main = null
-var table: Node2D = null
+var table: Node3D = null
 
 var _results: Array[Dictionary] = []
 var _current: String = ""
@@ -92,7 +92,7 @@ func _physics_process(_delta: float) -> void:
 	if not _coaching:
 		return
 	var b := TableAPI.ball(table)
-	if b != null and b.global_position.y > COACH_BELOW_Y:
+	if b != null and b.table_position().z > COACH_BELOW_Z:
 		b.place(COACH_POINT)
 
 
@@ -110,7 +110,7 @@ func _serve_and_launch() -> bool:
 	for i in range(ticks(FEED_SECONDS)):
 		await step(1)
 		var b := TableAPI.ball(table)
-		if b != null and b.global_position.x < LANE_X:
+		if b != null and b.table_position().x < LANE_X:
 			reached = true
 			break
 	if not reached and not _feed_warned:
@@ -193,7 +193,7 @@ func _boot_fresh() -> void:
 	check(starter_sling != null and starter_sling.is_present()
 			and not starter_sling.is_powered(),
 			"the bare sling is not solid dead rubber")
-	var face := starter_sling.get_node_or_null("Face") as Area2D if starter_sling != null else null
+	var face := starter_sling.get_node_or_null("Face") as Area3D if starter_sling != null else null
 	check(face != null and face.collision_layer == 0 and face.collision_mask == 0,
 			"the bare sling face sensor is still powered")
 	finish()
@@ -220,7 +220,7 @@ func _night_one() -> void:
 		var speed := b.speed() if b != null else 0.0
 		check(speed > 0.0, "the ball never left the lane")
 		check(speed < Feel.PLUNGER_MAX_IMPULSE * float(BandedPlunger.STARTER_POWERS[2]),
-				"a full-power plunge got out of a starter band (%.0f px/s)" % speed)
+				"a full-power plunge got out of a starter band (%.1f u/s)" % speed)
 		await wait(FEED_SECONDS)
 
 	await _serve_and_launch()

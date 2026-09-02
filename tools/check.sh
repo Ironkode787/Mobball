@@ -34,13 +34,15 @@ echo "boot ok"
 
 # Physics/gameplay scenario sims: each scene must run its scripted scenario headless and
 # quit itself with exit code 0 on success, non-zero on failure (they print their own report).
+# --fixed-fps steps the engine as fast as it can without real-time pacing (physics stays
+# 240 Hz, four ticks a frame), so a sim's outcome depends on ticks, never on the machine.
 # NOTE: the grep below matches SCRIPT ERROR only, deliberately — Godot prints a benign
 # "ERROR: N resources still in use at exit" during sim shutdown; widening the pattern to
 # plain ERROR would fail every sim for no reason.
 for SIM in tests/sim/*.tscn; do
 	[ -e "$SIM" ] || continue
 	echo "== sim: $SIM =="
-	SIM_OUT="$(timeout 300 "$GODOT" --headless --path . "res://$SIM" 2>&1)"
+	SIM_OUT="$(timeout 300 "$GODOT" --headless --fixed-fps 60 --path . "res://$SIM" 2>&1)"
 	SIM_RC=$?
 	echo "$SIM_OUT" | tail -20
 	if [ $SIM_RC -ne 0 ] || echo "$SIM_OUT" | grep -E "SCRIPT ERROR" >/dev/null; then

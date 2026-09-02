@@ -84,7 +84,8 @@ func _process(_delta: float) -> void:
 		if _table.ball != null and is_instance_valid(_table.ball):
 			speed = _table.ball.speed()
 			top = _table.ball.top_speed
-			pos = _table.ball.global_position
+			var p3: Vector3 = _table.ball.table_position()
+			pos = Vector2(p3.x, p3.z)
 	var warn := 0
 	var tilted := false
 	if _nudge != null:

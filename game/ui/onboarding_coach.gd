@@ -55,7 +55,7 @@ func _process(delta: float) -> void:
 	_show_stage(&"done")
 
 
-func _on_ball_launched(_ball: Node2D, _power: float) -> void:
+func _on_ball_launched(_ball: Node3D, _power: float) -> void:
 	if _stage == &"launch":
 		_show_stage(&"flip")
 

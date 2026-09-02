@@ -3,7 +3,7 @@ extends RefCounted
 
 
 class _TableStub:
-	extends Node2D
+	extends Node3D
 
 	var ball: Ball = null
 
@@ -20,14 +20,14 @@ func run(t: TestCtx) -> void:
 
 func _starter_bands(t: TestCtx) -> void:
 	var plunger := BandedPlunger.new()
-	t.eq(BandedPlunger.STARTER_POWERS, [0.945, 0.97, 0.99],
+	t.eq(BandedPlunger.STARTER_POWERS, [0.55, 0.58, 0.80],
 			"starter powers are the three Drop-Off lanes: right, centre, left")
 	plunger.set_starter_pull(0.0)
-	t.near(plunger.starter_power(), 0.945, 1e-9, "short pull selects the safe low band")
+	t.near(plunger.starter_power(), 0.55, 1e-9, "short pull selects the safe low band")
 	plunger.set_starter_pull(BandedPlunger.STARTER_BAND_DISTANCE_PX)
-	t.near(plunger.starter_power(), 0.97, 1e-9, "middle pull selects the middle band")
+	t.near(plunger.starter_power(), 0.58, 1e-9, "middle pull selects the middle band")
 	plunger.set_starter_pull(BandedPlunger.STARTER_BAND_DISTANCE_PX * 2.0)
-	t.near(plunger.starter_power(), 0.99, 1e-9, "long pull selects the high band")
+	t.near(plunger.starter_power(), 0.80, 1e-9, "long pull selects the high band")
 	var selected := plunger.starter_band
 	plunger.bands_enabled = true
 	plunger.set_starter_pull(0.0)
@@ -38,7 +38,7 @@ func _starter_bands(t: TestCtx) -> void:
 func _starter_press_latch(t: TestCtx) -> void:
 	var plunger := BandedPlunger.new()
 	var ball := Ball.new()
-	plunger.lane_rect = Rect2(-20.0, -20.0, 40.0, 40.0)
+	plunger.lane_box = AABB(Vector3(-0.2, -0.2, -0.2), Vector3(0.4, 0.4, 0.4))
 	plunger.set_ball(ball)
 
 	# A release without a ready press must be inert, including a release after the ball left
@@ -46,11 +46,11 @@ func _starter_press_latch(t: TestCtx) -> void:
 	plunger.set_pressed(false)
 	t.ok(not ball.launched, "starter release without a press does not launch")
 	plunger.set_pressed(true)
-	ball.position = Vector2(100.0, 100.0)
+	ball.position = Vector3(10.0, 0.0, 10.0)
 	plunger.set_pressed(false)
 	t.ok(not ball.launched, "starter release after the ball leaves the lane is inert")
 
-	ball.position = Vector2.ZERO
+	ball.position = Vector3.ZERO
 	plunger.set_pressed(true)
 	plunger.set_pressed(false)
 	t.ok(ball.launched, "a ready starter press arms and release launches")
@@ -60,7 +60,7 @@ func _touch_plunger_paths(t: TestCtx) -> void:
 	var input := InputController.new()
 	var starter := BandedPlunger.new()
 	var starter_ball := Ball.new()
-	starter.lane_rect = Rect2(-20.0, -20.0, 40.0, 40.0)
+	starter.lane_box = AABB(Vector3(-0.2, -0.2, -0.2), Vector3(0.4, 0.4, 0.4))
 	starter.set_ball(starter_ball)
 	input.bind(null, null, starter, null)
 
@@ -73,7 +73,7 @@ func _touch_plunger_paths(t: TestCtx) -> void:
 
 	# A longer pull selects the top band before the same release edge fires.
 	starter_ball.launched = false
-	starter_ball.linear_velocity = Vector2.ZERO
+	starter_ball.linear_velocity = Vector3.ZERO
 	input._on_touch(_touch(2, Vector2(960.0, 1200.0), true))
 	input._on_drag(_drag(2, Vector2(960.0, 1200.0 + BandedPlunger.STARTER_BAND_DISTANCE_PX * 2.0)))
 	input._on_touch(_touch(2, Vector2(960.0, 1328.0), false))
@@ -83,7 +83,7 @@ func _touch_plunger_paths(t: TestCtx) -> void:
 	# Real Plunger keeps the inherited continuous charge path on the same touch role.
 	var real := Plunger.new()
 	var real_ball := Ball.new()
-	real.lane_rect = Rect2(-20.0, -20.0, 40.0, 40.0)
+	real.lane_box = AABB(Vector3(-0.2, -0.2, -0.2), Vector3(0.4, 0.4, 0.4))
 	real.set_ball(real_ball)
 	input.bind(null, null, real, null)
 	input._on_touch(_touch(3, Vector2(960.0, 1200.0), true))

@@ -69,8 +69,11 @@ func _rotation(t: TestCtx) -> void:
 	t.ok(sweep_l > deg_to_rad(30.0), "sweep is a real flipper stroke")
 
 	for side: StringName in [&"left", &"right"]:
-		var rest_tip := Vector2(Feel.FLIPPER_LENGTH, 0.0).rotated(Feel.flipper_rest_rotation(side))
-		var up_tip := Vector2(Feel.FLIPPER_LENGTH, 0.0).rotated(Feel.flipper_up_rotation(side))
+		# a yaw about +Y turns local +X onto plan (cos, -sin): +z is toward the player
+		var rest_yaw := Feel.flipper_rest_rotation(side)
+		var up_yaw := Feel.flipper_up_rotation(side)
+		var rest_tip := Vector2(cos(rest_yaw), -sin(rest_yaw)) * Feel.FLIPPER_LENGTH
+		var up_tip := Vector2(cos(up_yaw), -sin(up_yaw)) * Feel.FLIPPER_LENGTH
 		t.ok(rest_tip.y > 0.0, "%s tip hangs below the pivot at rest" % side)
 		t.ok(up_tip.y < 0.0, "%s tip is above the pivot when flipped" % side)
 		var inward := 1.0 if side == &"left" else -1.0

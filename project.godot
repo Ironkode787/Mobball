@@ -40,17 +40,21 @@ window/handheld/orientation=1
 
 [layer_names]
 
-2d_physics/layer_1="walls"
-2d_physics/layer_2="ball"
-2d_physics/layer_3="flippers"
-2d_physics/layer_4="hardware"
-2d_physics/layer_5="zones"
+3d_physics/layer_1="walls"
+3d_physics/layer_2="ball"
+3d_physics/layer_3="flippers"
+3d_physics/layer_4="hardware"
+3d_physics/layer_5="zones"
 
 [physics]
 
-common/physics_ticks_per_second=120
-2d/default_gravity=3800.0
+3d/physics_engine="Jolt Physics"
+common/physics_ticks_per_second=240
+3d/default_gravity=98.1
 common/physics_interpolation=true
+jolt_physics_3d/simulation/bounce_velocity_threshold=0.3
+jolt_physics_3d/simulation/penetration_slop=0.004
+jolt_physics_3d/simulation/speculative_contact_distance=0.02
 
 [rendering]
 

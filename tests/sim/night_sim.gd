@@ -1,4 +1,4 @@
-extends Node2D
+extends Node3D
 ## FLOW acceptance runner (specs/m1-hook.md Lane 1 "Sims"). Boots the real game scene with
 ## a purchased-set fixture, plays scripted Nights with real physics, and asserts the session
 ## model: count summary math, Bench states, both Raid branches, bail, Jobs and the save
@@ -18,9 +18,9 @@ const FIXTURE: PackedStringArray = [
 	"muscle.chalk_lines", "rackets.numbers_game", "fronts.coin_op",
 ]
 
-const DRAIN_POINT := Vector2(490.0, 1876.0)
-const SAFE_POINT := Vector2(490.0, 760.0)
-const KEEP_ALIVE_Y := 1400.0
+const DRAIN_POINT := Vector3(Layout.MIRROR_X, Feel.BALL_RADIUS + 0.01, Layout.CENTRE_DRAIN_AT.y + 0.05)
+const SAFE_POINT := Vector3(Layout.MIRROR_X, Feel.BALL_RADIUS + 0.01, 0.6)
+const KEEP_ALIVE_Z := 3.9
 
 ## Headless physics runs at 1x wall clock, so every second of scripted play costs a second
 ## of CI. Nights are played on a budget and the Raid's 45 s is shortened to RAID_SECONDS —
@@ -29,7 +29,7 @@ const NIGHT_BUDGET := 26.0
 const RAID_SECONDS := 8.0
 
 var main: Main = null
-var table: Node2D = null
+var table: Node3D = null
 var stats: Stats = null
 
 var _results: Array[Dictionary] = []
@@ -123,7 +123,7 @@ func _physics_process(_delta: float) -> void:
 	if not _keep_alive:
 		return
 	var b := ball()
-	if b != null and b.global_position.y > KEEP_ALIVE_Y:
+	if b != null and b.table_position().z > KEEP_ALIVE_Z:
 		b.place(SAFE_POINT)
 
 
@@ -366,6 +366,9 @@ func _s3_raid_lost() -> void:
 			retry_plunger.launch(1.0)
 		await step(2)
 	var doomed := TableAPI.ball(table)
+	# The ball is live and scoring on a real machine until the drain takes it: the confiscation
+	# is measured against the bankroll at the last instant before the forced loss.
+	dirty_before = Game.wallet.dirty
 	await _force_drain()
 	# The authored drain is physics-driven, but call its own guarded entry point if a headless
 	# frame did not overlap the sensor. This keeps the raid assertion about flow, not timing.
@@ -489,6 +492,10 @@ func _s7_raid_pending_at_open() -> void:
 		plunger.launch(1.0)
 	await wait(RAID_SECONDS + 1.2)
 	_keep_alive = false
+	print("        raid debug: results=%s state=%s night=%s raid=%s ended=%d pinched=%d nights_ended=%d ball=%s"
+			% [str(_raid_results), str(Game.state), str(main.night),
+			str(main.night.raid) if main.night != null else "-", count_of("raid_ended"),
+			count_of("guy_pinched"), count_of("night_ended"), str(TableAPI.ball(table))])
 	check(_raid_results.size() > 0 and _raid_results[-1] == true,
 			"the raid the latch opened never finished")
 	check(not Game.heat.is_raid_pending(), "reset_after_raid did not clear the latch")

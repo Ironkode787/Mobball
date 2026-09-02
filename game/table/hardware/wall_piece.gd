@@ -1,44 +1,69 @@
 class_name WallPiece
-extends Node2D
-## A named lump of wall geometry that an upgrade can switch on and off — lane guides, the
-## numbers-lane channel, the getaway arc, the top-lane posts.
-##
-## Same discipline as WallBuilder: the collision body and the drawing come from one set of
-## capsule chains, so a dormant piece can never leave a ghost outline behind, nor an
-## invisible wall in front of the player.
+extends Node3D
+## A named lump of wall geometry an upgrade can switch on and off — lane guides, the ring's
+## arms, the top-lane posts, a deck's shell. Collision and mesh come from one WallBuilder so
+## a dormant piece can never leave a ghost rail behind, nor an invisible wall in front of
+## the player.
 
-var body: StaticBody2D = null
+var body: StaticBody3D = null
 var walls: WallBuilder = null
-var color: Color = Feel.COL_BRASS.darkened(0.42)
-var rim: Color = Feel.COL_INK
-
+var material: Material = null
+var cap_material: Material = null
 var _active: bool = true
+var _built: bool = false
 
 
-func _init() -> void:
-	body = StaticBody2D.new()
-	body.name = "Body"
-	body.collision_layer = Feel.LAYER_WALLS
-	body.collision_mask = 0
-	body.physics_material_override = Feel.make_material(Feel.WALL_FRICTION, Feel.WALL_BOUNCE)
+func _init(height: float = Layout.GUIDE_HEIGHT, base: float = 0.0, p_material: Material = null,
+		p_cap: Material = null) -> void:
+	body = WallBuilder.make_body("Body")
 	add_child(body)
-	walls = WallBuilder.new(body)
+	walls = WallBuilder.new(body, height, base)
+	material = p_material if p_material != null else MaterialLib.shared().brass_dark()
+	cap_material = p_cap
 
 
-func bar(from: Vector2, to: Vector2, thickness: float) -> void:
-	walls.bar(from, to, thickness)
-	queue_redraw()
+func _ready() -> void:
+	_ensure_mesh()
 
 
-func chain(points: PackedVector2Array, thickness: float) -> void:
-	walls.chain(points, thickness)
-	queue_redraw()
+func _ensure_mesh() -> void:
+	if _built or walls.chains.is_empty():
+		return
+	_built = true
+	walls.build_mesh(material, cap_material)
 
 
-func arc(center: Vector2, radius: float, from_angle: float, to_angle: float,
-		segments: int, thickness: float) -> void:
-	walls.arc(center, radius, from_angle, to_angle, segments, thickness)
-	queue_redraw()
+func bar(from: Vector2, to: Vector2, thickness: float, height: float = -1.0) -> void:
+	walls.bar(from, to, thickness, height)
+	if is_inside_tree():
+		_rebuild()
+
+
+func chain(points: PackedVector2Array, thickness: float, height: float = -1.0) -> void:
+	walls.chain(points, thickness, height)
+	if is_inside_tree():
+		_rebuild()
+
+
+func arc(center: Vector2, radius: float, from_deg: float, to_deg: float, segments: int,
+		thickness: float, height: float = -1.0) -> void:
+	walls.arc(center, radius, from_deg, to_deg, segments, thickness, height)
+	if is_inside_tree():
+		_rebuild()
+
+
+func post(at: Vector2, radius: float, height: float = -1.0) -> void:
+	walls.post(at, radius, height)
+	if is_inside_tree():
+		_rebuild()
+
+
+func _rebuild() -> void:
+	for child in body.get_children():
+		if child is MeshInstance3D:
+			child.queue_free()
+	_built = false
+	_ensure_mesh()
 
 
 func set_hardware_active(active: bool) -> void:
@@ -55,22 +80,3 @@ func visual_state() -> Dictionary:
 	var state := TableVisualState.VisualState.IDLE if _active \
 			else TableVisualState.VisualState.DISABLED
 	return TableVisualState.state_token(state)
-
-
-func _draw() -> void:
-	if not _active:
-		return
-	var token := visual_state()
-	# WallBuilder remains the sole geometry/draw source. These endpoint caps are paint-only
-	# witness marks that make a real wall read in grayscale without adding a route or collider.
-	walls.draw_into(self, color, rim)
-	if String(token["mark"]) != "outline":
-		return
-	for chain: Dictionary in walls.chains:
-		var points: PackedVector2Array = chain["points"]
-		if points.size() < 2:
-			continue
-		var t: float = float(chain["thickness"])
-		var cap := maxf(t * 0.28, 4.0)
-		draw_circle(points[0], cap, rim)
-		draw_circle(points[points.size() - 1], cap, rim)

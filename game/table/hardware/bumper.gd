@@ -1,76 +1,106 @@
 class_name Bumper
-extends StaticBody2D
-## Pop bumper. Solid circle for the bounce plus a ring sensor exactly one ball-radius wider,
-## so the kick fires the instant the surfaces touch instead of a frame later. Like a real
-## skirt switch it also fires on a ball that has come to rest inside the ring — otherwise a
-## ball can balance on the cap and stay there.
+extends StaticBody3D
+## A pop bumper: a solid post the ball bounces off and a skirt ring that fires the solenoid —
+## a radial shove plus the score. The can's art rides the cap; the body is the lamp.
 
 @export var id: StringName = &"bumper"
 @export var value: int = Feel.BUMPER_VALUE
-## Economy group this can pays into (specs/ledger-data.md `value_mult` targets).
 @export var group: StringName = &"bumpers"
-## The progression table uses three mismatched cans: one broad anchor and two quicker
-## satellites. Authored geometry is scaled directly so the skirt and visible lid agree.
 @export var size_scale: float = 1.0
-
-const CIRCULAR_DECAL: Shader = preload("res://game/presentation/circular_decal.gdshader")
 
 var _present: bool = true
 var _cooldown: float = 0.0
 var _pulse: float = 0.0
+var _ring: Area3D = null
 var _inside: Array[Ball] = []
-var _ring: Area2D = null
-var _decal: Sprite2D = null
+var _lamp: StandardMaterial3D = null
+
+
+func radius() -> float:
+	return Feel.BUMPER_RADIUS * size_scale
 
 
 func _ready() -> void:
 	collision_layer = Feel.LAYER_HARDWARE
 	collision_mask = 0
-	physics_material_override = Feel.make_material(Feel.RUBBER_FRICTION, 0.18)
-	_build_decal()
+	physics_material_override = Feel.make_material(Feel.RUBBER_FRICTION, Feel.RUBBER_BOUNCE)
+	var r := radius()
+	var shape := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = r * 0.66
+	cyl.height = 0.5
+	shape.shape = cyl
+	shape.position.y = 0.25
+	shape.name = "Body"
+	add_child(shape)
 
-	var body := CollisionShape2D.new()
-	var circle := CircleShape2D.new()
-	circle.radius = Feel.BUMPER_RADIUS * size_scale
-	body.shape = circle
-	body.name = "Body"
-	add_child(body)
-
-	var ring := Area2D.new()
-	ring.name = "Ring"
-	ring.collision_layer = Feel.LAYER_ZONES
-	ring.collision_mask = Feel.LAYER_BALL
-	ring.monitorable = false
-	var rs := CollisionShape2D.new()
-	var rc := CircleShape2D.new()
-	rc.radius = Feel.BUMPER_RADIUS * size_scale + Feel.BALL_RADIUS
-	rs.shape = rc
-	ring.add_child(rs)
-	add_child(ring)
-	ring.body_entered.connect(_on_ball_entered)
-	ring.body_exited.connect(_on_ball_exited)
-	_ring = ring
+	_ring = Area3D.new()
+	_ring.name = "Skirt"
+	_ring.collision_layer = Feel.LAYER_ZONES
+	_ring.collision_mask = Feel.LAYER_BALL
+	_ring.monitorable = false
+	var rs := CollisionShape3D.new()
+	var ring := CylinderShape3D.new()
+	ring.radius = r * 0.66 + Feel.BALL_RADIUS + 0.03
+	ring.height = 0.5
+	rs.shape = ring
+	rs.position.y = 0.25
+	_ring.add_child(rs)
+	add_child(_ring)
+	_ring.body_entered.connect(_on_ball_entered)
+	_ring.body_exited.connect(_on_ball_exited)
+	_build_look()
 	_apply_collision()
 
 
-func _build_decal() -> void:
-	var texture := Presentation.art.resolve(&"prop.trash_can", null, false)
-	if texture == null:
-		return
-	_decal = Sprite2D.new()
-	_decal.name = "TrashCanArt"
-	_decal.texture = texture
-	_decal.show_behind_parent = true
-	var diameter := Feel.BUMPER_RADIUS * size_scale * 2.12
-	_decal.scale = Vector2.ONE * (diameter / float(texture.get_width()))
-	var material := ShaderMaterial.new()
-	material.shader = CIRCULAR_DECAL
-	_decal.material = material
-	add_child(_decal)
+func _build_look() -> void:
+	var lib := MaterialLib.shared()
+	var r := radius()
+	_lamp = lib.lamp(Color(1.0, 0.80, 0.42))
+	var body := CylinderMesh.new()
+	body.top_radius = r * 0.62
+	body.bottom_radius = r * 0.66
+	body.height = 0.44
+	body.radial_segments = 24
+	var bm := MeshInstance3D.new()
+	bm.mesh = body
+	bm.material_override = _lamp
+	bm.position.y = 0.22
+	bm.name = "Lamp"
+	add_child(bm)
+	var st := MeshLib.begin()
+	MeshLib.ring(st, Vector3.ZERO, r * 0.66, r * 1.0, 0.03, 0.10, 28)
+	MeshLib.ring(st, Vector3.ZERO, r * 1.0, r * 0.96, 0.10, 0.0, 28)
+	var skirt := MeshInstance3D.new()
+	skirt.mesh = MeshLib.finish(st, lib.rubber_red())
+	skirt.name = "SkirtRing"
+	add_child(skirt)
+	var cap := CylinderMesh.new()
+	cap.top_radius = r * 1.06
+	cap.bottom_radius = r * 1.10
+	cap.height = 0.08
+	cap.radial_segments = 28
+	var cm := MeshInstance3D.new()
+	cm.mesh = cap
+	cm.material_override = lib.ink()
+	cm.position.y = 0.48
+	cm.name = "Cap"
+	add_child(cm)
+	var tex: Texture2D = null
+	if Presentation != null and Presentation.art != null:
+		tex = Presentation.art.resolve(&"prop.trash_can", null, false)
+	if tex != null:
+		var decal := PlaneMesh.new()
+		decal.size = Vector2.ONE * r * 2.0
+		var dm := MeshInstance3D.new()
+		dm.mesh = decal
+		dm.material_override = lib.art(tex)
+		dm.position.y = 0.525
+		dm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		dm.name = "CapArt"
+		add_child(dm)
 
 
-## Draw-only snapshot. Dormant bumpers are absent; a short post-hit cooldown is shown as a
-## subdued disabled cue so it cannot be mistaken for another invitation.
 func visual_state() -> Dictionary:
 	var state := TableVisualState.VisualState.IDLE
 	var mods: Array[StringName] = []
@@ -85,31 +115,16 @@ func visual_state() -> Dictionary:
 	return TableVisualState.state_token(state, mods)
 
 
-func _ambient_material(role: StringName, fallback: Color) -> Color:
-	if Presentation.city != null:
-		var candidate := Presentation.city.material_for(role)
-		if candidate.a > 0.0:
-			return candidate
-	return fallback
-
-
-func _reduced_flash() -> bool:
-	return Presentation.fx != null and Presentation.fx.reduced_flash
-
-
 func _process(delta: float) -> void:
 	if _pulse > 0.0:
 		_pulse = maxf(_pulse - delta * 6.0, 0.0)
-		queue_redraw()
+	if _lamp != null:
+		_lamp.emission_energy_multiplier = lerpf(_lamp.emission_energy_multiplier,
+				0.35 + _pulse * 3.2, 1.0 - exp(-18.0 * delta))
 
 
 func _physics_process(delta: float) -> void:
-	var previous_cooldown := _cooldown
 	_cooldown = maxf(_cooldown - delta, 0.0)
-	if not is_equal_approx(previous_cooldown, _cooldown):
-		queue_redraw()
-	# a real pop bumper's skirt fires on contact, not on approach: a ball that comes to rest
-	# on the cap has to be thrown off again or it sits there for the rest of the night
 	if _inside.is_empty():
 		return
 	for i in range(_inside.size() - 1, -1, -1):
@@ -117,18 +132,20 @@ func _physics_process(delta: float) -> void:
 			_inside.remove_at(i)
 	if _cooldown > 0.0:
 		return
+	# a real pop's skirt fires on contact, not on approach: a ball resting against the cap
+	# has to be thrown off again or it sits there for the rest of the night
 	for b in _inside:
 		if b.speed() < Feel.HARDWARE_STALL_SPEED:
 			_kick(b)
 			return
 
 
-func _on_ball_exited(body: Node2D) -> void:
+func _on_ball_exited(body: Node3D) -> void:
 	if body is Ball:
 		_inside.erase(body as Ball)
 
 
-func _on_ball_entered(body: Node2D) -> void:
+func _on_ball_entered(body: Node3D) -> void:
 	if not (body is Ball):
 		return
 	_inside.append(body as Ball)
@@ -139,18 +156,17 @@ func _on_ball_entered(body: Node2D) -> void:
 
 func _kick(ball: Ball) -> void:
 	_cooldown = Feel.BUMPER_COOLDOWN
-	var away := (ball.global_position - global_position)
+	var away := ball.table_position() - position
+	away.y = 0.0
 	if away.length() < 0.001:
-		away = Vector2.UP
+		away = Vector3(0.0, 0.0, 1.0)
 	away = away.normalized()
 	ball.kick(away * Feel.BUMPER_IMPULSE)
 	_pulse = 1.0
-	queue_redraw()
 	AudioDirector.play(&"bumper_hit")
 	TableScore.earn(group, float(value), id, ball, Feel.BUMPER_IMPULSE)
 
 
-## A can that has not been bought yet is not on the table at all (progression_table.gd).
 func set_hardware_active(active: bool) -> void:
 	_present = active
 	visible = active
@@ -158,57 +174,12 @@ func set_hardware_active(active: bool) -> void:
 	_apply_collision()
 
 
+func is_hardware_active() -> bool:
+	return _present
+
+
 func _apply_collision() -> void:
 	collision_layer = Feel.LAYER_HARDWARE if _present else 0
 	if _ring != null:
 		_ring.collision_layer = Feel.LAYER_ZONES if _present else 0
 		_ring.collision_mask = Feel.LAYER_BALL if _present else 0
-
-
-func _draw() -> void:
-	if not _present:
-		return
-	var token := visual_state()
-	var r := Feel.BUMPER_RADIUS * size_scale * (1.0 + _pulse * 0.14)
-	var ink := _ambient_material(&"ink_glass", Feel.COL_INK)
-	var brass := _ambient_material(&"brass", Feel.COL_BRASS)
-	var paper := _ambient_material(&"paper", Feel.COL_NEWSPRINT)
-	var pulse_alpha := _pulse * (0.25 if _reduced_flash() else 1.0)
-	# A battered trash-can lid, not a generic pinball disc. The nested steel ribs make the
-	# pulse read like the lid physically jumping when the skirt fires.
-	draw_circle(Vector2(0.0, 7.0), r + 4.0, Color(0.0, 0.0, 0.0, 0.38))
-	if _pulse > 0.0:
-		draw_circle(Vector2.ZERO, r + 15.0,
-				Color(brass.r, brass.g, brass.b, pulse_alpha * 0.12))
-	if _decal == null:
-		draw_circle(Vector2.ZERO, r, ink.lightened(0.05))
-	draw_arc(Vector2.ZERO, r - 3.0, 0.0, TAU, 40,
-			brass.lerp(paper, pulse_alpha * 0.62), 7.0)
-	if _decal != null:
-		draw_circle(Vector2.ZERO, r * 0.13,
-				brass.lerp(paper, pulse_alpha * 0.45))
-	else:
-		var steel := paper.darkened(0.62).lerp(brass, 0.20 + pulse_alpha * 0.42)
-		draw_circle(Vector2.ZERO, r * 0.68, steel.darkened(0.26))
-		draw_arc(Vector2.ZERO, r * 0.62, 0.0, TAU, 32, steel, 4.0)
-		draw_arc(Vector2.ZERO, r * 0.43, 0.0, TAU, 28, steel.darkened(0.12), 3.0)
-		draw_circle(Vector2(-r * 0.12, -r * 0.10), r * 0.25, steel.darkened(0.18))
-		# Each can has a different old dent, so three bought bumpers feel like three objects.
-		var dent_sign := -1.0 if String(id).ends_with("2") else 1.0
-		draw_arc(Vector2(dent_sign * r * 0.22, r * 0.08), r * 0.21,
-				0.2, PI * 1.18, 10, ink.lightened(0.17), 3.0)
-		draw_line(Vector2(-r * 0.22, r * 0.35), Vector2(r * 0.30, r * 0.28),
-				Color(paper.r, paper.g, paper.b, 0.13), 2.0)
-
-	# The marks are deliberately geometric so active/cooldown remain readable in grayscale.
-	match String(token["mark"]):
-		"contact_pulse":
-			for i in range(4):
-				var a := float(i) * PI * 0.5 + PI * 0.25
-				var inner := Vector2(cos(a), sin(a)) * r * 0.78
-				var outer := Vector2(cos(a), sin(a)) * (r + 8.0 + pulse_alpha * 7.0)
-				draw_line(inner, outer, Color(paper, pulse_alpha * 0.72), 3.0)
-		"cooldown_clock":
-			draw_arc(Vector2.ZERO, r * 0.78, -PI * 0.5, PI * 0.9, 12,
-					Color(paper, 0.50), 3.0)
-			draw_line(Vector2.ZERO, Vector2(0.0, -r * 0.42), Color(paper, 0.60), 3.0)

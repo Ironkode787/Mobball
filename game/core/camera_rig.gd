@@ -1,172 +1,96 @@
 class_name CameraRig
-extends Camera2D
-## The camera. M0/M1 framed the whole 1080×1920 table and never moved, because the whole
-## table fitted on the screen. M2 builds the Club on top of it and the playfield becomes
-## ~2.8 screens tall, so the vertical follow (docs/01 §2 "smart vertical follow with
-## look-ahead") turns on here.
+extends Camera3D
+## The player's eye: a perspective camera over the inclined playfield, framing the whole
+## machine from the flippers up and easing along the table to keep the ball and the shot it
+## is heading for in view. Lives under the table root so its numbers are in table space.
 ##
-## Three rules, in priority order:
-##
-##   1. **Never show void.** The clamp comes from the live table's `bounds()`, re-read every
-##      tick, so the camera's range grows the moment the deck is bought and not before.
-##   2. **Never lose the flippers while the ball is downstairs.** The main field fits on
-##      screen whole, so while the ball is in it the camera simply parks at the bottom of its
-##      range. It only starts to climb as the ball rises out of the top of that frame, and it
-##      is fully free by the time the ball is above the arch. A player looking at their bats
-##      never has them slide off the bottom of the screen.
-##   3. **Lead the ball.** A fraction of a second of velocity, capped, so a shot up the
-##      Staircase opens the deck up ahead of the ball instead of chasing it.
-##
-## The HUD is a CanvasLayer and is not affected by any of this.
+## Rules, in priority order:
+##   1. The flippers never leave the bottom of the frame while the ball is downstairs.
+##   2. Lead the ball a little: a shot up a ramp opens the top of the table ahead of it.
+##   3. Never show void: the frame is clamped to the table's `bounds()`.
 
 @export var follow_enabled: bool = true
-@export var static_center: Vector2 = Vector2(540.0, 970.0)
-@export var static_zoom: float = 0.98
-@export var follow_lookahead: float = 0.16      ## seconds of velocity to lead the ball by
-@export var follow_smooth: float = 7.5
-## Coming home is chased harder than going up. A ball on its way down is about to need the
-## flippers, and the frame has to be there before it arrives; a ball on its way up is a
-## reveal, and a reveal wants easing.
-@export var follow_smooth_down: float = 13.0
-## Fallback clamp, used only when no table can be found to read `bounds()` from.
-@export var follow_min_y: float = 620.0
-@export var follow_max_y: float = 1180.0
-## Derive the clamp from the hosted table instead of the two exports above.
-@export var auto_bounds: bool = true
+## Pitch of the view from straight down, degrees. Real players see the field at ~55°; a phone
+## in portrait wants it steeper so the whole width fits.
+@export var pitch_deg: float = 30.0
+@export var fov_deg: float = 44.0
+## How much of the table length is framed at once (units): the rest scrolls.
+@export var frame_length: float = 9.8
+@export var follow_lookahead: float = 0.10
+@export var follow_smooth: float = 6.5
+@export var follow_smooth_down: float = 11.0
 
-## A whole shot's worth of lead would swing the frame around; a third of a screen is plenty.
-const LOOKAHEAD_MAX := 300.0
-## Where the camera starts to unlock, as a fraction of the parked frame's height measured
-## down from its top edge: the ball has to be well inside the top of the frame before the
-## view moves at all, and clear of it before the view is free.
-const UNLOCK_FROM := 0.28
-const UNLOCK_TO := 0.02
-
-var target: Node2D = null
-
-var _table: Node = null
-var _bounds: Rect2 = Rect2()
-
-
-## Physics interpolation is on project-wide, so Camera2D is forced into physics-process mode
-## regardless. Declaring it before the node enters the tree just stops the engine warning
-## about it on every single boot.
-func _init() -> void:
-	process_callback = Camera2D.CAMERA2D_PROCESS_PHYSICS
+var target: Node3D = null
+var _table: Node3D = null
+var _center_z: float = 0.0
+var _init_done: bool = false
 
 
 func _ready() -> void:
-	enabled = true
-	make_current()
-	zoom = Vector2(static_zoom, static_zoom)
-	_find_table()
-	_read_bounds()
-	var start_lo := min_center_y()
-	var start_hi := max_center_y()
-	if start_lo > start_hi:
-		start_lo = start_hi
-	position = Vector2(static_center.x, clampf(static_center.y, start_lo, start_hi))
+	current = true
+	fov = fov_deg
+	near = 0.5
+	far = 120.0
+	keep_aspect = Camera3D.KEEP_HEIGHT
+	_table = get_parent() as Node3D
+	_center_z = max_center_z()
+	_place(_center_z)
+	_init_done = true
 
 
-func set_target(t: Node2D) -> void:
+func set_target(t: Node3D) -> void:
 	target = t
 
 
-## What the camera can see right now, in table space. Sims assert against this.
-func view_rect() -> Rect2:
-	var size := get_viewport_rect().size / maxf(static_zoom, 0.0001)
-	return Rect2(position - size * 0.5, size)
+func bounds() -> AABB:
+	if _table != null and _table.has_method(&"bounds"):
+		var b: Variant = _table.call(&"bounds")
+		if b is AABB:
+			return b
+	return AABB(Vector3(-2.6, 0.0, -5.4), Vector3(5.2, 1.0, 10.8))
 
 
-func view_size() -> Vector2:
-	return get_viewport_rect().size / maxf(static_zoom, 0.0001)
+## Frame centre z when parked on the flippers (the lowest the view goes).
+func max_center_z() -> float:
+	return bounds().end.z - frame_length * 0.5 + 0.35
 
 
-## Highest the camera may look — any higher and the frame runs off the top of the table.
-func min_center_y() -> float:
-	if not auto_bounds or _bounds.size.y <= 0.0:
-		return follow_min_y
-	return _bounds.position.y + view_size().y * 0.5
+func min_center_z() -> float:
+	return minf(bounds().position.z + frame_length * 0.5 - 0.6, max_center_z())
 
 
-func max_center_y() -> float:
-	if not auto_bounds or _bounds.size.y <= 0.0:
-		return follow_max_y
-	return _bounds.end.y - view_size().y * 0.5
-
-
-## The table this rig is framing. Found once by shape rather than by name, so any segment
-## that implements the TableSegment contract works.
-func _find_table() -> void:
-	var host := get_parent()
-	if host == null:
-		return
-	for child in host.get_children():
-		if child != self and child.has_method(&"bounds") and child.has_method(&"spawn_point"):
-			_table = child
-			return
-
-
-func _read_bounds() -> void:
-	if _table == null or not is_instance_valid(_table):
-		_table = null
-		_find_table()
-	if _table == null:
-		return
-	var r: Variant = _table.call(&"bounds")
-	if r is Rect2:
-		_bounds = r
-
-
-## Runs on the physics tick, not the idle frame: with interpolation on, an idle-frame write
-## to `position` fights the interpolator instead of feeding it.
 func _physics_process(delta: float) -> void:
-	if not follow_enabled:
+	if not follow_enabled or not _init_done:
 		return
-	# Multiball: always frame the ball nearest danger (specs/ball-registry.md). With one
-	# registered ball primary() IS the current target, so single-ball behavior is identical.
 	if Balls.count() > 0:
 		var p := Balls.primary()
 		if p != null:
 			target = p
-	_read_bounds()
-	var lo := min_center_y()
-	var hi := max_center_y()
-	if lo > hi:
-		# Table shorter than the frame (tall phones, early ranks): pin the table's BOTTOM
-		# to the screen bottom — flippers at thumb level, spare screen above the arch
-		# where the empire will grow, never a dead strip under the player's hands.
-		lo = hi
-	if target == null or not is_instance_valid(target):
-		var home := clampf(static_center.y, lo, hi)
-		var home_position := Vector2(static_center.x, home)
-		position = home_position if _reduced_motion() else position.lerp(home_position,
-				1.0 - exp(-follow_smooth * delta))
-		return
-	var ball_y := target.global_position.y
-	var lead := 0.0
-	if target is RigidBody2D:
-		lead = clampf((target as RigidBody2D).linear_velocity.y * follow_lookahead,
-				-LOOKAHEAD_MAX, LOOKAHEAD_MAX)
-	var wanted := clampf(ball_y + lead, look_limit(ball_y, lo, hi), hi)
-	var smooth := follow_smooth_down if wanted > position.y else follow_smooth
-	var wanted_position := Vector2(static_center.x, wanted)
-	position = wanted_position if _reduced_motion() else position.lerp(wanted_position,
-			1.0 - exp(-smooth * delta))
+	var lo := min_center_z()
+	var hi := max_center_z()
+	var wanted := hi
+	if target != null and is_instance_valid(target):
+		var tp := (target as Node3D).position
+		var lead := 0.0
+		if target is RigidBody3D:
+			var v: Vector3 = (target as Ball).local_velocity() if target is Ball \
+					else (target as RigidBody3D).linear_velocity
+			lead = clampf(v.z * follow_lookahead, -1.5, 1.5)
+		# the view only starts to climb once the ball is well up the field
+		var unlock_from := hi - frame_length * 0.20
+		var unlock_to := hi - frame_length * 0.55
+		var t := clampf(inverse_lerp(unlock_from, unlock_to, tp.z + lead), 0.0, 1.0)
+		wanted = lerpf(hi, clampf(tp.z + lead, lo, hi), t)
+	var smooth := follow_smooth_down if wanted > _center_z else follow_smooth
+	var reduced := Presentation.fx != null and Presentation.fx.reduced_motion
+	_center_z = wanted if reduced else lerpf(_center_z, wanted, 1.0 - exp(-smooth * delta))
+	_place(_center_z)
 
 
-func _reduced_motion() -> bool:
-	return Presentation.fx != null and Presentation.fx.reduced_motion
-
-
-## Rule 2 in one number: the highest the camera is allowed to look given where the ball is.
-## While the ball is inside the parked frame this is the parked position itself — the view
-## cannot rise at all — and it opens up smoothly to the top of the table as the ball leaves
-## the frame through the top.
-func look_limit(ball_y: float, lo: float, hi: float) -> float:
-	var h := view_size().y
-	var parked_top := hi - h * 0.5
-	var from_y := parked_top + h * UNLOCK_FROM
-	var to_y := parked_top + h * UNLOCK_TO
-	var t := clampf(inverse_lerp(from_y, to_y, ball_y), 0.0, 1.0)
-	return lerpf(hi, lo, t)
+func _place(center_z: float) -> void:
+	var pitch := deg_to_rad(pitch_deg)
+	var half := frame_length * 0.5
+	var dist := half * cos(pitch) / tan(deg_to_rad(fov_deg) * 0.5)
+	var focus := Vector3(0.0, 0.0, center_z)
+	position = focus + Vector3(0.0, dist * cos(pitch), dist * sin(pitch))
+	look_at_from_position(position, focus, Vector3(0.0, 0.0, -1.0))

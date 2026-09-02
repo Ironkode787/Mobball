@@ -1,75 +1,95 @@
 class_name OneWayGate
-extends Node2D
-## A blade the ball may only cross from one side — the M1 shooter-lane flap generalised so
-## the Docks can have one too (docs/02 §2 R5: "behind a one-way gate off the left channel").
-##
-## The physics is a latch, not a hinge. A hinged flap in a 2D solver is a body the ball can
-## push *through* at 120 Hz, or get pinned under; instead the blade is a plain static bar
-## whose collision layer is switched by which side of it the ball is on. Two rules keep that
-## honest:
-##
-##   * **Hysteresis.** The side is only re-read while the ball is inside the blade's span,
-##     and only once it is `LATCH_BAND` px clear of the blade plane. A ball wandering along
-##     the blade cannot flutter it.
-##   * **Never materialise inside the ball.** Within `HOLD_BAND` px of the plane the blade
-##     keeps whatever state it already had, so it can never close on top of the ball.
-##
-## `pass_from` is the side the ball is allowed to arrive from: standing on that side the
-## blade is *open*, standing on the other side it is *solid*. The Docks' gate points DOWN —
-## a ball flipped up the numbers lane passes straight through, and the same ball coming back
-## down the lane lands on a solid blade that is raked into the dock mouth.
+extends Node3D
+## A hinged wire gate across a lane: it swings open for a ball coming from `pass_from` and
+## is a wall to one coming back. The blade is a real collider toggled by which side the
+## ball is on, so nothing can be half-open on top of the ball.
 
 signal opened()
 signal closed()
 
-const LATCH_BAND := 34.0
-const HOLD_BAND := 40.0
+const LATCH_BAND := 0.22
+const HOLD_BAND := 0.16
 
 @export var id: StringName = &"one_way_gate"
 
-## The blade, in table space.
 var from_point: Vector2 = Vector2.ZERO
 var to_point: Vector2 = Vector2.ZERO
-var thickness: float = 16.0
-## Unit vector pointing at the side a ball may cross *from*.
-var pass_from: Vector2 = Vector2.DOWN
-var color: Color = Feel.COL_BRASS
+var thickness: float = 0.05
+var pass_from: Vector2 = Vector2(0.0, 1.0)
+var base_height: float = 0.0
 
-var _body: StaticBody2D = null
+var _body: StaticBody3D = null
 var _present: bool = true
 var _open: bool = false
 var _ball: Ball = null
 var _axis: Vector2 = Vector2.RIGHT
-var _normal: Vector2 = Vector2.DOWN
+var _normal: Vector2 = Vector2(0.0, 1.0)
 var _centre: Vector2 = Vector2.ZERO
 var _half_span: float = 0.0
+var _flap: Node3D = null
+var _swing_sign: float = 1.0
+var _angle: float = 0.0
 
 
 func configure(p_id: StringName, from: Vector2, to: Vector2, p_thickness: float,
-		p_pass_from: Vector2) -> void:
+		p_pass_from: Vector2, p_base: float = 0.0) -> void:
 	id = p_id
 	from_point = from
 	to_point = to
 	thickness = p_thickness
 	pass_from = p_pass_from.normalized()
+	base_height = p_base
 	_axis = (to - from).normalized()
 	_normal = Vector2(-_axis.y, _axis.x)
 	if _normal.dot(pass_from) < 0.0:
-		_normal = -_normal                     # normal always points at the passing side
+		_normal = -_normal
 	_centre = (from + to) * 0.5
 	_half_span = from.distance_to(to) * 0.5
 
 
 func _ready() -> void:
-	_body = StaticBody2D.new()
-	_body.name = "Blade"
-	_body.collision_layer = Feel.LAYER_WALLS
-	_body.collision_mask = 0
-	_body.physics_material_override = Feel.make_material(Feel.WALL_FRICTION, 0.12)
+	_body = WallBuilder.make_body("Blade", Feel.LAYER_WALLS, Feel.make_material(Feel.WALL_FRICTION, 0.12))
 	add_child(_body)
-	var walls := WallBuilder.new(_body)
+	var walls := WallBuilder.new(_body, Layout.GUIDE_HEIGHT, base_height)
 	walls.bar(from_point, to_point, thickness)
+	_build_look()
 	_apply_collision()
+
+
+func _build_look() -> void:
+	var lib := MaterialLib.shared()
+	var a := Layout.p3(from_point, base_height)
+	var b := Layout.p3(to_point, base_height)
+	var top := Layout.GUIDE_HEIGHT
+	var st := MeshLib.begin()
+	MeshLib.tube(st, PackedVector3Array([a + Vector3(0, top, 0), b + Vector3(0, top, 0)]), 0.012, 6)
+	MeshLib.post(st, from_point, 0.028, top + 0.04, base_height, 8)
+	MeshLib.post(st, to_point, 0.028, top + 0.04, base_height, 8)
+	var frame := MeshInstance3D.new()
+	frame.mesh = MeshLib.finish(st, lib.chrome_dark())
+	frame.name = "Frame"
+	add_child(frame)
+	_flap = Node3D.new()
+	_flap.name = "Flap"
+	_flap.position = (a + b) * 0.5 + Vector3(0.0, top, 0.0)
+	var axis := b - a
+	var len_m := axis.length()
+	var yaw := atan2(-axis.z, axis.x)
+	_flap.rotation.y = yaw
+	add_child(_flap)
+	var st2 := MeshLib.begin()
+	var n := maxi(int(len_m / 0.09), 2)
+	for i in range(n):
+		var x := lerpf(-len_m * 0.5 + 0.03, len_m * 0.5 - 0.03, float(i) / float(n - 1))
+		MeshLib.tube(st2, PackedVector3Array([Vector3(x, 0.0, 0.0), Vector3(x, -(top - 0.05), 0.0)]), 0.009, 5)
+	MeshLib.tube(st2, PackedVector3Array([Vector3(-len_m * 0.5 + 0.03, -(top - 0.05), 0.0),
+			Vector3(len_m * 0.5 - 0.03, -(top - 0.05), 0.0)]), 0.009, 5)
+	var fm := MeshInstance3D.new()
+	fm.mesh = MeshLib.finish(st2, lib.steel())
+	_flap.add_child(fm)
+	var pass3 := Vector3(pass_from.x, 0.0, pass_from.y)
+	var local_pass := Basis(Vector3.UP, -yaw) * pass3
+	_swing_sign = -1.0 if local_pass.z < 0.0 else 1.0
 
 
 func set_ball(b: Ball) -> void:
@@ -80,7 +100,6 @@ func is_open() -> bool:
 	return _open
 
 
-## Which side the ball is on, as a signed distance along the passing normal.
 func side_of(p: Vector2) -> float:
 	return (p - _centre).dot(_normal)
 
@@ -88,22 +107,29 @@ func side_of(p: Vector2) -> float:
 func _physics_process(_delta: float) -> void:
 	if not _present or _ball == null or not is_instance_valid(_ball):
 		return
-	var p := _ball.global_position
+	var p := Layout.plan(_ball.table_position())
 	if absf((p - _centre).dot(_axis)) > _half_span + LATCH_BAND:
-		return                                  # not at this blade: hold whatever we had
+		return
 	var d := side_of(p)
 	if absf(d) < HOLD_BAND:
-		return                                  # never toggle on top of the ball
+		return
 	var want_open := d > 0.0
 	if want_open == _open:
 		return
 	_open = want_open
 	_apply_collision()
-	queue_redraw()
 	if _open:
 		opened.emit()
 	else:
 		closed.emit()
+
+
+func _process(delta: float) -> void:
+	if _flap == null:
+		return
+	var wanted := deg_to_rad(62.0) * _swing_sign if _open else 0.0
+	_angle = lerpf(_angle, wanted, 1.0 - exp(-12.0 * delta))
+	_flap.rotation.x = _angle
 
 
 func _apply_collision() -> void:
@@ -118,69 +144,20 @@ func set_hardware_active(active: bool) -> void:
 	if not active:
 		_open = false
 	_apply_collision()
-	queue_redraw()
 
 
 func is_hardware_active() -> bool:
 	return _present
 
 
-## Closed/open is the existing latch state, not a new gameplay state. This read gives the draw
-## edge an explicit armed invitation while retaining the plane, pass-from side, and hysteresis.
-func _visual_state_id() -> int:
-	if not _present:
-		return TableVisualState.VisualState.DISABLED
-	if _open:
-		return TableVisualState.VisualState.ARMED
-	return TableVisualState.VisualState.IDLE
-
-
 func visual_state() -> Dictionary:
-	return TableVisualState.state_token(_visual_state_id())
+	var state := TableVisualState.VisualState.IDLE
+	if not _present:
+		state = TableVisualState.VisualState.DISABLED
+	elif _open:
+		state = TableVisualState.VisualState.ARMED
+	return TableVisualState.state_token(state)
 
 
 func visual_token() -> Dictionary:
 	return visual_state()
-
-
-func _material_fill(role: StringName, fallback: Color) -> Color:
-	if Presentation != null and Presentation.theme != null:
-		var material := Presentation.theme.material_for(role)
-		var fill: Variant = material.get("fill", fallback)
-		if fill is Color:
-			return fill as Color
-	return fallback
-
-
-func _draw() -> void:
-	var token := visual_token()
-	var state := StringName(token["state"])
-	var ink := _material_fill(&"ink_glass", Feel.COL_INK)
-	var brass := _material_fill(&"brass", Feel.COL_BRASS)
-	var paper := _material_fill(&"newsprint", Feel.COL_NEWSPRINT)
-	var col := color.darkened(0.65) if _open else color
-	if state == &"armed":
-		col = brass
-	elif state == &"disabled":
-		col = ink.lightened(0.18)
-	draw_line(from_point, to_point, ink, thickness + 8.0)
-	draw_line(from_point, to_point, col, thickness)
-	# a row of teeth on the solid side, so which way the blade lets you through reads at a glance
-	var steps := maxi(int(_half_span * 2.0 / 22.0), 1)
-	for i in range(steps):
-		var t := (float(i) + 0.5) / float(steps)
-		var p := from_point.lerp(to_point, t)
-		draw_line(p, p - _normal * 9.0, col.darkened(0.35), 3.0)
-	if state == &"armed":
-		var mid := _centre + pass_from.normalized() * 18.0
-		var side := Vector2(-_axis.y, _axis.x) * 10.0
-		draw_line(mid - pass_from.normalized() * 14.0 + side, mid + pass_from.normalized() * 10.0,
-			paper, 4.0)
-		draw_line(mid - pass_from.normalized() * 14.0 - side, mid + pass_from.normalized() * 10.0,
-			paper, 4.0)
-	elif state == &"disabled":
-		var mid := _centre
-		draw_line(mid - Vector2(13.0, 13.0), mid + Vector2(13.0, 13.0),
-			Color(paper.r, paper.g, paper.b, 0.30), 3.0)
-		draw_line(mid + Vector2(13.0, -13.0), mid - Vector2(13.0, -13.0),
-			Color(paper.r, paper.g, paper.b, 0.30), 3.0)

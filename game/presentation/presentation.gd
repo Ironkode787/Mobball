@@ -28,9 +28,6 @@ var safe := PresentationSafeArea.new()
 var fx := EffectBus.new()
 var budget := PresentationBudget.new()
 var settings := PresentationSettings.new()
-## Whoever renders the table registers here (TableView3D) so feedback anchored to a table
-## point lands where that point is drawn, whichever camera is drawing it.
-var projector: Node = null
 var feedback_layer: CanvasLayer = null
 var feedback: Control = null
 var subtitle_layer: CanvasLayer = null
@@ -90,7 +87,7 @@ func set_city(next: CitySkin) -> void:
 
 
 func _connect_gameplay_events() -> void:
-	Events.switch_hit.connect(func(id: StringName, ball: Node2D, strength: float) -> void:
+	Events.switch_hit.connect(func(id: StringName, ball: Node3D, strength: float) -> void:
 		_last_impact_position = _screen_position(ball)
 		_request_effect(&"impact", {"id": id, "strength": strength,
 				"screen_position": _last_impact_position}, &"switch_hit", {
@@ -130,7 +127,7 @@ func _connect_gameplay_events() -> void:
 		var speaker := StringName(str(specialist.get("id", "")))
 		if not speaker.is_empty() and AudioDirector.SPECIALISTS.has(str(speaker)):
 			AudioDirector.say(speaker, &"greeting"))
-	Events.ball_drained.connect(func(ball: Node2D) -> void:
+	Events.ball_drained.connect(func(ball: Node3D) -> void:
 		var at := _screen_position(ball)
 		_request_effect(&"drain", {"screen_position": at}, &"ball_drained", {
 				"destination_class": &"consequence", "haptic": {"pattern": &"drain", "strength": 0.78}})
@@ -218,15 +215,16 @@ func _connect_gameplay_events() -> void:
 				feedback.call("clear"))
 
 
-func _screen_position(node: Node2D) -> Vector2:
+func _screen_position(node: Node3D) -> Vector2:
 	if node == null or not is_instance_valid(node) or not node.is_inside_tree():
 		return _effect_source()
-	if projector != null and is_instance_valid(projector) and projector.has_method(&"project_node"):
-		return projector.call(&"project_node", node)
 	var viewport := node.get_viewport()
 	if viewport == null:
 		return _effect_source()
-	return viewport.get_canvas_transform() * node.global_position
+	var cam := viewport.get_camera_3d()
+	if cam == null:
+		return _effect_source()
+	return cam.unproject_position(node.global_position)
 
 
 func _effect_source() -> Vector2:

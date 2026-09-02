@@ -1,349 +1,57 @@
 class_name ProgressionTable
 extends TableSegment
-## THE TABLE (specs/m1-hook.md Lane 3). One screen, 1080×1920, built entirely in code so the
-## collision geometry and the `_draw()` come from the same numbers and can never drift.
+## The machine. One inclined cabinet at real pinball scale (Layout), simulated in 3D by Jolt
+## and dressed as the career it belongs to: the bare alley of Rank 0 grows the Block, the
+## Club deck, the Docks, the Penthouse and City Hall as they are bought — every piece is
+## registered under the Ledger id that owns it and stands up or goes dormant with
+## `refresh_hardware()`.
 ##
-## What the player starts with is a *bare alley*: walls, two flippers, a drain, one dented
-## trash can, dead sling triangles and short return sweeps, plus a rubber band for a plunger.
-## Everything else on this table already exists — it is built, wired and standing there — but
-## it is hidden and its collision is switched off until `Game.stats.hardware_unlocked(id)` says
-## the Ledger has paid for it. The starter slings are the deliberate exception: Corner Boys
-## powers their face sensor, kick, score and figures without changing their physical triangle.
-## Buying furniture is the tutorial (docs/02 §2 R0), so the growth has to be physical: a
-## dormant piece must not deflect a ball, and a live one must not appear without its geometry.
-##
-## This is its own machine, not the M0 alley with furniture bolted above it. The base alley
-## remains the feel calibration fixture; this table authors a broader, higher control zone,
-## a sculpted centre drain and offset city shots around those proven flipper mechanics.
-##
-## Zones, bottom to top (docs/02 §0):
-##   THE ALLEY   flippers, slings, one to three trash cans, the storm-grate drain
-##   THE BLOCK   three storefront drop banks across the waist, cop targets for raids
-##   THE CORNER  The Wire's three payphones on the right, the numbers lane down the left
-##   THE ARCH    three top lanes, the getaway orbit, the beat cop's donut shop
+## Contract with the flow lane (see TableAPI): properties `flipper_left/right`, `plunger`,
+## `ball`, `auto_respawn`, `balls_served`, `pays_through_game`, `storefronts`, `docks`,
+## `boss_sedan/boss_truck`; the signals below; and the methods under "flow API".
 
 signal ball_spawned(ball: Ball)
 signal ball_lost(ball: Ball)
-## Lucky's door took a pass: the flow lane converts dirty → clean (specs/m1-hook.md Lane 1).
 signal laundromat_pass()
-## The beat cop took the envelope. Flow owns the cost and calls `Game.heat.bribe()`.
 signal bribe_offered()
 signal orbit_completed()
-## M3 — the Truck Route (docs/02 §2 R5). It also reports through `orbit_completed`, so a
-## consumer that just counts loops is unchanged; this one says *which* loop, because the
-## right-hand one is a smuggling objective and the getaway is not.
 signal truck_route_completed()
 signal rollover_rolled(index: int, was_lit: bool)
 signal storefront_collected(id: StringName, amount: BigMoney)
-## M2 — THE CLUB (docs/02 §2 R4). The deck's hardware reports through the table so the flow
-## lane has one thing to talk to; see game/table/segments/club_deck.gd for what each means.
 signal staircase_climbed(speed: float)
 signal roulette_landed(pocket: int, house: bool)
 signal reels_state(cleared_columns: Array)
 signal high_roller_held(steps: int)
 signal backroom_entered()
-## The ball left the deck via the return lane and is back on the main field — flow closes
-## a "deck visit" (slots Jackpot window) on this instead of polling ball height.
 signal deck_returned()
-## The coils went hunting for a stuck ball. Diagnostic more than gameplay, but the sims
-## assert on it and a rash of them in telemetry means new geometry has a trap in it.
-signal ball_searched(at: Vector2)
-## M2 — THE COMMISSION (specs/m2-content.md §5). Boss hardware is never bought: like the
-## raid's cop targets it is built dormant and only a live fight stands it up. `kind` is
-## &"sedan" &"truck" &"goon" or &"door"; the flow lane's BossFight owns what each one means.
+signal ball_searched(at: Vector3)
 signal boss_hit(kind: StringName, hits_left: int, speed: float)
 signal boss_shrugged(kind: StringName, speed: float)
 signal boss_down(kind: StringName)
-## M3 — THE DOCKS (docs/02 §2 R5). See game/table/segments/docks.gd for the shot layout;
-## the smuggling runs that read these are FLOW-3's.
 signal docks_entered()
 signal container_stack_cleared(stack: int)
 signal containers_state(cleared_stacks: Array)
 signal crane_telegraph()
 signal crane_pulled()
-## The cargo ramp put a ball back on the main field. Same role as `deck_returned` upstairs.
 signal cargo_shipped(speed: float)
-## M3 — THE PENTHOUSE (docs/02 §2 R6). Geometry, switches and signals only in TABLE-3.
 signal chair_taken(index: int)
 signal chairs_completed()
 signal sitdown_entered()
 signal penthouse_entered(speed: float)
 signal penthouse_returned()
-## M3 — CITY HALL (docs/02 §2 R7). One closed lap of the dome, at the rail speed it closed
-## at. The City Hall Circuit is a *chain* of four shots (orbit → staircase → penthouse gate →
-## dome loop) and the chain is the flow lane's to count: the table reports each shot once and
-## never decides what a sequence of them means.
 signal dome_loop_completed(speed: float)
-## M3 — the Mystery Briefcase. The table drops the token, watches it, and says which way it
-## went; what is inside it (and the odds on it) is FLOW-3's.
 signal briefcase_collected()
 signal briefcase_expired()
 
 const BALL_SCENE := preload("res://game/core/ball.tscn")
-const FLIPPER_SCENE := preload("res://game/table/hardware/flipper.tscn")
-const BUMPER_SCENE := preload("res://game/table/hardware/bumper.tscn")
-const SLING_SCENE := preload("res://game/table/hardware/slingshot.tscn")
-
-# ---------------------------------------------------------------- frame (M0, verbatim)
-const PLAY_LEFT := 40.0
-const PLAY_RIGHT := 933.0
-const PLAY_BOTTOM := 1894.0
-const ARCH_A := Vector2(40.0, 460.0)
-const ARCH_B := Vector2(490.0, 60.0)
-const ARCH_C := Vector2(1040.0, 460.0)
-## Circumcentre of ARCH_A/B/C — tests/test_table_geometry.gd holds it to the formula.
-const ARCH_CENTER := Vector2(540.0, 569.375)
-const OUTER_THICK := 36.0
-const GUIDE_THICK := 18.0
-
-const DIVIDER_X := 943.0
-const DIVIDER_THICK := 20.0
-const DIVIDER_TOP := 430.0
-const DIVIDER_BOTTOM := 1845.0
-const LANE_FLOOR_Y := 1858.0
-const LANE_LEFT := 953.0
-const LANE_RIGHT := 1040.0
-const GATE_TOP := 258.0
-const GATE_BOTTOM := 418.0
-
-# ---------------------------------------------------------------- the new control zone
-## The bats sit a full 85 px above the alley pair. Their 430 px pivot spread and 1.08-scale
-## bodies give the centre grate an 81 px mouth while opening a lower mini-field beneath them.
-const FLIPPER_PIVOT_L := Vector2(275.0, 1615.0)
-const FLIPPER_PIVOT_R := Vector2(705.0, 1615.0)
-const FLIPPER_SCALE := 1.08
-## Taller slings create a proper lower-field arena. The lane guides sweep into the pivots,
-## making two long, satisfying return feeds instead of short vertical gutters.
-const OUTLANE_X := 143.0
-const OUTLANE_TOP := 1360.0
-const OUTLANE_BOTTOM := 1510.0
-const INLANE_END := Vector2(273.0, 1595.0)
-const SLING_OUTER_TOP := Vector2(230.0, 1435.0)
-const SLING_OUTER_BOTTOM := Vector2(230.0, 1475.0)
-const SLING_INNER := Vector2(375.0, 1540.0)
-const MIRROR_X := 490.0
-const DRAIN_Y := 1880.0
-const DRAIN_HEIGHT := 24.0
-const CENTRE_DRAIN_AT := Vector2(490.0, 1810.0)
-const CENTRE_DRAIN_SIZE := Vector2(190.0, 64.0)
-const OUTLANE_DRAIN_Y := 1545.0
-
-# ---------------------------------------------------------------- the numbers lane / orbit
-## A broad avenue down the left wall. The old 90 px gutter read like plumbing; this one is a
-## committed orbit with enough daylight to see the ball accelerate through the spinner.
-const LANE_GUIDE_X := 180.0
-const LANE_GUIDE_TOP := 569.375
-const LANE_GUIDE_BOTTOM := 1180.0
-const CHANNEL_WIDTH := 113.0
-## The orbit channel's inner guide is a half-ring centred on the play area (not the arch,
-## which is centred on the cabinet including the shooter lane): its two ends meet the lane
-## guides tangentially at LANE_GUIDE_TOP on both sides. The top lanes hang off the ring
-## between INNER_ARC_LEFT_TO_DEG and INNER_ARC_RIGHT_FROM_DEG; a fast orbit ball skims past
-## their openings on the outer arch, a slow one drops into a lane (docs/01 §6 "The Drop-Off").
-const INNER_ARC_CENTER := Vector2(500.0, 569.375)
-const INNER_ARC_RADIUS := 320.0
-const INNER_ARC_LEFT_FROM_DEG := 180.0
-const INNER_ARC_LEFT_TO_DEG := 235.0
-const INNER_ARC_RIGHT_FROM_DEG := 305.0
-const INNER_ARC_RIGHT_TO_DEG := 360.0
-## Right-hand twin of LANE_GUIDE_X: the Truck Route runs between it and the shooter divider.
-const LANE_GUIDE_R_X := 820.0
-const LANE_GUIDE_R_BOTTOM := 1000.0
-const ORBIT_ARC_RADIUS := INNER_ARC_RADIUS
-const ORBIT_ARC_FROM_DEG := -167.0
-## Stops short of the apex on purpose: at the very top the arc's own surface is level enough
-## for a ball to sit down on it, and a ball parked on the roof of the orbit ends the night.
-const ORBIT_ARC_TO_DEG := -112.0
-const SPINNER_AT := Vector2(114.5, 1000.0)
-const ORBIT_ENTRY_AT := Vector2(114.5, 1120.0)
-const ORBIT_ENTRY_SIZE := Vector2(104.0, 56.0)
-const ORBIT_EXIT_DEG := -120.0
-const ORBIT_EXIT_RADIUS := 436.0
-
-# ---------------------------------------------------------------- the Truck Route (M3)
-## The right-hand loop (docs/02 §2 R5). It cannot be a mirror of the getaway: the shooter
-## lane's divider owns the right-hand wall from y=430 down, so there is no channel to run
-## and no arc to build. What there IS is the corridor outside the payphones — the same lane
-## the Club's staircase hangs off — and the arch above it, so the Truck Route is the *upper*
-## half of an orbit: enter low in the corridor, still be in it at the top of the arch.
-##
-## Deliberately gates only, no new geometry. A guide down that corridor would narrow the
-## plunge path, and the plunge is a tuned M0 number.
-const ORBIT_R_ENTRY_AT := Vector2(893.0, 1052.0)
-const ORBIT_R_ENTRY_SIZE := Vector2(74.0, 56.0)
-const ORBIT_R_EXIT_DEG := -60.0
-
-# ---------------------------------------------------------------- the top lanes
-## Four splayed rails turn the old comb of parallel posts into a three-way fan. The approach
-## pinches toward the inserts, then opens into three visibly different exits under the arch.
-## Four posts hang from the inner ring (its 235°/281°/259°/305° points) and splay slightly
-## outward to y=400, making three lane mouths of ~130 px under the arch and three exits
-## straight onto the bumper nest.
-const ROLLOVER_POST_FROM: Array = [
-	Vector2(316.5, 307.2), Vector2(438.9, 255.2),
-	Vector2(561.1, 255.2), Vector2(683.5, 307.2),
-]
-const ROLLOVER_POST_TO: Array = [
-	Vector2(330.0, 400.0), Vector2(432.0, 400.0),
-	Vector2(568.0, 400.0), Vector2(670.0, 400.0),
-]
-const ROLLOVER_AT: Array = [
-	Vector2(370.0, 352.0), Vector2(500.0, 336.0), Vector2(630.0, 352.0),
-]
-const ROLLOVER_POST_THICK := 16.0
-
-# ---------------------------------------------------------------- the alley & the corner
-## The cans now own an offset left-side neighborhood. A clean right diagonal stays open for
-## aimed Wire and Staircase shots instead of every upper-field device sharing one triangle.
-## The nest sits well below the lane exits and off their centre lines: a ball leaving a lane
-## meets a can on its shoulder and careens, never on its crown (a can dead under a lane makes
-## the ball pogo in the lane forever). The starter can is the low one in the middle.
-const BUMPER_AT: Array = [
-	Vector2(500.0, 690.0), Vector2(440.0, 600.0), Vector2(560.0, 600.0),
-]
-const BUMPER_SCALE: PackedFloat32Array = [1.14, 0.92, 1.02]
-## The payphones make a real diagonal bank whose face looks down the main shooting line.
-## Their centres are close enough to deny a ball-sized hiding place between cabinets.
-## A diagonal bank stepping in toward the right lane guide, facing the left flipper. The
-## gaps behind each phone to the guide are all under a ball so nothing can hide there.
-const WIRE_AT: Array = [
-	Vector2(735.0, 640.0), Vector2(755.0, 740.0), Vector2(775.0, 840.0),
-]
-const WIRE_FACE := Vector2(-0.496139, 0.868242)
-const WIRE_LENGTHS: PackedFloat32Array = [80.0, 76.0, 72.0]
-const TARGET_LENGTH := 76.0
-
-# ---------------------------------------------------------------- the block
-## The Block, 90s style: one bank per flipper plus a centre bank under the pops. Lucky's
-## faces the right flipper from the left, Fat Tony's faces the left flipper from the right,
-## Nonna's stands across the centre lane. The centre column (x 430–600) below Nonna's stays
-## open felt all the way to the flippers — the alley every shot returns through.
-const STOREFRONT_AT: Array = [
-	Vector2(345.0, 1030.0),      # Lucky's Laundromat: left, off the right flipper
-	Vector2(490.0, 890.0),       # Nonna's Pizzeria: centre, under the bumper nest
-	Vector2(745.0, 1085.0),      # Fat Tony's Pawn: right, off the left flipper
-]
-## Banks face their flipper; Nonna's is raked off square so a ball coming down from the pops
-## sheds sideways into a gap instead of parking on 148 px of flat drop-target roof.
-const STOREFRONT_FACING: Array = [
-	Vector2(0.28, 0.96), Vector2(0.0, 1.0), Vector2(-0.621059, 0.783763),
-]
-const STOREFRONT_RAKE: PackedFloat32Array = [0.0, -12.0, 0.0]
-const STOREFRONT_IDS: Array[StringName] = [
-	&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn",
-]
-const STOREFRONT_SIGNS: Array[StringName] = [&"LUCKY'S", &"NONNA'S", &"FAT TONY'S"]
-
-# ---------------------------------------------------------------- extras
-## The donut shop stands square to the field, not raked across it: a bar angled into the
-## right-hand wall is a corner, and a soak found the ball asleep in it for forty seconds.
-## Vertical faces have no roof to sit on.
-## The donut shop sits in the notch between the right bumper and the ring's right arm, a
-## steep shot off either bat that has to thread the Wire and Fat Tony's on the way up.
-const BRIBE_AT := Vector2(700.0, 470.0)
-const BRIBE_FACE := Vector2(-0.5, 0.866025)
-## Raid officers occupy four different intersections in the new crooked street plan. The
-## fourth closes the southern briefcase court while leaving a fair drop elsewhere.
-const COP_AT: Array = [
-	Vector2(240.0, 800.0), Vector2(740.0, 940.0),
-	Vector2(700.0, 1330.0), Vector2(540.0, 1370.0),
-]
-## Steep enough that the ball outruns rubber friction (0.30) on the way down their backs.
-const COP_RAKE: PackedFloat32Array = [22.0, -22.0, 22.0, -22.0]
-const KICKBACK_AT := Vector2(96.0, 1455.0)
-const KICKBACK_SIZE := Vector2(86.0, 56.0)
-const MAGNET_AT := Vector2(490.0, 1755.0)
-
-# ---------------------------------------------------------------- the federal raid (M3)
-## The Director's coil (docs/05 §9 phase 3). It sits a third of the way up the field rather
-## than at the grate: the Captain drags you *into* the drain, the Bureau drags you *off* the
-## block, and a player has to read which of the two is winding up. Two tells at once is not
-## difficulty, so the table keeps their telegraphs apart in code — see `_keep_magnets_apart`.
-const DIRECTOR_AT := Vector2(535.0, 1430.0)
-## Room the two coils must leave each other: a full telegraph plus a beat to read it in.
-const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
-## How dirty the felt goes. The M1 raid's 0.12 is a shipped, tuned number and stays exactly
-## what it was; the federal stages are denser passes of the same ink.
-const RAID_TINT := 0.12
-const FEDERAL_TINT: PackedFloat32Array = [0.0, 0.16, 0.20, 0.25]
-
-# ---------------------------------------------------------------- the briefcase (M3)
-## Where a case may be put down. Three spots on the main field, each of them more than a ball
-## diameter clear of every collider that is bolted down (asserted in tests/sim/dome_sim.gd) —
-## because a token that lands half inside a payphone reads as a bug even though it has no
-## collision of its own. The first two are also clear of the raid's cops; the third is the
-## roomiest spot on the table and the cops stand right next to it.
-const BRIEFCASE_SPOTS: Array = [
-	Vector2(560.0, 1300.0),      # the court between the Staircase mouth and the slings
-	Vector2(510.0, 1130.0),      # the centre alley below Nonna's
-	Vector2(520.0, 1450.0),      # southern court; the fourth raid cop closes it
-]
-## Centre-to-centre room a piece of *transient* hardware has to leave a spot before the case
-## will be dropped on it. The fixed furniture is already accounted for in the spots.
-const BRIEFCASE_CLEAR := 100.0
-const BRIEFCASE_CLEAR_VEHICLE := 170.0
-
-# ---------------------------------------------------------------- the Commission
-## Sammy's sedan crosses the waist on a rail between the bumper nest and the block: high
-## enough that a bumper cannot shield it, low enough to be reachable off either bat.
-const SEDAN_RAIL_Y := 960.0
-const SEDAN_RAIL_FROM_X := 440.0
-const SEDAN_RAIL_TO_X := 700.0
-const SEDAN_PARK := Vector2(570.0, 960.0)
-const SEDAN_LENGTH := 150.0
-const SEDAN_THICK := 46.0
-## Three goons standing in front of the cans. Raked like the cops so nothing sits on them.
-const GOON_AT: Array = [Vector2(300.0, 760.0), Vector2(680.0, 760.0), Vector2(490.0, 1040.0)]
-const GOON_RAKE: PackedFloat32Array = [18.0, -18.0, -18.0]
-## The meat truck rides the getaway channel itself: it is 56 px across in a 108 px lane, so
-## while it is up there the orbit is the Butcher's, not yours.
-const TRUCK_RADIUS := 457.8
-const TRUCK_FROM_DEG := -166.0
-const TRUCK_TO_DEG := -114.0
-const TRUCK_ARC_STEPS := 14
-const TRUCK_PARK := Vector2(490.0, 1180.0)
-const TRUCK_LENGTH := 130.0
-const TRUCK_THICK := 56.0
-## The truck's back door: two rows of three, the back row standing behind the front row's
-## gaps so every panel is reachable without the front row having to drop.
-const DOOR_FRONT_Y := 1330.0
-const DOOR_BACK_Y := 1232.0
-const DOOR_FRONT_X: PackedFloat32Array = [330.0, 490.0, 650.0]
-const DOOR_BACK_X: PackedFloat32Array = [410.0, 570.0, 730.0]
-const DOOR_RAKE := 12.0
-## The Butcher's cold-storage readout, drawn inside the arch where nothing else lives.
-const BOSS_METER_AT := Vector2(540.0, 300.0)
-const BOSS_METER_SIZE := Vector2(420.0, 30.0)
-
-## The starter rubber band is reliable-but-coarse, not broken: below ~0.90 the ball never
-## clears the shooter lane on this geometry. Three safe powers let a new player choose a
-## broad pull without pretending the rubber band is a precision plunger. `A Real Plunger`
-## replaces these bands with the inherited continuous charge and detents.
-const PLUNGER_STARTER_POWERS := [0.945, 0.97, 0.99]
+const PLUNGER_STARTER_POWERS := [0.55, 0.58, 0.80]
 const PLUNGER_STARTER_DEFAULT_BAND := 1
-## Legacy fixture alias: old growth probes read this as the desktop/default middle band. The
-## live starter plunger is no longer fixed; touch pulls select all three values above.
-const PLUNGER_FIXED_POWER := 0.945
+const PLUNGER_FIXED_POWER := 0.55
+const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
+const BALL_SEARCH_FLOOR_Z := 3.9        ## below this the flippers are the search
+const SEARCH_BOX_Y := 2.2
 
-# ---------------------------------------------------------------- ball search
-## Real machines hunt for a lost ball, and this one has to as well. The playfield grows new
-## geometry at every rank, and top-down gravity gives a vertical target's rounded cap a
-## perfect balance point: a seeded soak found the ball asleep on top of a payphone for
-## seventy seconds with nothing to push it either way. Rather than chase every such point
-## through the geometry forever, anything motionless above the flippers gets a coil pulse.
-const BALL_SEARCH_DELAY := 5.0
-const BALL_SEARCH_REPEAT := 2.5
-const BALL_SEARCH_SPEED := 40.0
-const BALL_SEARCH_IMPULSE := 950.0
-## Below this line resting is legitimate — cradled on a bat, dawdling down an inlane, or
-## sitting on live hardware that pops itself loose (see Bumper/Slingshot stall handling).
-const BALL_SEARCH_FLOOR := 1560.0
-
-# ---------------------------------------------------------------- state
-## Flow reads this to know the table pays through `Game.earn_switch` itself and must not be
-## double-scored from `Events.scored` (game/flow/night.gd `_needs_score_bridge`).
 var pays_through_game: bool = true
-## Bypass every unlock check — the debug table and the feel sims run with the lot switched on.
 var debug_all_hardware: bool = false
 
 var flipper_left: Flipper = null
@@ -359,135 +67,110 @@ var orbit: OrbitLane = null
 var orbit_right: OrbitLane = null
 var kickback: Kickback = null
 var magnet: DrainMagnet = null
+var director: DrainMagnet = null
+var vans: FederalVans = null
 var bribe_target: StandupTarget = null
 var storefronts: Array[Storefront] = []
 var rollovers: Array[Rollover] = []
 var cop_targets: Array[StandupTarget] = []
 var raid_active: bool = false
-## THE FEDERAL RAID (docs/05 §9). 0 off · 1 street sweep · 2 wiretap · 3 the Director.
-## Independent of `raid_active`: either switch can put the cops out, and the hardware is a
-## function of both, so a local raid during a federal one is not a double toggle.
 var federal_phase: int = 0
-## The Bureau's second coil, and the vans. Built with everything else, dormant until a phase
-## asks for them — the same rule the raid's cops live under.
-var director: DrainMagnet = null
-var vans: FederalVans = null
-## The bagman's token. Never bought, never scored: `spawn_briefcase` puts it down.
 var briefcase: Briefcase = null
-## THE COMMISSION. Built with everything else, dormant until a fight stands it up.
 var boss_sedan: BossTarget = null
 var boss_truck: BossTarget = null
 var boss_goons: Array[StandupTarget] = []
 var boss_door: TargetBank = null
 var boss_active: bool = false
-## The upper deck. Always built, dormant until `club_deck` is owned — same rule as every
-## other piece of furniture on this table.
 var club: ClubDeck = null
-## M3's two new rooms, same rule again: built with the table, dormant until they are bought.
 var docks: Docks = null
 var penthouse: Penthouse = null
-## The crown (R7). One golden rail in the sky above the lot — see segments/city_hall.gd.
 var city_hall: CityHall = null
-## The crew with the hammers (docs/02 §0). Cosmetic; see hardware/build_in.gd.
 var construction: BuildIn = null
+var gate: OneWayGate = null
 
-var _walls: WallBuilder = null
-var _gate: StaticBody2D = null
-var _gate_closed: bool = true
-var _from_lane: bool = false
-var _respawn_in: float = -1.0
-var _arch_radius: float = 0.0
 var _bumpers: Array[Bumper] = []
 var _slings: Array[Slingshot] = []
-var _pieces: Array[Dictionary] = []          ## { ids: Array[StringName], node: Node }
-var _forced: Dictionary = {}                 ## dev env hook: ids forced unlocked
+var _pieces: Array[Dictionary] = []
+var _forced: Dictionary = {}
 var _lit_lane: int = -1
+var _respawn_in: float = -1.0
 var _still_for: float = 0.0
 var _search_rng := RandomNumberGenerator.new()
 var _case_rng := RandomNumberGenerator.new()
 var _boss_meter_text: String = ""
 var _boss_meter_fill: float = 0.0
-var _built_once: Dictionary = {}             ## node -> true: already stood up at least once
-var _first_refresh: bool = true              ## boot: the table loads its save, it is not built
-var _show_clock: float = 0.0                  ## slow cabinet bulbs; cosmetic only
-var _show_redraw: float = 0.0
-
-
-# ================================================================ TableSegment =====
+var _built_once: Dictionary = {}
+var _first_refresh: bool = true
+var _lib: MaterialLib = null
+var _lamps: Array[OmniLight3D] = []
 
 
 func segment_id() -> StringName:
 	return &"table_main"
 
 
-## Grows with the empire: once the Club is built the table is ~2.8 screens tall, and the
-## camera reads its clamp straight off this (game/core/camera_rig.gd).
-func bounds() -> Rect2:
-	var r := Rect2(Vector2(PLAY_LEFT, 0.0), Vector2(LANE_RIGHT - PLAY_LEFT, PLAY_BOTTOM))
-	if club != null and club.is_hardware_active():
-		r = r.merge(club.bounds())
-	if penthouse != null and penthouse.is_hardware_active():
-		r = r.merge(penthouse.bounds())
-	if docks != null and docks.is_hardware_active():
-		r = r.merge(docks.bounds())
-	if city_hall != null and city_hall.is_hardware_active():
-		r = r.merge(city_hall.bounds())
-	return r
+func bounds() -> AABB:
+	return AABB(Vector3(Layout.PLAY_LEFT - 0.2, -0.3, Layout.PLAY_TOP - 0.5),
+			Vector3(Layout.PLAY_RIGHT - Layout.PLAY_LEFT + 0.4, 2.6, Layout.PLAY_BOTTOM - Layout.PLAY_TOP + 0.8))
 
 
-func spawn_point() -> Vector2:
-	return Vector2((LANE_LEFT + LANE_RIGHT) * 0.5,
-			LANE_FLOOR_Y - OUTER_THICK * 0.5 - Feel.BALL_RADIUS - 4.0)
+func spawn_point() -> Vector3:
+	return Layout.p3(Layout.SPAWN, Feel.BALL_RADIUS + 0.01)
 
 
-func lane_rect() -> Rect2:
-	return Rect2(Vector2(LANE_LEFT - 6.0, 240.0), Vector2(LANE_RIGHT - LANE_LEFT + 12.0, 1620.0))
+func lane_box() -> AABB:
+	return AABB(Vector3(Layout.DIVIDER_X + 0.02, -0.2, -4.4), Vector3(0.4, 1.0, 9.7))
 
 
+## Plan-space anchors for the flow lane.
 func socket(id: StringName) -> Vector2:
 	match id:
 		&"arch_top":
-			return ARCH_CENTER - Vector2(0.0, _arch_radius)
+			return Vector2(0.0, Layout.PLAY_TOP + 0.4)
 		&"left_channel":
-			return Vector2(LANE_GUIDE_X - CHANNEL_WIDTH * 0.5, LANE_GUIDE_TOP)
+			return Layout.ORBIT_L_ENTRY
 		&"midfield":
-			return Vector2(MIRROR_X, 1010.0)
+			return Vector2(0.0, 0.6)
 		&"drain":
-			return Vector2(MIRROR_X, DRAIN_Y)
+			return Layout.CENTRE_DRAIN_AT
 		&"club_deck":
-			return Vector2(ClubDeck.DECK_LEFT, ClubDeck.DECK_BOTTOM)
+			return Vector2((ClubDeck.DECK_LEFT + ClubDeck.DECK_RIGHT) * 0.5, ClubDeck.DECK_BOTTOM - 0.3)
 		&"stair_mouth":
-			return ClubDeck.STAIR_MOUTH
-		# Left half of the sky. M2 kept it empty for these two; M3 filled it.
-		&"sky_left":
-			return Vector2(PLAY_LEFT, ClubDeck.DECK_BOTTOM)
+			return Layout.STAIR_MOUTH
 		&"docks":
-			return Docks.QUAY_FROM
-		&"dock_mouth":
-			return Vector2(Docks.LEFT_LOW_FROM.x, (Docks.MOUTH_TOP + Docks.MOUTH_BOTTOM) * 0.5)
+			return Docks.CRATES_ORIGIN
 		&"penthouse":
-			return Penthouse.FLOOR_APEX
-		&"penthouse_mouth":
-			return Penthouse.STAIR_MOUTH
-		# The last of the sky (R7). Everything above the Club's ceiling is the dome's.
+			return Penthouse.TABLE_AT
 		&"city_hall":
-			return CityHall.DOME_CENTER
-		&"dome_mouth":
-			return CityHall.MOUTH_AT
+			return CityHall.DOME_AT
 	return Vector2.ZERO
+
+
+## Height of the floor a plan point stands on: the deck/room slabs or the felt.
+func floor_height_at(p: Vector2) -> float:
+	if club != null and club.is_hardware_active() and club.deck_rect().has_point(p):
+		return ClubDeck.DECK_H
+	if penthouse != null and penthouse.is_hardware_active() \
+			and Rect2(Vector2(Penthouse.ROOM_LEFT, Penthouse.ROOM_TOP),
+			Vector2(Penthouse.ROOM_RIGHT - Penthouse.ROOM_LEFT, Penthouse.ROOM_BOTTOM - Penthouse.ROOM_TOP)).has_point(p):
+		return Penthouse.ROOM_H
+	return 0.0
 
 
 # ===================================================================== build =====
 
 
 func _ready() -> void:
-	_arch_radius = ARCH_CENTER.distance_to(ARCH_A)
-	_search_rng.seed = 0x5EA12C4          # seeded: a sim rerun searches the same way
-	_case_rng.seed = 0xB1EFCA5E           # ditto: the bagman uses the same doors twice
+	rotation.x = deg_to_rad(Feel.PLAYFIELD_PITCH_DEG)
+	_lib = MaterialLib.shared()
+	_search_rng.seed = 0x5EA12C4
+	_case_rng.seed = 0xB1EFCA5E
 	_read_env_hook()
+	_build_environment()
+	_build_cabinet()
 	_build_walls()
 	_build_gate()
-	_build_left_channel()
+	_build_lanes()
 	_build_top_lanes()
 	_build_bumpers()
 	_build_slings()
@@ -496,24 +179,19 @@ func _ready() -> void:
 	_build_extras()
 	_build_flippers()
 	_build_bosses()
-	_build_club()
-	_build_docks()
-	_build_penthouse()
-	_build_city_hall()
+	_build_segments()
 	_build_drain()
 	_build_plunger()
 	_build_construction()
+	var dressing := TableDressing.new()
+	dressing.name = "Dressing"
+	add_child(dressing)
+	dressing.build(self)
 	Events.upgrade_purchased.connect(_on_upgrade_purchased)
-	# A restored save recomputes Stats AFTER this _ready has already run — the boot signal
-	# is what puts a returning player's bought hardware back on the field.
 	Events.session_booted.connect(refresh_hardware)
 	refresh_hardware()
-	queue_redraw()
 
 
-## Dev affordance for screenshots and one-off experiments, never used by the game:
-##   KINGPIN_TABLE_DEBUG=1                        every piece on
-##   KINGPIN_TABLE_HARDWARE=rollovers,wire_bank   just these, on top of what Stats says
 func _read_env_hook() -> void:
 	if not ReleaseChannel.allow_development_hooks():
 		return
@@ -524,106 +202,276 @@ func _read_env_hook() -> void:
 		_forced[StringName(id.strip_edges())] = true
 
 
+func _build_environment() -> void:
+	var env_node := WorldEnvironment.new()
+	env_node.name = "Environment"
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = _lib.city_color(&"ink_glass", Feel.COL_INK).darkened(0.4)
+	var sky := Sky.new()
+	var sky_mat := ProceduralSkyMaterial.new()
+	sky_mat.sky_top_color = Color("2A2622")
+	sky_mat.sky_horizon_color = Color("5A4A36")
+	sky_mat.ground_horizon_color = Color("3A2C1E")
+	sky_mat.ground_bottom_color = Color("100C08")
+	sky_mat.sun_angle_max = 0.0
+	sky_mat.sun_curve = 0.0
+	sky.sky_material = sky_mat
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color("3A3430")
+	env.ambient_light_energy = 0.7
+	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.tonemap_exposure = 1.05
+	env.tonemap_white = 6.0
+	env.glow_enabled = true
+	env.glow_intensity = 0.55
+	env.glow_bloom = 0.02
+	env.glow_hdr_threshold = 1.05
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	env_node.environment = env
+	add_child(env_node)
+
+	var sun := DirectionalLight3D.new()
+	sun.name = "KeyLight"
+	sun.light_color = Color(1.0, 0.92, 0.80)
+	sun.light_energy = 1.15
+	sun.shadow_enabled = true
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 40.0
+	sun.shadow_bias = 0.03
+	sun.shadow_normal_bias = 1.5
+	sun.rotation_degrees = Vector3(-58.0, 34.0, 0.0)
+	add_child(sun)
+	var fill := DirectionalLight3D.new()
+	fill.name = "FillLight"
+	fill.light_color = Color(0.55, 0.72, 0.80)
+	fill.light_energy = 0.28
+	fill.shadow_enabled = false
+	fill.rotation_degrees = Vector3(-40.0, -140.0, 0.0)
+	add_child(fill)
+	_lamp(Vector3(0.0, 2.4, 3.6), Color(1.0, 0.9, 0.75), 1.3, 6.5, "FlipperGI")
+	_lamp(Vector3(0.0, 2.6, -2.6), Color(1.0, 0.88, 0.7), 0.9, 6.5, "UpperGI")
+
+
+func _lamp(at: Vector3, color: Color, energy: float, range_m: float, p_name: String) -> OmniLight3D:
+	var l := OmniLight3D.new()
+	l.name = p_name
+	l.light_color = color
+	l.light_energy = energy
+	l.omni_range = range_m
+	l.omni_attenuation = 1.4
+	l.shadow_enabled = false
+	l.position = at
+	add_child(l)
+	_lamps.append(l)
+	return l
+
+
+func _build_cabinet() -> void:
+	var w := Layout.PLAY_RIGHT - Layout.PLAY_LEFT + Layout.OUTER_THICK
+	var d := Layout.PLAY_BOTTOM - Layout.PLAY_TOP + Layout.OUTER_THICK
+	var center_z := (Layout.PLAY_TOP + Layout.PLAY_BOTTOM) * 0.5
+	# the felt
+	var floor_body := WallBuilder.make_body("Floor", Feel.LAYER_WALLS,
+			Feel.make_material(Feel.FELT_FRICTION, Feel.FELT_BOUNCE))
+	add_child(floor_body)
+	var fs := CollisionShape3D.new()
+	var fb := BoxShape3D.new()
+	fb.size = Vector3(w + 0.4, 0.2, d + 0.4)
+	fs.shape = fb
+	fs.position = Vector3(0.0, -0.1, center_z)
+	floor_body.add_child(fs)
+	var felt := PlaneMesh.new()
+	felt.size = Vector2(w, d)
+	felt.subdivide_depth = 8
+	var fm := MeshInstance3D.new()
+	fm.mesh = felt
+	var street := ShaderMaterial.new()
+	street.shader = load("res://game/table/look/playfield.gdshader")
+	street.set_shader_parameter("field_size", Vector2(w, d))
+	street.set_shader_parameter("mirror_x", Layout.MIRROR_X)
+	fm.material_override = street
+	fm.position = Vector3(0.0, 0.0, center_z)
+	fm.name = "Street"
+	floor_body.add_child(fm)
+	# shooter lane floor in wood
+	var lane := PlaneMesh.new()
+	lane.size = Vector2(Layout.PLAY_RIGHT - Layout.DIVIDER_X, Layout.LANE_FLOOR_Z - Layout.DIVIDER_TOP)
+	var lm := MeshInstance3D.new()
+	lm.mesh = lane
+	lm.material_override = _lib.wood()
+	lm.position = Vector3((Layout.DIVIDER_X + Layout.PLAY_RIGHT) * 0.5, 0.004, (Layout.DIVIDER_TOP + Layout.LANE_FLOOR_Z) * 0.5)
+	floor_body.add_child(lm)
+	# the glass: invisible ceiling so nothing ever leaves the cabinet
+	var glass := CollisionShape3D.new()
+	var gb := BoxShape3D.new()
+	gb.size = Vector3(w + 0.4, 0.1, d + 0.4)
+	glass.shape = gb
+	glass.position = Vector3(0.0, Layout.GLASS_HEIGHT + 0.05, center_z)
+	floor_body.add_child(glass)
+	# cabinet sides, front board, lockdown bar, backboard
+	var st := MeshLib.begin()
+	var side_h := Layout.CABINET_HEIGHT
+	for sx in [Layout.PLAY_LEFT - Layout.OUTER_THICK - 0.06, Layout.PLAY_RIGHT + Layout.OUTER_THICK + 0.06]:
+		MeshLib.box(st, Vector3(sx, side_h * 0.5 - 0.3, center_z), Vector3(0.12, side_h + 0.3, d + 0.5))
+	MeshLib.box(st, Vector3(0.0, side_h * 0.5 - 0.3, Layout.PLAY_BOTTOM + 0.25), Vector3(w + 0.5, side_h + 0.3, 0.3))
+	MeshLib.box(st, Vector3(0.0, 1.2, Layout.PLAY_TOP - 0.28), Vector3(w + 0.5, 3.0, 0.3))
+	var cab := MeshInstance3D.new()
+	cab.mesh = MeshLib.finish(st, _lib.wood_dark())
+	cab.name = "Cabinet"
+	add_child(cab)
+	var bar := MeshLib.begin()
+	MeshLib.box(bar, Vector3(0.0, side_h + 0.02, Layout.PLAY_BOTTOM + 0.25), Vector3(w + 0.5, 0.06, 0.34))
+	for sx in [Layout.PLAY_LEFT - Layout.OUTER_THICK - 0.06, Layout.PLAY_RIGHT + Layout.OUTER_THICK + 0.06]:
+		MeshLib.box(bar, Vector3(sx, side_h + 0.01, center_z), Vector3(0.14, 0.03, d + 0.5))
+	var bm := MeshInstance3D.new()
+	bm.mesh = MeshLib.finish(bar, _lib.brass())
+	bm.name = "Rails"
+	add_child(bm)
+	# backglass
+	var tex: Texture2D = null
+	if Presentation != null and Presentation.art != null:
+		tex = Presentation.art.resolve(&"table.backglass.eastport", null, false)
+	if tex != null:
+		var quad := PlaneMesh.new()
+		quad.size = Vector2(w * 0.92, w * 0.92 * float(tex.get_height()) / float(tex.get_width()))
+		quad.orientation = PlaneMesh.FACE_Z
+		var gm := _lib.art(tex, 0.0)
+		gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		gm.albedo_color = Color(1.1, 1.1, 1.1)
+		gm.cull_mode = BaseMaterial3D.CULL_BACK
+		var gmi := MeshInstance3D.new()
+		gmi.mesh = quad
+		gmi.material_override = gm
+		gmi.position = Vector3(0.0, 1.4 + quad.size.y * 0.5, Layout.PLAY_TOP - 0.12)
+		gmi.name = "Backglass"
+		add_child(gmi)
+	# apron cards over the drain
+	var apron := MeshLib.begin()
+	for sx in [Layout.MIRROR_X - 1.6, Layout.MIRROR_X + 1.6]:
+		MeshLib.box(apron, Vector3(sx, 0.05, 4.95), Vector3(0.8, 0.08, 0.6))
+	var am := MeshInstance3D.new()
+	am.mesh = MeshLib.finish(apron, _lib.paper())
+	am.name = "ApronCards"
+	add_child(am)
+	# the storm grate under the flippers
+	var grate := PlaneMesh.new()
+	grate.size = Vector2(Layout.CENTRE_DRAIN_SIZE.x, Layout.CENTRE_DRAIN_SIZE.y)
+	var grate_mat := StandardMaterial3D.new()
+	grate_mat.albedo_texture = _lib.grate_texture()
+	grate_mat.emission_enabled = true
+	grate_mat.emission_texture = _lib.grate_texture()
+	grate_mat.emission = Color.WHITE
+	grate_mat.emission_energy_multiplier = 0.8
+	var gr := MeshInstance3D.new()
+	gr.mesh = grate
+	gr.material_override = grate_mat
+	gr.position = Layout.p3(Layout.CENTRE_DRAIN_AT + Vector2(0.0, 0.1), 0.005)
+	gr.name = "StormGrate"
+	add_child(gr)
+
+
 func _build_walls() -> void:
-	var body := StaticBody2D.new()
-	body.name = "Walls"
-	body.collision_layer = Feel.LAYER_WALLS
-	body.collision_mask = 0
-	body.physics_material_override = Feel.make_material(Feel.WALL_FRICTION, Feel.WALL_BOUNCE)
+	var body := WallBuilder.make_body("Walls")
 	add_child(body)
-	_walls = WallBuilder.new(body)
+	var walls := WallBuilder.new(body, Layout.WALL_HEIGHT * 1.6)
+	var t := Layout.OUTER_THICK
+	# outer boundary: left side, the arch, right side, bottom
+	walls.bar(Vector2(Layout.PLAY_LEFT, Layout.PLAY_BOTTOM), Vector2(Layout.PLAY_LEFT, Layout.ARCH_CENTER.y), t)
+	walls.arc(Layout.ARCH_CENTER, Layout.ARCH_RADIUS, 180.0, 360.0, 48, t)
+	walls.bar(Vector2(Layout.PLAY_RIGHT, Layout.ARCH_CENTER.y), Vector2(Layout.PLAY_RIGHT, Layout.PLAY_BOTTOM), t)
+	walls.bar(Vector2(Layout.PLAY_LEFT, Layout.PLAY_BOTTOM), Vector2(Layout.PLAY_RIGHT, Layout.PLAY_BOTTOM), t)
+	# shooter lane divider and floor stop
+	walls.bar(Vector2(Layout.DIVIDER_X, Layout.DIVIDER_TOP), Vector2(Layout.DIVIDER_X, Layout.DIVIDER_BOTTOM),
+			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
+	walls.bar(Vector2(Layout.DIVIDER_X, Layout.LANE_FLOOR_Z), Vector2(Layout.PLAY_RIGHT, Layout.LANE_FLOOR_Z),
+			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
+	# the inlane return sweeps: starter furniture
+	for s: float in [1.0, -1.0]:
+		walls.bar(Vector2(Layout.inlane_guide_x(s), Layout.INLANE_GUIDE_BOTTOM),
+				Layout.mx(Layout.INLANE_END, s), Layout.GUIDE_THICK, Layout.GUIDE_HEIGHT)
+	walls.build_mesh(_lib.wood(), _lib.brass())
 
-	var off := OUTER_THICK * 0.5
-	var a0 := arch_angle(ARCH_A)
-	var a1 := arch_angle(ARCH_C)
-	var r_out := _arch_radius + off
-	var arch_start := ARCH_CENTER + Vector2(cos(a0), sin(a0)) * r_out
-	var arch_end := ARCH_CENTER + Vector2(cos(a1), sin(a1)) * r_out
-
-	_walls.arc(ARCH_CENTER, r_out, a0, a1, 56, OUTER_THICK)
-	_walls.bar(Vector2(PLAY_LEFT - off, PLAY_BOTTOM + off), arch_start, OUTER_THICK)
-	_walls.bar(Vector2(LANE_RIGHT + off, PLAY_BOTTOM + off), arch_end, OUTER_THICK)
-	_walls.bar(Vector2(PLAY_LEFT - off, PLAY_BOTTOM + off),
-			Vector2(PLAY_RIGHT, PLAY_BOTTOM + off), OUTER_THICK)
-	_walls.bar(Vector2(DIVIDER_X, LANE_FLOOR_Y),
-			Vector2(LANE_RIGHT + off, LANE_FLOOR_Y), OUTER_THICK)
-	_walls.bar(Vector2(DIVIDER_X, DIVIDER_TOP), Vector2(DIVIDER_X, DIVIDER_BOTTOM), DIVIDER_THICK)
-
-	# The short return sweep is battered furniture on the starter table. Guard Rails adds the
-	# long vertical outlane guard above it; buying the upgrade therefore extends this return
-	# path instead of making the whole inlane geometry materialise from nowhere.
-	var returns := WallPiece.new()
-	returns.name = "InlaneReturns"
-	returns.color = Feel.COL_BRASS.darkened(0.52)
-	returns.rim = Feel.COL_INK.darkened(0.12)
-	add_child(returns)
-	for s in [1.0, -1.0]:
-		returns.bar(_mx(OUTLANE_X, s, OUTLANE_BOTTOM),
-				_mx(INLANE_END.x, s, INLANE_END.y), GUIDE_THICK)
-
-	# The vertical guard rails are an upgrade (docs/02 §2 R0). They are a separate body so
-	# the bare table keeps the short return geometry without getting the outlane wall yet.
-	var guides := WallPiece.new()
+	# Guard Rails: the vertical outlane guards are an upgrade (docs/02 §2 R0)
+	var guides := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
 	guides.name = "InlaneGuides"
 	add_child(guides)
-	for s in [1.0, -1.0]:
-		guides.bar(_mx(OUTLANE_X, s, OUTLANE_TOP), _mx(OUTLANE_X, s, OUTLANE_BOTTOM), GUIDE_THICK)
+	for s: float in [1.0, -1.0]:
+		guides.bar(Vector2(Layout.inlane_guide_x(s), Layout.INLANE_GUIDE_TOP),
+				Vector2(Layout.inlane_guide_x(s), Layout.INLANE_GUIDE_BOTTOM), Layout.GUIDE_THICK)
 	_register([&"inlane_guides"], guides)
 
 
 func _build_gate() -> void:
-	_gate = StaticBody2D.new()
-	_gate.name = "OneWayGate"
-	_gate.collision_layer = Feel.LAYER_WALLS
-	_gate.collision_mask = 0
-	_gate.physics_material_override = Feel.make_material(Feel.WALL_FRICTION, 0.1)
-	add_child(_gate)
-	var b := WallBuilder.new(_gate)
-	b.bar(Vector2(DIVIDER_X, GATE_TOP), Vector2(DIVIDER_X, GATE_BOTTOM), 12.0)
+	gate = OneWayGate.new()
+	gate.name = "ShooterGate"
+	gate.configure(&"shooter_gate", Vector2(Layout.DIVIDER_X, Layout.GATE_TOP),
+			Vector2(Layout.DIVIDER_X, Layout.GATE_BOTTOM), 0.04, Vector2(1.0, 0.0))
+	add_child(gate)
 
 
-func _build_left_channel() -> void:
-	var guide := WallPiece.new()
+func _build_lanes() -> void:
+	var guide := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
 	guide.name = "NumbersLaneGuide"
 	add_child(guide)
-	guide.bar(Vector2(LANE_GUIDE_X, LANE_GUIDE_TOP), Vector2(LANE_GUIDE_X, LANE_GUIDE_BOTTOM),
-			GUIDE_THICK)
+	guide.bar(Vector2(Layout.LANE_GUIDE_L_X, Layout.RING_CENTER.y), Vector2(Layout.LANE_GUIDE_L_X, Layout.LANE_GUIDE_L_BOTTOM), Layout.GUIDE_THICK)
 	_register([&"spinner_numbers", &"orbit_left"], guide)
 
-	var arc := WallPiece.new()
+	var arc := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
 	arc.name = "GetawayArc"
 	add_child(arc)
-	arc.arc(INNER_ARC_CENTER, INNER_ARC_RADIUS, deg_to_rad(INNER_ARC_LEFT_FROM_DEG),
-			deg_to_rad(INNER_ARC_LEFT_TO_DEG), 24, GUIDE_THICK)
+	arc.arc(Layout.RING_CENTER, Layout.RING_RADIUS, Layout.RING_LEFT_FROM_DEG, Layout.RING_LEFT_TO_DEG, 16, Layout.GUIDE_THICK)
 	_register([&"orbit_left"], arc)
 
 	spinner = Spinner.new()
 	spinner.name = "Spinner"
-	spinner.configure(&"spinner_numbers", SPINNER_AT, CHANNEL_WIDTH)
+	spinner.configure(&"spinner_numbers", Layout.SPINNER_AT, Layout.LANE_WIDTH_L)
 	add_child(spinner)
 	_register([&"spinner_numbers"], spinner)
 
 	orbit = OrbitLane.new()
 	orbit.name = "OrbitLeft"
 	add_child(orbit)
-	orbit.configure(&"orbit_left", ORBIT_ENTRY_AT, ORBIT_ENTRY_SIZE,
-			_polar(ORBIT_EXIT_RADIUS, ORBIT_EXIT_DEG), 34.0)
+	orbit.configure(&"orbit_left", Layout.ORBIT_L_ENTRY, Vector2(Layout.LANE_WIDTH_L, 0.25),
+			Layout.ring_point(Layout.ORBIT_L_EXIT_DEG, Layout.CHANNEL_MID_RADIUS), 0.2)
 	orbit.orbit_completed.connect(func() -> void: orbit_completed.emit())
 	_register([&"orbit_left"], orbit)
 
+	# THE TRUCK ROUTE: the right lane guide and the ring's right arm
+	var guide_r := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
+	guide_r.name = "TruckRouteGuide"
+	add_child(guide_r)
+	guide_r.bar(Vector2(Layout.LANE_GUIDE_R_X, Layout.RING_CENTER.y), Vector2(Layout.LANE_GUIDE_R_X, Layout.LANE_GUIDE_R_BOTTOM), Layout.GUIDE_THICK)
+	_register([&"orbit_right"], guide_r)
+	var arc_r := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
+	arc_r.name = "TruckRouteArc"
+	add_child(arc_r)
+	arc_r.arc(Layout.RING_CENTER, Layout.RING_RADIUS, Layout.RING_RIGHT_FROM_DEG, Layout.RING_RIGHT_TO_DEG, 16, Layout.GUIDE_THICK)
+	_register([&"orbit_right"], arc_r)
+	orbit_right = OrbitLane.new()
+	orbit_right.name = "OrbitRight"
+	add_child(orbit_right)
+	orbit_right.configure(&"orbit_right", Layout.ORBIT_R_ENTRY, Vector2(0.36, 0.25),
+			Layout.ring_point(Layout.ORBIT_R_EXIT_DEG, Layout.CHANNEL_MID_RADIUS), 0.2)
+	orbit_right.orbit_completed.connect(func() -> void:
+		orbit_completed.emit()
+		truck_route_completed.emit())
+	_register([&"orbit_right"], orbit_right)
+
 
 func _build_top_lanes() -> void:
-	var posts := WallPiece.new()
+	var posts := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
 	posts.name = "TopLanePosts"
 	add_child(posts)
-	for i in range(ROLLOVER_POST_FROM.size()):
-		posts.bar(ROLLOVER_POST_FROM[i], ROLLOVER_POST_TO[i], ROLLOVER_POST_THICK)
+	for i in range(Layout.TOP_POST_DEG.size()):
+		posts.bar(Layout.ring_point(Layout.TOP_POST_DEG[i]), Layout.TOP_POST_BOTTOM[i], Layout.GUIDE_THICK)
 	_register([&"rollovers"], posts)
-
-	for i in range(ROLLOVER_AT.size()):
+	for i in range(Layout.ROLLOVER_AT.size()):
 		var r := Rollover.new()
 		r.name = "Rollover%d" % (i + 1)
-		r.configure(StringName("rollover_%d" % (i + 1)), i, ROLLOVER_AT[i])
+		r.configure(StringName("rollover_%d" % (i + 1)), i, Layout.ROLLOVER_AT[i])
 		add_child(r)
 		r.rolled.connect(_on_rollover)
 		rollovers.append(r)
@@ -631,34 +479,30 @@ func _build_top_lanes() -> void:
 
 
 func _build_bumpers() -> void:
-	for i in range(BUMPER_AT.size()):
-		var b: Bumper = BUMPER_SCENE.instantiate()
+	for i in range(Layout.BUMPER_AT.size()):
+		var b := Bumper.new()
 		b.id = StringName("bumper_%d" % (i + 1))
 		b.group = TableScore.GROUP_BUMPERS
 		b.value = int(TableScore.BUMPER)
-		b.position = BUMPER_AT[i]
-		b.size_scale = BUMPER_SCALE[i]
+		b.position = Layout.p3(Layout.BUMPER_AT[i])
+		b.size_scale = Layout.BUMPER_SCALE[i]
 		b.name = "Bumper%d" % (i + 1)
 		add_child(b)
 		_bumpers.append(b)
-		if i > 0:                       # the first dented can is the table you are given
+		if i > 0:
 			_register([b.id], b)
 
 
 func _build_slings() -> void:
-	for s in [1.0, -1.0]:
-		var sl: Slingshot = SLING_SCENE.instantiate()
-		# The triangle is starter-table dead rubber: it is physically present and visible, but
-		# Corner Boys are what power its face sensor, kick, score and figure/glow.
+	for s: float in [1.0, -1.0]:
+		var sl := Slingshot.new()
 		sl.passive_when_inactive = true
-		var id := &"sling_l" if s > 0.0 else &"sling_r"
-		sl.configure(id,
-			_mx(SLING_OUTER_BOTTOM.x, s, SLING_OUTER_BOTTOM.y),
-			_mx(SLING_INNER.x, s, SLING_INNER.y),
-			_mx(SLING_OUTER_TOP.x, s, SLING_OUTER_TOP.y))
+		var id := &"sling_r" if s > 0.0 else &"sling_l"
+		sl.configure(id, Layout.mx(Layout.SLING_OUTER_BOTTOM, s), Layout.mx(Layout.SLING_INNER, s),
+				Layout.mx(Layout.SLING_OUTER_TOP, s))
 		sl.group = TableScore.GROUP_SLINGS
 		sl.value = int(TableScore.SLING)
-		sl.name = "SlingL" if s > 0.0 else "SlingR"
+		sl.name = "SlingR" if s > 0.0 else "SlingL"
 		add_child(sl)
 		_slings.append(sl)
 		_register([&"slingshots"], sl)
@@ -669,68 +513,66 @@ func _build_wire() -> void:
 	wire_bank.name = "WireBank"
 	wire_bank.id = &"wire_bank"
 	add_child(wire_bank)
-	for i in range(WIRE_AT.size()):
+	for i in range(Layout.WIRE_AT.size()):
 		var t := StandupTarget.new()
 		t.name = "Payphone%d" % (i + 1)
-		t.configure(StringName("wire_%d" % (i + 1)), WIRE_AT[i], WIRE_FACE, WIRE_LENGTHS[i])
+		t.configure(StringName("wire_%d" % (i + 1)), Layout.WIRE_AT[i], Layout.WIRE_FACE, Layout.WIRE_LENGTHS[i])
 		wire_bank.add_target(t)
 	_register([&"wire_bank"], wire_bank)
 
 
 func _build_storefronts() -> void:
-	for i in range(STOREFRONT_AT.size()):
+	for i in range(Layout.STOREFRONT_AT.size()):
 		var s := Storefront.new()
 		s.name = "Storefront%d" % (i + 1)
-		s.configure(STOREFRONT_IDS[i], STOREFRONT_AT[i], STOREFRONT_FACING[i], STOREFRONT_RAKE[i],
-				STOREFRONT_SIGNS[i])
+		s.configure(Layout.STOREFRONT_IDS[i], Layout.STOREFRONT_AT[i], Layout.STOREFRONT_FACING[i],
+				Layout.STOREFRONT_RAKE_DEG[i], Layout.STOREFRONT_SIGNS[i])
 		add_child(s)
 		s.collected.connect(_on_storefront_collected)
 		s.washed.connect(_on_laundromat_wash)
 		storefronts.append(s)
-		# Lucky's is two upgrades in one shell: the wash loop (R2) and the bank (R3).
-		if STOREFRONT_IDS[i] == &"storefront_laundromat":
+		if Layout.STOREFRONT_IDS[i] == &"storefront_laundromat":
 			_register([&"storefront_laundromat", &"laundromat_loop"], s)
 		else:
-			_register([STOREFRONT_IDS[i]], s)
+			_register([Layout.STOREFRONT_IDS[i]], s)
 
 
 func _build_extras() -> void:
 	bribe_target = StandupTarget.new()
 	bribe_target.name = "BribeTarget"
-	bribe_target.configure(&"bribe_target", BRIBE_AT, BRIBE_FACE, 80.0)
+	bribe_target.configure(&"bribe_target", Layout.BRIBE_AT, Layout.BRIBE_FACE, Layout.BRIBE_LENGTH)
 	add_child(bribe_target)
 	bribe_target.struck.connect(_on_bribe_struck)
 	_register([&"bribe_target"], bribe_target)
 
-	for i in range(COP_AT.size()):
+	for i in range(Layout.COP_AT.size()):
 		var c := StandupTarget.new()
 		c.name = "Cop%d" % (i + 1)
-		c.configure(StringName("cop_%d" % (i + 1)), COP_AT[i], Vector2.DOWN, TARGET_LENGTH)
-		c.rotation += deg_to_rad(COP_RAKE[i])
+		c.lamp_color = Feel.COL_COP
+		c.configure(StringName("cop_%d" % (i + 1)), Layout.COP_AT[i],
+				Vector2(0.0, 1.0).rotated(deg_to_rad(Layout.COP_RAKE_DEG[i])), Layout.TARGET_LENGTH)
 		add_child(c)
 		c.struck.connect(_on_cop_struck)
 		cop_targets.append(c)
-		c.set_hardware_active(false)          # raid-only: never part of the owned set
+		c.set_hardware_active(false)
 
 	kickback = Kickback.new()
 	kickback.name = "KickbackLeft"
-	kickback.configure(&"kickback_left", KICKBACK_AT, KICKBACK_SIZE, Vector2(0.20, -1.0))
+	kickback.configure(&"kickback_left", Layout.KICKBACK_AT, Layout.KICKBACK_SIZE, Vector2(0.15, -1.0))
 	add_child(kickback)
 	_register([&"kickback_left"], kickback)
 
 	magnet = DrainMagnet.new()
 	magnet.name = "CaptainsMagnet"
-	magnet.position = MAGNET_AT
-	magnet.drain_point = Vector2(MIRROR_X, DRAIN_Y + 40.0)
+	magnet.position = Layout.p3(Layout.MAGNET_AT)
+	magnet.drain_point = Vector2(0.0, Layout.DRAIN_Z + 0.2)
 	add_child(magnet)
 
-	# THE FEDERAL RAID (M3). A second coil, two vans and a bagman's token — all of it built
-	# with the table and dormant, none of it for sale.
 	director = DrainMagnet.new()
 	director.name = "DirectorsMagnet"
-	director.position = DIRECTOR_AT
-	director.drain_point = Vector2(MIRROR_X, DRAIN_Y + 40.0)
-	director.self_driven = true         # nobody upstairs schedules this one; it hunts alone
+	director.position = Layout.p3(Layout.DIRECTOR_AT)
+	director.drain_point = Vector2(0.0, Layout.DRAIN_Z + 0.2)
+	director.self_driven = true
 	add_child(director)
 
 	vans = FederalVans.new()
@@ -743,44 +585,29 @@ func _build_extras() -> void:
 	briefcase.collected.connect(_on_briefcase_collected)
 	briefcase.expired.connect(func() -> void: briefcase_expired.emit())
 
-	# THE TRUCK ROUTE (M3): the right lane guide and the ring's right arm make a real lane
-	# down the right side, the twin of the Getaway Loop; two gates time the lap.
-	var guide_r := WallPiece.new()
-	guide_r.name = "TruckRouteGuide"
-	add_child(guide_r)
-	guide_r.bar(Vector2(LANE_GUIDE_R_X, LANE_GUIDE_TOP), Vector2(LANE_GUIDE_R_X, LANE_GUIDE_R_BOTTOM),
-			GUIDE_THICK)
-	_register([&"orbit_right"], guide_r)
-	var arc_r := WallPiece.new()
-	arc_r.name = "TruckRouteArc"
-	add_child(arc_r)
-	arc_r.arc(INNER_ARC_CENTER, INNER_ARC_RADIUS, deg_to_rad(INNER_ARC_RIGHT_FROM_DEG),
-			deg_to_rad(INNER_ARC_RIGHT_TO_DEG), 24, GUIDE_THICK)
-	_register([&"orbit_right"], arc_r)
-	orbit_right = OrbitLane.new()
-	orbit_right.name = "OrbitRight"
-	add_child(orbit_right)
-	orbit_right.configure(&"orbit_right", ORBIT_R_ENTRY_AT, ORBIT_R_ENTRY_SIZE,
-			_polar(ORBIT_EXIT_RADIUS, ORBIT_R_EXIT_DEG), 34.0)
-	orbit_right.orbit_completed.connect(func() -> void:
-		orbit_completed.emit()
-		truck_route_completed.emit())
-	_register([&"orbit_right"], orbit_right)
+
+func _build_flippers() -> void:
+	flipper_left = Flipper.new()
+	flipper_left.side = &"left"
+	flipper_left.name = "FlipperLeft"
+	flipper_left.position = Layout.p3(Layout.FLIPPER_PIVOT_L)
+	add_child(flipper_left)
+	flipper_right = Flipper.new()
+	flipper_right.side = &"right"
+	flipper_right.name = "FlipperRight"
+	flipper_right.position = Layout.p3(Layout.FLIPPER_PIVOT_R)
+	add_child(flipper_right)
 
 
-## THE COMMISSION (specs/m2-content.md §5). Sammy's sedan and his three goons, the Butcher's
-## refrigerated truck and its back door. None of it is registered as a piece of furniture:
-## boss hardware is not for sale, it stands dormant until a fight asks for it, exactly like
-## the raid's cops.
 func _build_bosses() -> void:
 	boss_sedan = BossTarget.new()
 	boss_sedan.name = "BossSedan"
 	boss_sedan.kind = &"sedan"
 	boss_sedan.color = Feel.COL_INK.lightened(0.16)
 	add_child(boss_sedan)
-	boss_sedan.size_to(SEDAN_LENGTH, SEDAN_THICK)
+	boss_sedan.size_to(Layout.SEDAN_LENGTH, Layout.SEDAN_THICK)
 	boss_sedan.set_path(PackedVector2Array([
-		Vector2(SEDAN_RAIL_FROM_X, SEDAN_RAIL_Y), Vector2(SEDAN_RAIL_TO_X, SEDAN_RAIL_Y),
+		Vector2(Layout.SEDAN_RAIL_FROM_X, Layout.SEDAN_RAIL_Z), Vector2(Layout.SEDAN_RAIL_TO_X, Layout.SEDAN_RAIL_Z),
 	]))
 	_wire_boss_target(boss_sedan)
 
@@ -789,87 +616,69 @@ func _build_bosses() -> void:
 	boss_truck.kind = &"truck"
 	boss_truck.color = Feel.COL_NEWSPRINT.darkened(0.18)
 	add_child(boss_truck)
-	boss_truck.size_to(TRUCK_LENGTH, TRUCK_THICK)
+	boss_truck.size_to(Layout.TRUCK_LENGTH, Layout.TRUCK_THICK)
 	boss_truck.set_path(_truck_path())
 	_wire_boss_target(boss_truck)
 
-	for i in range(GOON_AT.size()):
+	for i in range(Layout.GOON_AT.size()):
 		var g := StandupTarget.new()
 		g.name = "Goon%d" % (i + 1)
-		g.configure(StringName("boss_goon_%d" % (i + 1)), GOON_AT[i], Vector2.DOWN, TARGET_LENGTH)
-		g.rotation += deg_to_rad(GOON_RAKE[i])
+		g.lamp_color = Feel.COL_DIRTY
+		g.configure(StringName("boss_goon_%d" % (i + 1)), Layout.GOON_AT[i],
+				Vector2(0.0, 1.0).rotated(deg_to_rad(Layout.GOON_RAKE_DEG[i])), Layout.TARGET_LENGTH)
 		add_child(g)
 		g.struck.connect(_on_goon_struck)
 		boss_goons.append(g)
 		g.set_hardware_active(false)
 
 	boss_door = TargetBank.new()
-	boss_door.name = "BossDoor"
+	boss_door.name = "ButcherDoor"
 	boss_door.id = &"boss_door"
-	boss_door.reset_seconds = 1.2
+	boss_door.group = TableScore.GROUP_BUMPERS
+	boss_door.target_value = 0.0
+	boss_door.complete_value = 0.0
+	boss_door.reset_seconds = 999.0
 	add_child(boss_door)
 	for row in range(2):
-		var ys := DOOR_FRONT_Y if row == 0 else DOOR_BACK_Y
-		var xs := DOOR_FRONT_X if row == 0 else DOOR_BACK_X
+		var zs := Layout.DOOR_FRONT_Z if row == 0 else Layout.DOOR_BACK_Z
+		var xs := Layout.DOOR_FRONT_X if row == 0 else Layout.DOOR_BACK_X
 		for i in range(xs.size()):
 			var t := StandupTarget.new()
 			t.name = "Door%d%d" % [row + 1, i + 1]
-			t.configure(StringName("boss_door_%d%d" % [row + 1, i + 1]),
-					Vector2(xs[i], ys), Vector2.DOWN, TARGET_LENGTH)
-			t.rotation += deg_to_rad(DOOR_RAKE if i % 2 == 0 else -DOOR_RAKE)
+			t.lamp_color = Feel.COL_DIRTY
+			t.configure(StringName("boss_door_%d%d" % [row + 1, i + 1]), Vector2(xs[i], zs),
+					Vector2(0.0, 1.0).rotated(deg_to_rad(Layout.DOOR_RAKE_DEG * (1.0 if i % 2 == 0 else -1.0))),
+					Layout.TARGET_LENGTH * 0.8)
 			boss_door.add_target(t)
-	boss_door.group = &"other"
-	boss_door.target_value = 0.0
-	boss_door.complete_value = 0.0
-	boss_door.bank_completed.connect(func() -> void: boss_down.emit(&"door"))
-	boss_door.target_struck.connect(func(_index: int) -> void:
-		boss_hit.emit(&"door", boss_door.targets().size() - boss_door.marked_count(), 0.0))
+	boss_door.target_struck.connect(func(_i: int) -> void:
+		boss_hit.emit(&"door", boss_door_panels_left(), 0.0)
+		if boss_door_panels_left() <= 0:
+			boss_down.emit(&"door"))
 	boss_door.set_hardware_active(false)
 
 
 func _wire_boss_target(t: BossTarget) -> void:
 	t.set_hardware_active(false)
-	t.struck.connect(func(kind: StringName, left: int, speed: float) -> void:
-		boss_hit.emit(kind, left, speed))
-	t.shrugged.connect(func(kind: StringName, speed: float) -> void:
-		boss_shrugged.emit(kind, speed))
+	t.struck.connect(func(kind: StringName, left: int, speed: float) -> void: boss_hit.emit(kind, left, speed))
+	t.shrugged.connect(func(kind: StringName, speed: float) -> void: boss_shrugged.emit(kind, speed))
 	t.broken.connect(func(kind: StringName) -> void: boss_down.emit(kind))
 
 
-## The truck's beat: the getaway channel itself, sampled so the body lies along the arc.
+## The truck's beat: the orbit channel, sampled so the body lies along the arch.
 func _truck_path() -> PackedVector2Array:
 	var pts := PackedVector2Array()
-	for i in range(TRUCK_ARC_STEPS + 1):
-		var deg := lerpf(TRUCK_FROM_DEG, TRUCK_TO_DEG, float(i) / float(TRUCK_ARC_STEPS))
-		pts.append(_polar(TRUCK_RADIUS, deg))
+	for i in range(15):
+		var deg := lerpf(200.0, 340.0, float(i) / 14.0)
+		pts.append(Layout.ring_point(deg, Layout.CHANNEL_MID_RADIUS))
 	return pts
 
 
-func _build_flippers() -> void:
-	flipper_left = FLIPPER_SCENE.instantiate()
-	flipper_left.side = &"left"
-	flipper_left.size_scale = FLIPPER_SCALE
-	flipper_left.name = "FlipperLeft"
-	flipper_left.position = FLIPPER_PIVOT_L
-	add_child(flipper_left)
-
-	flipper_right = FLIPPER_SCENE.instantiate()
-	flipper_right.side = &"right"
-	flipper_right.size_scale = FLIPPER_SCALE
-	flipper_right.name = "FlipperRight"
-	flipper_right.position = FLIPPER_PIVOT_R
-	add_child(flipper_right)
-
-
-## THE CLUB (specs/m2-empire.md TABLE-2). The deck is one node in negative-y space; it owns
-## its own geometry and its own toys, and everything it does that the session cares about is
-## re-emitted here so `game/flow` has a single table surface to bind to.
-func _build_club() -> void:
+func _build_segments() -> void:
 	club = ClubDeck.new()
-	club.name = "ClubDeck"
+	club.name = "Club"
 	add_child(club)
 	club.bind_flippers(flipper_left, flipper_right)
-	club.staircase_climbed.connect(func(s: float) -> void: staircase_climbed.emit(s))
+	club.staircase_climbed.connect(func(speed: float) -> void: staircase_climbed.emit(speed))
 	club.roulette_landed.connect(func(p: int, h: bool) -> void: roulette_landed.emit(p, h))
 	club.reels_state.connect(func(cols: Array) -> void: reels_state.emit(cols))
 	club.high_roller_held.connect(func(steps: int) -> void: high_roller_held.emit(steps))
@@ -879,11 +688,6 @@ func _build_club() -> void:
 	for piece: Dictionary in club.pieces():
 		_register(piece["ids"], piece["node"], ClubDeck.ID_DECK)
 
-
-## THE DOCKS (specs/m3-fall-rise.md TABLE-3). Same division as the Club: the yard owns its
-## own geometry and toys, the table re-emits what the session cares about — and the pier is
-## routed straight into the drain path, because a fall there costs a ball.
-func _build_docks() -> void:
 	docks = Docks.new()
 	docks.name = "Docks"
 	add_child(docks)
@@ -892,42 +696,106 @@ func _build_docks() -> void:
 	docks.containers_state.connect(func(c: Array) -> void: containers_state.emit(c))
 	docks.crane_telegraph.connect(func() -> void: crane_telegraph.emit())
 	docks.crane_pulled.connect(func() -> void: crane_pulled.emit())
-	docks.cargo_shipped.connect(func(s: float) -> void: cargo_shipped.emit(s))
+	docks.cargo_shipped.connect(func(speed: float) -> void: cargo_shipped.emit(speed))
 	docks.pier_fall.connect(func(b: Ball) -> void: _lose_ball(b, &"pier_splash"))
 	_register([Docks.ID_DOCKS], docks)
 	for piece: Dictionary in docks.pieces():
 		_register(piece["ids"], piece["node"], Docks.ID_DOCKS)
 
-
-## THE PENTHOUSE (specs/m3-fall-rise.md TABLE-3). Registered under the Club, because the only
-## way into the room is a wireform off the deck's own orbit — see `hardware_unlocked`.
-func _build_penthouse() -> void:
 	penthouse = Penthouse.new()
 	penthouse.name = "Penthouse"
 	add_child(penthouse)
 	penthouse.chair_taken.connect(func(i: int) -> void: chair_taken.emit(i))
 	penthouse.chairs_completed.connect(func() -> void: chairs_completed.emit())
 	penthouse.sitdown_entered.connect(func() -> void: sitdown_entered.emit())
-	penthouse.penthouse_entered.connect(func(s: float) -> void: penthouse_entered.emit(s))
+	penthouse.penthouse_entered.connect(func(speed: float) -> void: penthouse_entered.emit(speed))
 	penthouse.penthouse_returned.connect(func() -> void: penthouse_returned.emit())
 	_register([Penthouse.ID_PENTHOUSE], penthouse, ClubDeck.ID_DECK)
 	for piece: Dictionary in penthouse.pieces():
 		_register(piece["ids"], piece["node"], Penthouse.ID_PENTHOUSE)
 
-
-## CITY HALL (docs/02 §2 R7). One piece of furniture, no sub-hardware: the dome is a rail and
-## a painting. It is registered under the Penthouse — which is registered under the Club — so
-## the crown cannot arrive before the two floors it stands on, however it is forced on.
-func _build_city_hall() -> void:
 	city_hall = CityHall.new()
 	city_hall.name = "CityHall"
 	add_child(city_hall)
-	city_hall.loop_completed.connect(func(s: float) -> void: dome_loop_completed.emit(s))
+	city_hall.dome_loop_completed.connect(func(speed: float) -> void: dome_loop_completed.emit(speed))
 	_register([CityHall.ID_CITY_HALL], city_hall, Penthouse.ID_PENTHOUSE)
+	_register([CityHall.ID_LOOP], city_hall.loop, CityHall.ID_CITY_HALL)
 
 
-## The crew with the hammers. Added last so it draws over everything it is building, and
-## switched off entirely under a headless display so no sim's timing rides on an animation.
+func _build_drain() -> void:
+	var area := Area3D.new()
+	area.name = "Drain"
+	area.collision_layer = Feel.LAYER_ZONES
+	area.collision_mask = Feel.LAYER_BALL
+	area.monitorable = false
+	_drain_shape(area, Layout.p3(Layout.CENTRE_DRAIN_AT, 0.25), Vector3(Layout.CENTRE_DRAIN_SIZE.x, 0.5, Layout.CENTRE_DRAIN_SIZE.y))
+	for s: float in [1.0, -1.0]:
+		var x0: float = Layout.inlane_guide_x(s) + s * Layout.GUIDE_THICK
+		var x1: float = (Layout.DIVIDER_X - Layout.DIVIDER_THICK) if s > 0.0 \
+				else (Layout.PLAY_LEFT + Layout.OUTER_THICK * 0.5)
+		var z0 := Layout.OUTLANE_DRAIN_Z + 0.3
+		var z1 := Layout.DRAIN_Z
+		_drain_shape(area, Vector3((x0 + x1) * 0.5, 0.25, (z0 + z1) * 0.5), Vector3(absf(x1 - x0), 0.5, z1 - z0))
+	# cabinet safety: anything below the felt or past the lip is gone
+	_drain_shape(area, Vector3(0.0, 0.25, Layout.DRAIN_Z + 0.35), Vector3(5.6, 0.5, 0.5))
+	_drain_shape(area, Vector3(0.0, -1.2, 0.0), Vector3(7.0, 0.6, 13.0))
+	add_child(area)
+	area.body_entered.connect(func(body: Node3D) -> void: _on_drain_entered(body))
+
+
+func _drain_shape(area: Area3D, at: Vector3, size: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	cs.shape = box
+	cs.position = at
+	area.add_child(cs)
+
+
+func _build_plunger() -> void:
+	plunger = BandedPlunger.new()
+	plunger.name = "Plunger"
+	plunger.lane_box = lane_box()
+	plunger.lane_dir = Vector3(0.0, 0.0, -1.0)
+	plunger.starter_powers = PLUNGER_STARTER_POWERS
+	plunger.starter_band = PLUNGER_STARTER_DEFAULT_BAND
+	add_child(plunger)
+	# the rod, for the look
+	var rod := Node3D.new()
+	rod.name = "PlungerRod"
+	var lane_x := (Layout.DIVIDER_X + Layout.PLAY_RIGHT) * 0.5
+	rod.position = Vector3(lane_x, 0.0, Layout.LANE_FLOOR_Z + 0.1)
+	add_child(rod)
+	var housing := CylinderMesh.new()
+	housing.top_radius = 0.09
+	housing.bottom_radius = 0.09
+	housing.height = 0.3
+	var hm := MeshInstance3D.new()
+	hm.mesh = housing
+	hm.material_override = _lib.brass_dark()
+	hm.rotation.x = PI * 0.5
+	hm.position = Vector3(0.0, Feel.BALL_RADIUS, 0.25)
+	rod.add_child(hm)
+	var shaft := CylinderMesh.new()
+	shaft.top_radius = 0.035
+	shaft.bottom_radius = 0.035
+	shaft.height = 0.8
+	var sm := MeshInstance3D.new()
+	sm.mesh = shaft
+	sm.material_override = _lib.steel()
+	sm.rotation.x = PI * 0.5
+	sm.position = Vector3(0.0, Feel.BALL_RADIUS, 0.5)
+	rod.add_child(sm)
+	var knob := SphereMesh.new()
+	knob.radius = 0.1
+	knob.height = 0.2
+	var km := MeshInstance3D.new()
+	km.mesh = knob
+	km.material_override = _lib.plastic(Color("7A1E1E"), 0.4)
+	km.position = Vector3(0.0, Feel.BALL_RADIUS, 0.95)
+	rod.add_child(km)
+
+
 func _build_construction() -> void:
 	construction = BuildIn.new()
 	construction.name = "Construction"
@@ -937,65 +805,9 @@ func _build_construction() -> void:
 	add_child(construction)
 
 
-## Three visible exits replace the old invisible full-width line: a centre storm grate below
-## the bats and a collection trench at the foot of either outlane. A final thin floor sensor
-## remains as cabinet safety, but normal play reaches one of the authored mouths first.
-func _build_drain() -> void:
-	var area := Area2D.new()
-	area.name = "Drain"
-	area.collision_layer = Feel.LAYER_ZONES
-	area.collision_mask = Feel.LAYER_BALL
-	area.monitorable = false
-
-	var centre_shape := CollisionShape2D.new()
-	var centre_rect := RectangleShape2D.new()
-	centre_rect.size = CENTRE_DRAIN_SIZE
-	centre_shape.shape = centre_rect
-	centre_shape.position = CENTRE_DRAIN_AT
-	area.add_child(centre_shape)
-
-	var left_shape := CollisionShape2D.new()
-	var left_rect := RectangleShape2D.new()
-	left_rect.size = Vector2(OUTLANE_X - PLAY_LEFT, DRAIN_Y - OUTLANE_DRAIN_Y)
-	left_shape.shape = left_rect
-	left_shape.position = Vector2((PLAY_LEFT + OUTLANE_X) * 0.5,
-			(OUTLANE_DRAIN_Y + DRAIN_Y) * 0.5)
-	area.add_child(left_shape)
-
-	var right_shape := CollisionShape2D.new()
-	var right_edge := MIRROR_X * 2.0 - OUTLANE_X
-	var right_rect := RectangleShape2D.new()
-	right_rect.size = Vector2(PLAY_RIGHT - right_edge, DRAIN_Y - OUTLANE_DRAIN_Y)
-	right_shape.shape = right_rect
-	right_shape.position = Vector2((right_edge + PLAY_RIGHT) * 0.5,
-			(OUTLANE_DRAIN_Y + DRAIN_Y) * 0.5)
-	area.add_child(right_shape)
-
-	var safety_shape := CollisionShape2D.new()
-	var safety_rect := RectangleShape2D.new()
-	safety_rect.size = Vector2(PLAY_RIGHT - PLAY_LEFT, DRAIN_HEIGHT)
-	safety_shape.shape = safety_rect
-	safety_shape.position = Vector2((PLAY_LEFT + PLAY_RIGHT) * 0.5,
-			DRAIN_Y + DRAIN_HEIGHT * 0.5)
-	area.add_child(safety_shape)
-	add_child(area)
-	area.body_entered.connect(func(body: Node2D) -> void: _on_drain_entered(body))
-
-
-func _build_plunger() -> void:
-	plunger = BandedPlunger.new()
-	plunger.name = "Plunger"
-	plunger.lane_rect = lane_rect()
-	plunger.starter_powers = PLUNGER_STARTER_POWERS
-	plunger.starter_band = PLUNGER_STARTER_DEFAULT_BAND
-	add_child(plunger)
-
-
 # ================================================================= unlocking =====
 
 
-## `needs` is an id that must *also* be owned for the piece to be on the table: the Club's
-## toys are bought one at a time but none of them exists without the deck under them.
 func _register(ids: Array, node: Node, needs: StringName = &"") -> void:
 	var typed: Array[StringName] = []
 	for id: Variant in ids:
@@ -1003,7 +815,6 @@ func _register(ids: Array, node: Node, needs: StringName = &"") -> void:
 	_pieces.append({"ids": typed, "node": node, "needs": needs})
 
 
-## Is this hardware id paid for? `debug_all_hardware` is the M0/feel-sim bypass.
 func hardware_unlocked(id: StringName) -> bool:
 	if debug_all_hardware:
 		return true
@@ -1011,16 +822,11 @@ func hardware_unlocked(id: StringName) -> bool:
 		return true
 	if Game == null or Game.stats == null:
 		return false
-	# The donut shop is only worth standing there if the envelope can actually be passed
-	# (specs/m1-hook.md Lane 3): Stats answers that as a flag, not as hardware.
 	if id == &"bribe_target":
 		return Game.stats.hardware_unlocked(id) or Game.stats.bribe_unlocked()
 	return Game.stats.hardware_unlocked(id)
 
 
-## Should this registered piece be standing on the table right now? One owned id out of the
-## piece's set is enough; its `needs` id (if any) is not optional, and `needs` chains — the
-## Penthouse needs the Club, and a chair needs the Penthouse, so a chair needs both.
 func _needs_met(id: StringName, depth: int = 0) -> bool:
 	if id == &"" or depth > 4:
 		return true
@@ -1033,12 +839,7 @@ func _needs_met(id: StringName, depth: int = 0) -> bool:
 	return true
 
 
-## Is every piece registered under this id on the playfield right now? "Every", because a
-## couple of pieces answer to two owners (the left channel guide serves the numbers lane and
-## the getaway loop), and owning one of those does not put the other one on the table.
 func hardware_present(id: StringName) -> bool:
-	# Progression slings are visible passive bodies before purchase. Presence here means the
-	# upgrade is live/powered, preserving the hardware query contract without hiding the body.
 	if id == &"slingshots":
 		for sl: Slingshot in _slings:
 			if sl.is_powered():
@@ -1050,13 +851,11 @@ func hardware_present(id: StringName) -> bool:
 		if not ids.has(id):
 			continue
 		found = true
-		if not (piece["node"] as Node2D).visible:
+		if not (piece["node"] as Node3D).visible:
 			return false
 	return found
 
 
-## Every switchable piece, as `{ ids: Array[StringName], node: Node }` — the growth sim walks
-## this to prove that "hidden" and "no collision" never come apart.
 func hardware_pieces() -> Array[Dictionary]:
 	return _pieces.duplicate()
 
@@ -1078,9 +877,6 @@ func hardware_piece_active(piece: Dictionary) -> bool:
 	return false
 
 
-## Dev/sim door into the owned set, the same one `KINGPIN_TABLE_HARDWARE` opens: force these
-## ids on without a Ledger. The Club's nodes are M2 content and have no upgrade entries yet,
-## so the sims stage the deck through here.
 func force_hardware(ids: Array, on: bool = true) -> void:
 	for id: Variant in ids:
 		if on:
@@ -1099,15 +895,11 @@ func hardware_ids() -> Array[StringName]:
 	return out
 
 
-## Re-read the owned set and show/hide everything accordingly. Cheap enough to call on any
-## purchase, and idempotent, which is what makes save-loading a non-event.
 func refresh_hardware() -> void:
 	for piece: Dictionary in _pieces:
-		var node: Node2D = piece["node"]
+		var node: Node3D = piece["node"]
 		var live := hardware_piece_active(piece)
 		Dormant.apply(node, live)
-		# dormant → active is a *purchase*: send the crew in rather than popping it on. The
-		# first pass of a session is the table loading its own save, not a purchase.
 		if live == _built_once.has(node):
 			continue
 		if live:
@@ -1118,11 +910,9 @@ func refresh_hardware() -> void:
 			_built_once.erase(node)
 			if construction != null:
 				construction.cancel(node)
-			node.modulate.a = 1.0
 	_first_refresh = false
 	if club != null:
-		club.set_flippers_live(hardware_unlocked(ClubDeck.ID_DECK)
-				and hardware_unlocked(ClubDeck.ID_FLIPPERS))
+		club.set_flippers_live(hardware_unlocked(ClubDeck.ID_DECK) and hardware_unlocked(ClubDeck.ID_FLIPPERS))
 	for s in storefronts:
 		s.bank_enabled = hardware_unlocked(s.id)
 		s.wash_enabled = s.id == &"storefront_laundromat" and hardware_unlocked(&"laundromat_loop")
@@ -1136,17 +926,15 @@ func refresh_hardware() -> void:
 	if plunger != null:
 		plunger.bands_enabled = debug_all_hardware \
 				or (Game != null and Game.stats != null and Game.stats.flag(&"plunger_bands"))
-	queue_redraw()
 
 
 func _on_upgrade_purchased(_id: String, _level: int) -> void:
 	refresh_hardware()
 
 
-# ============================================================== flow surface =====
+# ================================================================== flow API =====
 
 
-## Light one of the three top lanes for the skill shot; -1 (or out of range) lights none.
 func set_lit_rollover(index: int) -> void:
 	_lit_lane = index
 	for i in range(rollovers.size()):
@@ -1161,9 +949,6 @@ func rollover_count() -> int:
 	return rollovers.size()
 
 
-## RAID (specs/m1-hook.md Lane 1): four cops come out around the lanes and the Captain's
-## magnet starts telegraphing pulls at the drain. Flow owns the clock and the pull itself
-## (RaidMode); this owns the hardware and the warning.
 func set_raid_active(active: bool) -> void:
 	if raid_active == active:
 		return
@@ -1171,19 +956,6 @@ func set_raid_active(active: bool) -> void:
 	_apply_raid_hardware()
 
 
-## THE FEDERAL RAID (docs/05 §9, R7). Three stages of the same siege, each one adding to the
-## last and each one built out of hardware this table already owns:
-##
-##   0  off
-##   1  street sweep — the cops and the Captain's coil, exactly as a local raid, on a
-##      dirtier felt
-##   2  wiretap — two unmarked vans in the bottom corners with their lights walking up the
-##      block. Visual only: no collider arrives with a federal warrant
-##   3  the Director — a SECOND coil, a third of the way up the field, alternating with the
-##      Captain's so there is never more than one telegraph on the table
-##
-## Independent of `set_raid_active`: a local raid during a federal one is not a double
-## toggle, because the shared hardware is a function of both switches.
 func set_federal_raid(phase: int) -> void:
 	var want := clampi(phase, 0, 3)
 	if federal_phase == want:
@@ -1195,17 +967,13 @@ func set_federal_raid(phase: int) -> void:
 	if want >= 3:
 		if not director.active:
 			director.set_active(true)
-			# Opposite half of the Captain's cycle to begin with; `_keep_magnets_apart` holds
-			# them there for as long as both are running.
 			director.reschedule(DrainMagnet.PERIOD * 0.5)
 	else:
 		director.set_active(false)
 	if was == 0 and want > 0:
 		AudioDirector.play(&"raid_start")
-	queue_redraw()
 
 
-## Cops and the Captain's coil, from whichever siege wants them.
 func _apply_raid_hardware() -> void:
 	var on := raid_active or federal_phase >= 1
 	for c in cop_targets:
@@ -1213,13 +981,18 @@ func _apply_raid_hardware() -> void:
 		c.set_marked(false)
 	magnet.set_active(on)
 	if not on:
-		set_raid_speed(1.0)          # a siege does not leave its clock behind
-	queue_redraw()
+		set_raid_speed(1.0)
 
 
-## Two coils under one table may never wind up at the same time — a player can read one tell,
-## not two, and a double pull is a coin flip rather than a difficulty. Whichever is already
-## telegraphing owns the field; the other one's pull is pushed past the end of it.
+## A fresh officer where the flow asks for one (the M1 raid placed cops one by one).
+func spawn_cop_target() -> void:
+	for c in cop_targets:
+		if not c.is_hardware_active():
+			c.set_hardware_active(true)
+			c.set_marked(false)
+			return
+
+
 func _keep_magnets_apart() -> void:
 	if director == null or not director.active or not magnet.active:
 		return
@@ -1227,23 +1000,15 @@ func _keep_magnets_apart() -> void:
 	var waiting := director if winding == magnet else magnet
 	if not winding.is_telegraphing():
 		return
-	# Half a cycle apart is the aim; when the raid is running at double time that is more
-	# room than the cycle has, so take what there is — still a clear tell's worth.
-	var gap := minf(MAGNET_MIN_GAP,
-			DrainMagnet.PERIOD / maxf(waiting.rate, 0.25) * 0.45)
+	var gap := minf(MAGNET_MIN_GAP, DrainMagnet.PERIOD / maxf(waiting.rate, 0.25) * 0.45)
 	if waiting.time_to_pull() < winding.time_to_pull() + gap:
 		waiting.reschedule(winding.time_to_pull() + gap)
 
 
-## Fire the Captain's magnet now (flow drives the schedule; see DrainMagnet.self_driven).
 func magnet_pull() -> void:
 	magnet.pull(ball)
 
 
-## Run the raid's hardware at `scale` times its usual pace — the RICO raid's street sweep
-## asks for double time (game/flow/rico.gd `SWEEP_SPEED`). The cops are furniture and have no
-## clock of their own, so what "faster" means on this table is the coils: the same 1.2 s tell,
-## arriving twice as often. Clamped, and 1.0 puts it back.
 func set_raid_speed(scale: float) -> void:
 	var rate := clampf(scale, 0.25, 4.0)
 	if magnet != null:
@@ -1252,28 +1017,17 @@ func set_raid_speed(scale: float) -> void:
 		director.rate = rate
 
 
-# ================================================================ the briefcase =====
-##
-## docs/05 — the Mystery Briefcase. The table owns the token: where it may be put down, how
-## long it stands there, and which of the two ways it can end. The flow lane owns everything
-## about what is in it.
-
-
-## Drop a case. `at` = Vector2.ZERO picks one of `BRIEFCASE_SPOTS` at random, skipping any
-## the raid's cops or a Commission fight are standing on; an explicit point is taken as
-## given. One case at a time — a second call while one is live does nothing, so a caller that
-## needs to know should read `briefcase_live()` afterwards.
 func spawn_briefcase(at: Vector2 = Vector2.ZERO) -> void:
 	if briefcase == null or briefcase.is_live():
 		return
 	var spot := at
 	if spot == Vector2.ZERO:
 		var open: Array[Vector2] = []
-		for candidate: Vector2 in BRIEFCASE_SPOTS:
+		for candidate: Vector2 in Layout.BRIEFCASE_SPOTS:
 			if _spot_open(candidate):
 				open.append(candidate)
 		if open.is_empty():
-			return                  # the waist is full: the bagman waits for a quieter Night
+			return
 		spot = open[_case_rng.randi_range(0, open.size() - 1)]
 	briefcase.drop_at(spot)
 
@@ -1283,26 +1037,22 @@ func briefcase_live() -> bool:
 
 
 func briefcase_at() -> Vector2:
-	return briefcase.global_position if briefcase_live() else Vector2.ZERO
+	return Layout.plan(briefcase.position) if briefcase_live() else Vector2.ZERO
 
 
-## Is this spot clear of everything that comes and goes? The fixed furniture is already
-## accounted for in `BRIEFCASE_SPOTS`; what moves is the raid's cops, Sammy's crew and the
-## Commission's vehicles — and the ball, which must never have a case land on top of it.
 func _spot_open(at: Vector2) -> bool:
 	for b in Balls.live():
-		if is_instance_valid(b) and b.global_position.distance_to(at) < BRIEFCASE_CLEAR:
+		if is_instance_valid(b) and Layout.plan(b.table_position()).distance_to(at) < Layout.BRIEFCASE_CLEAR:
 			return false
 	for t: StandupTarget in cop_targets + boss_goons:
-		if t.visible and t.global_position.distance_to(at) < BRIEFCASE_CLEAR:
+		if t.visible and Layout.plan(t.position).distance_to(at) < Layout.BRIEFCASE_CLEAR:
 			return false
 	if boss_door != null and boss_door.visible:
 		for t: StandupTarget in boss_door.targets():
-			if t.visible and t.global_position.distance_to(at) < BRIEFCASE_CLEAR:
+			if t.visible and Layout.plan(t.position).distance_to(at) < Layout.BRIEFCASE_CLEAR:
 				return false
 	for v: BossTarget in [boss_sedan, boss_truck]:
-		if v != null and v.visible \
-				and v.global_position.distance_to(at) < BRIEFCASE_CLEAR_VEHICLE:
+		if v != null and v.visible and Layout.plan(v.position).distance_to(at) < Layout.BRIEFCASE_CLEAR_VEHICLE:
 			return false
 	return true
 
@@ -1311,13 +1061,6 @@ func _on_briefcase_collected(_ball_hit: Ball) -> void:
 	briefcase_collected.emit()
 
 
-# ========================================================== the Commission =====
-##
-## Same division of labour as the raid: the fight (game/flow/bosses/) owns the phases, the
-## clock and the money; the table owns the hardware and stands it up when asked.
-
-
-## Everything down, meter blank. Called when a fight starts and when it ends.
 func clear_boss() -> void:
 	boss_active = false
 	for t: BossTarget in [boss_sedan, boss_truck]:
@@ -1327,14 +1070,9 @@ func clear_boss() -> void:
 	set_boss_goons(false)
 	set_boss_door(false)
 	set_boss_meter("", 0.0)
-	queue_redraw()
 
 
-## Stand up (or take down) one of the boss vehicles.
-##   mode &"off" — gone.  &"run" — riding its rail/arc.  &"park" — stopped at its mark.
-## `hits` is how many panels are left in it; `speed_gate` is the Butcher's orbit-pace rule.
-func set_boss_target(kind: StringName, mode: StringName, hits: int = 0,
-		speed_gate: float = 0.0) -> void:
+func set_boss_target(kind: StringName, mode: StringName, hits: int = 0, speed_gate: float = 0.0) -> void:
 	var t: BossTarget = boss_sedan if kind == &"sedan" else boss_truck
 	if t == null:
 		return
@@ -1345,24 +1083,21 @@ func set_boss_target(kind: StringName, mode: StringName, hits: int = 0,
 	boss_active = true
 	t.arm(hits, speed_gate)
 	if mode == &"park":
-		t.park_at(SEDAN_PARK if kind == &"sedan" else TRUCK_PARK)
+		t.park_at(Layout.SEDAN_PARK if kind == &"sedan" else Layout.TRUCK_PARK)
 	else:
 		t.set_path(PackedVector2Array([
-			Vector2(SEDAN_RAIL_FROM_X, SEDAN_RAIL_Y), Vector2(SEDAN_RAIL_TO_X, SEDAN_RAIL_Y),
+			Vector2(Layout.SEDAN_RAIL_FROM_X, Layout.SEDAN_RAIL_Z), Vector2(Layout.SEDAN_RAIL_TO_X, Layout.SEDAN_RAIL_Z),
 		]) if kind == &"sedan" else _truck_path())
 		t.set_moving(true)
 	t.set_hardware_active(true)
-	queue_redraw()
 
 
-## Sammy's three goons: while any of them is standing his crew is holding the cans shut.
 func set_boss_goons(on: bool) -> void:
 	if on:
 		boss_active = true
 	for g in boss_goons:
 		g.set_marked(false)
 		g.set_hardware_active(on)
-	queue_redraw()
 
 
 func boss_goons_standing() -> int:
@@ -1378,8 +1113,8 @@ func set_boss_door(on: bool) -> void:
 		return
 	if on:
 		boss_active = true
+		boss_door.reset_now()
 	boss_door.set_hardware_active(on)
-	queue_redraw()
 
 
 func boss_door_panels_left() -> int:
@@ -1388,18 +1123,15 @@ func boss_door_panels_left() -> int:
 	return boss_door.targets().size() - boss_door.marked_count()
 
 
-## The Butcher's cold-storage readout: what the armored cans are holding, as a bar the player
-## can watch fill. `fill` is 0..1; an empty label takes the meter off the table.
 func set_boss_meter(text: String, fill: float) -> void:
-	if _boss_meter_text == text and is_equal_approx(_boss_meter_fill, fill):
-		return
 	_boss_meter_text = text
 	_boss_meter_fill = clampf(fill, 0.0, 1.0)
-	queue_redraw()
 
 
-## A goon is not a payout: Sammy's crew is scenery with a switch on it, and the fight decides
-## what a downed goon means.
+func boss_meter() -> Dictionary:
+	return {"text": _boss_meter_text, "fill": _boss_meter_fill}
+
+
 func _on_goon_struck(target: StandupTarget, _ball_hit: Ball) -> void:
 	if target.marked:
 		return
@@ -1410,8 +1142,6 @@ func _on_goon_struck(target: StandupTarget, _ball_hit: Ball) -> void:
 		boss_down.emit(&"goon")
 
 
-## Work one storefront till without a ball (Manny, specs/m2-content.md §2). Returns the id it
-## collected, or &"" if no shutters were open. The flow lane owns the clock.
 func auto_collect_one() -> StringName:
 	for s in storefronts:
 		if s.visible and s.is_open():
@@ -1420,7 +1150,6 @@ func auto_collect_one() -> StringName:
 	return &""
 
 
-## Is any storefront ready to be worked? The flow lane gates the passive wash on it.
 func storefront_armed() -> bool:
 	var any := false
 	for s in storefronts:
@@ -1430,6 +1159,20 @@ func storefront_armed() -> bool:
 		if s.state_name() != &"cooldown":
 			return true
 	return not any
+
+
+func storefronts_armed_count() -> int:
+	var n := 0
+	for s in storefronts:
+		if s.state_name() == &"armed":
+			n += 1
+	return n
+
+
+func arm_storefronts() -> void:
+	for s in storefronts:
+		if s.visible and s.state_name() == &"cooldown":
+			s.apply_build()
 
 
 func spinner_spins() -> int:
@@ -1442,16 +1185,6 @@ func _on_rollover(index: int, was_lit: bool) -> void:
 
 func _on_storefront_collected(id: StringName, amount: BigMoney) -> void:
 	storefront_collected.emit(id, amount)
-
-
-## How many storefront banks are currently armed — the Collection Round trigger reads
-## this instead of poking each storefront's state (flow-lane request, M2).
-func storefronts_armed_count() -> int:
-	var n := 0
-	for s in storefronts:
-		if s.state_name() == &"armed":
-			n += 1
-	return n
 
 
 func _on_laundromat_wash(_id: StringName) -> void:
@@ -1478,11 +1211,10 @@ func spawn_ball() -> Ball:
 	_respawn_in = -1.0
 	var b: Ball = BALL_SCENE.instantiate()
 	b.name = "Ball"
-	b.position = spawn_point()
 	add_child(b)
+	b.place(spawn_point())
 	ball = b
 	balls_served += 1
-	_from_lane = true
 	_bind_ball()
 	Balls.register(b)
 	AudioDirector.play(&"ball_spawn")
@@ -1491,14 +1223,18 @@ func spawn_ball() -> Ball:
 	return b
 
 
-## Multiball service (specs/ball-registry.md): an ADDITIONAL live ball, released at a
-## given point (default: the back-room area feeds Family Meeting from the deck). The
-## primary `ball` ref and its bindings are untouched — extras exist only in the registry.
-func spawn_extra_ball(at: Vector2 = Vector2.ZERO) -> Ball:
+## An ADDITIONAL live ball, released at a plan point (or a table-space point).
+func spawn_extra_ball(at: Variant = null) -> Ball:
 	var b: Ball = BALL_SCENE.instantiate()
 	b.name = "BallExtra%d" % balls_served
-	b.position = spawn_point() if at == Vector2.ZERO else at
 	add_child(b)
+	var where := spawn_point()
+	if at is Vector2 and (at as Vector2) != Vector2.ZERO:
+		var p := at as Vector2
+		where = Layout.p3(p, floor_height_at(p) + Feel.BALL_RADIUS + 0.02)
+	elif at is Vector3:
+		where = at
+	b.place(where)
 	balls_served += 1
 	Balls.register(b)
 	AudioDirector.play(&"ball_spawn")
@@ -1516,45 +1252,27 @@ func despawn_ball() -> void:
 
 
 func _bind_ball() -> void:
-	if flipper_left != null:
-		flipper_left.set_ball(ball)
-	if flipper_right != null:
-		flipper_right.set_ball(ball)
-	if plunger != null:
-		plunger.set_ball(ball)
-	if magnet != null:
-		magnet.set_ball(ball)
-	if club != null:
-		club.set_ball(ball)
-	if docks != null:
-		docks.set_ball(ball)
-	if penthouse != null:
-		penthouse.set_ball(ball)
-	if city_hall != null:
-		city_hall.set_ball(ball)
+	for holder: Node in [flipper_left, flipper_right, plunger, magnet, director, gate, club, docks, penthouse, city_hall]:
+		if holder != null and holder.has_method(&"set_ball"):
+			holder.call(&"set_ball", ball)
 
 
-func _on_drain_entered(body: Node2D, sound: StringName = &"drain") -> void:
+func _on_drain_entered(body: Node3D, sound: StringName = &"drain") -> void:
 	if not (body is Ball):
 		return
 	_lose_ball(body as Ball, sound)
 
 
-## One ball, gone. Every way of losing a ball on this machine funnels through here so the
-## flow lane only ever sees one shape of loss, whichever hole it went down.
 func _lose_ball(lost: Ball, sound: StringName = &"drain") -> void:
 	if lost == null or not is_instance_valid(lost):
 		return
 	if not Balls.live().has(lost):
-		return                     # already counted: two zones can overlap for a tick
+		return
 	var was_primary := lost == ball
 	if was_primary:
-		# Multiball: the lowest surviving extra becomes the new primary so the flipper/
-		# plunger/magnet bindings stay on a live ball. The lost ball is still registered
-		# here, so pick the survivor by hand rather than via Balls.primary().
 		ball = null
 		for b in Balls.live():
-			if b != lost and (ball == null or b.global_position.y > ball.global_position.y):
+			if b != lost and (ball == null or b.table_position().z > ball.table_position().z):
 				ball = b
 		_bind_ball()
 	Balls.unregister(lost)
@@ -1575,425 +1293,30 @@ func _physics_process(delta: float) -> void:
 			if _respawn_in <= 0.0:
 				_respawn_in = -1.0
 				spawn_ball()
-	_update_gate()
 	_ball_search(delta)
 	_keep_magnets_apart()
 
 
-func _process(delta: float) -> void:
-	if Presentation.fx != null and Presentation.fx.reduced_flash:
-		if _show_clock != 0.0:
-			_show_clock = 0.0
-			queue_redraw()
-		return
-	_show_clock += delta
-	_show_redraw += delta
-	# Twelve redraws a second is enough for incandescent bulbs and keeps the vector table
-	# cheap on the Android compatibility renderer.
-	if _show_redraw >= 1.0 / 12.0:
-		_show_redraw = 0.0
-		queue_redraw()
-
-
-## Pulse the coils under a ball that has stopped somewhere it has no business stopping.
 func _ball_search(delta: float) -> void:
 	if ball == null or not is_instance_valid(ball):
 		_still_for = 0.0
 		return
-	var p := ball.global_position
-	if ball.speed() > BALL_SEARCH_SPEED or p.y > BALL_SEARCH_FLOOR or lane_rect().has_point(p):
+	var p := ball.table_position()
+	if ball.speed() > Feel.BALL_SEARCH_SPEED or p.z > BALL_SEARCH_FLOOR_Z or lane_box().has_point(p):
 		_still_for = 0.0
 		return
-	# Upstairs has its own legitimate resting places — a mini-bat cradle, a saucer mid-hold,
-	# a pocket riding the wheel round, a Sit-Down mid-negotiation, a crate on the hoist — and
-	# none of them wants a coil under it.
-	if club != null and club.search_exempt(ball):
-		_still_for = 0.0
-		return
-	if penthouse != null and penthouse.search_exempt(ball):
-		_still_for = 0.0
-		return
-	if docks != null and docks.search_exempt(ball):
-		_still_for = 0.0
-		return
-	if city_hall != null and city_hall.search_exempt(ball):
+	for seg: Node in [club, penthouse, docks, city_hall]:
+		if seg != null and bool(seg.call(&"search_exempt", ball)):
+			_still_for = 0.0
+			return
+	if BallHold.is_held(ball):
 		_still_for = 0.0
 		return
 	_still_for += delta
-	if _still_for < BALL_SEARCH_DELAY:
+	if _still_for < Feel.BALL_SEARCH_DELAY:
 		return
-	_still_for = BALL_SEARCH_DELAY - BALL_SEARCH_REPEAT
-	var dir := Vector2(_search_rng.randf_range(-0.55, 0.55), -1.0).normalized()
-	ball.kick(dir * BALL_SEARCH_IMPULSE)
+	_still_for = Feel.BALL_SEARCH_DELAY - Feel.BALL_SEARCH_REPEAT
+	var dir := Vector3(_search_rng.randf_range(-0.55, 0.55), 0.2, -1.0).normalized()
+	ball.kick(dir * Feel.BALL_SEARCH_IMPULSE)
 	AudioDirector.play(&"kickback")
 	ball_searched.emit(p)
-
-
-## The Butcher's cold storage, painted on the felt inside the arch: a frost bar with the
-## banked total over it. Nothing else lives up there, so the readout never covers a shot.
-func _draw_boss_meter() -> void:
-	if _boss_meter_text.is_empty():
-		return
-	var r := Rect2(BOSS_METER_AT - BOSS_METER_SIZE * 0.5, BOSS_METER_SIZE)
-	draw_rect(r, Feel.COL_INK.lightened(0.10))
-	draw_rect(Rect2(r.position, Vector2(r.size.x * _boss_meter_fill, r.size.y)),
-			ClubDeck.COL_VIOLET.lerp(Feel.COL_CLEAN, 0.35))
-	draw_rect(r, Feel.COL_BRASS.darkened(0.3), false, 3.0)
-	var font := Presentation.theme.font_for(&"annotation_bold")
-	if font != null:
-		# Unclipped on purpose: a truncated total ("$1.2" for $1.29M) is worse than a label that
-		# runs a little wide on the felt.
-		draw_string(font, BOSS_METER_AT + Vector2(-BOSS_METER_SIZE.x * 0.5, -22.0),
-				_boss_meter_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 30, Feel.COL_NEWSPRINT)
-
-
-## One-way gate: the arch dumps the ball leftward into the playfield and it must never get
-## back into the shooter lane. Latched on where the ball came from, and only ever toggled
-## while the ball is clear of the blade so the flap can't materialise inside it.
-func _update_gate() -> void:
-	if _gate == null:
-		return
-	var want_closed := true
-	if ball != null and is_instance_valid(ball):
-		var p := ball.global_position
-		if p.x > LANE_RIGHT - 55.0:
-			_from_lane = true
-		elif p.x < DIVIDER_X - 53.0:
-			_from_lane = false
-		var in_window := p.x > DIVIDER_X - 63.0 and p.y > GATE_TOP - 52.0 and p.y < GATE_BOTTOM + 62.0
-		want_closed = not (_from_lane and in_window)
-		if want_closed and absf(p.x - DIVIDER_X) < 50.0:
-			want_closed = _gate_closed        # hold: never close on top of the ball
-	if want_closed == _gate_closed:
-		return
-	_gate_closed = want_closed
-	_gate.collision_layer = Feel.LAYER_WALLS if want_closed else 0
-	queue_redraw()
-	if not want_closed:
-		AudioDirector.play(&"wall_tap")
-
-
-# =================================================================== geometry =====
-
-
-## How dirty the felt is right now. A local raid is the M1 number it has always been; a
-## federal one is a heavier pass of the same ink, and the two do not stack — the worse siege
-## wins, because the felt is a state, not a sum.
-func _raid_tint() -> float:
-	var federal := FEDERAL_TINT[clampi(federal_phase, 0, FEDERAL_TINT.size() - 1)]
-	return maxf(RAID_TINT if raid_active else 0.0, federal)
-
-
-func _mx(x: float, s: float, y: float) -> Vector2:
-	return Vector2(x if s > 0.0 else MIRROR_X * 2.0 - x, y)
-
-
-func _polar(radius: float, degrees: float) -> Vector2:
-	var a := deg_to_rad(degrees)
-	return ARCH_CENTER + Vector2(cos(a), sin(a)) * radius
-
-
-func arch_angle(p: Vector2) -> float:
-	return (p - ARCH_CENTER).angle()
-
-
-static func circumcenter(a: Vector2, b: Vector2, c: Vector2) -> Vector2:
-	var d := 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y))
-	if absf(d) < 0.0001:
-		return (a + b + c) / 3.0
-	var a2 := a.length_squared()
-	var b2 := b.length_squared()
-	var c2 := c.length_squared()
-	return Vector2(
-		(a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d,
-		(a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d
-	)
-
-
-# ==================================================================== drawing =====
-
-## These are presentation-only dimensions. Load-bearing geometry remains above and is never
-## derived from these values. The larger strokes are intentional: a 486x864 phone still needs
-## to read the table's material hierarchy and functional marks after canvas scaling.
-const TABLE_RIM_WIDTH := 7.0
-const TABLE_DETAIL_WIDTH := 4.0
-const TABLE_LABEL_SIZE := 22
-const TABLE_MICRO_LABEL_SIZE := 18
-
-
-func _table_material(role: StringName, fallback: Color) -> Color:
-	if Presentation != null and Presentation.city != null:
-		var city_color := Presentation.city.material_for(role)
-		if city_color.a > 0.0:
-			return city_color
-	return fallback
-
-
-func _table_alpha(color: Color, alpha: float) -> Color:
-	return Color(color.r, color.g, color.b, alpha)
-
-
-func _draw() -> void:
-	var ink := _table_material(&"ink_glass", Feel.COL_INK)
-	var felt_color := _table_material(&"felt", Feel.COL_FELT)
-	var brass := _table_material(&"brass", Feel.COL_BRASS)
-	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
-	_draw_cabinet()
-	var a0 := arch_angle(ARCH_A)
-	var a1 := arch_angle(ARCH_C)
-	var felt := PackedVector2Array()
-	felt.append(Vector2(PLAY_LEFT, PLAY_BOTTOM))
-	felt.append(ARCH_A)
-	for i in range(41):
-		var ang := lerpf(a0, a1, float(i) / 40.0)
-		felt.append(ARCH_CENTER + Vector2(cos(ang), sin(ang)) * _arch_radius)
-	felt.append(Vector2(LANE_RIGHT, PLAY_BOTTOM))
-	draw_colored_polygon(felt, felt_color)
-
-	var tint := _raid_tint()
-	if tint > 0.0:
-		# Dirty red is a gameplay consequence; it is intentionally absent outside a raid.
-		draw_colored_polygon(felt, Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g,
-				Feel.COL_DIRTY.b, tint))
-
-	_draw_playfield_inlay()
-	_draw_backglass()
-	_draw_shot_labels()
-	_draw_ball_separation()
-
-	# The shooter lane is a narrow physical lane, not an empty strip of background. The
-	# plunger's actual charge meter remains HUD-owned; these marks are only its table context.
-	var lane := Rect2(Vector2(LANE_LEFT, DIVIDER_TOP), Vector2(LANE_RIGHT - LANE_LEFT,
-			LANE_FLOOR_Y - DIVIDER_TOP))
-	draw_rect(lane, _table_alpha(ink, 0.82))
-	draw_line(Vector2(LANE_LEFT + 4.0, DIVIDER_TOP + 8.0),
-			Vector2(LANE_LEFT + 4.0, LANE_FLOOR_Y - 8.0), _table_alpha(brass, 0.48),
-			TABLE_DETAIL_WIDTH)
-	draw_line(Vector2(LANE_RIGHT - 4.0, DIVIDER_TOP + 8.0),
-			Vector2(LANE_RIGHT - 4.0, LANE_FLOOR_Y - 8.0), _table_alpha(brass, 0.48),
-			TABLE_DETAIL_WIDTH)
-	for i in range(1, 4):
-		var y := LANE_FLOOR_Y - float(i) * 380.0
-		draw_line(Vector2(LANE_LEFT + 11.0, y), Vector2(LANE_RIGHT - 11.0, y),
-				_table_alpha(brass, 0.52), TABLE_DETAIL_WIDTH)
-	for i in range(6):
-		var y := 660.0 + float(i) * 190.0
-		var hot := posmod(i - int(floor(_show_clock * 3.0)), 4) == 0
-		var lane_col := brass.darkened(0.16 if hot else 0.62)
-		draw_polyline(PackedVector2Array([
-			Vector2(975.0, y + 18.0), Vector2(996.0, y), Vector2(1017.0, y + 18.0),
-		]), lane_col, TABLE_DETAIL_WIDTH)
-
-	if _walls != null:
-		# WallBuilder remains the single source for these rails and their capsule paths. The
-		# parent only supplies the visual material and never reconstructs a path here.
-		_walls.draw_into(self, ink.lightened(0.20), ink)
-
-	var gate_col := brass if _gate_closed else brass.darkened(0.6)
-	draw_line(Vector2(DIVIDER_X, GATE_TOP), Vector2(DIVIDER_X, GATE_BOTTOM), gate_col, 12.0)
-	_draw_boss_meter()
-
-	# The centre grate is a real, readable target between the bat tips; the two side trenches
-	# make the outlanes equally explicit. The cabinet safety switch at DRAIN_Y stays invisible.
-	var grate := Rect2(CENTRE_DRAIN_AT - CENTRE_DRAIN_SIZE * 0.5, CENTRE_DRAIN_SIZE)
-	draw_rect(grate, Feel.COL_DIRTY.darkened(0.42))
-	draw_rect(grate.grow(-5.0), ink.darkened(0.25), false, TABLE_DETAIL_WIDTH)
-	for i in range(7):
-		var gx := grate.position.x + 22.0 + float(i) * 24.0
-		draw_line(Vector2(gx, grate.position.y + 8.0),
-				Vector2(gx, grate.end.y - 8.0), brass.darkened(0.62), TABLE_DETAIL_WIDTH)
-	for side in [-1.0, 1.0]:
-		var x0 := PLAY_LEFT if side < 0.0 else MIRROR_X * 2.0 - OUTLANE_X
-		var x1 := OUTLANE_X if side < 0.0 else PLAY_RIGHT
-		draw_rect(Rect2(Vector2(x0, OUTLANE_DRAIN_Y),
-				Vector2(x1 - x0, DRAIN_Y - OUTLANE_DRAIN_Y)),
-				Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.34))
-		for row in range(4):
-			var y := OUTLANE_DRAIN_Y + 34.0 + float(row) * 54.0
-			draw_line(Vector2(x0 + 10.0, y), Vector2(x1 - 10.0, y),
-					brass.darkened(0.72), TABLE_DETAIL_WIDTH)
-
-
-## The cabinet void is deliberately quiet: the felt and hardware own the eye, while the wood
-## edge keeps the table legible when the camera follows into a sparse upper room.
-func _draw_cabinet() -> void:
-	var wood := _table_material(&"wood", Color("21150F"))
-	var wood_dark := _table_material(&"wood_dark", Color("0B0908"))
-	var wood_edge := _table_material(&"wood_edge", Color("6D3F23"))
-	var brass := _table_material(&"brass", Feel.COL_BRASS)
-	draw_rect(Rect2(-10.0, -1600.0, 1100.0, 3520.0), wood_dark)
-	draw_rect(Rect2(2.0, -1580.0, 26.0, 3480.0), wood)
-	draw_rect(Rect2(1052.0, -1580.0, 26.0, 3480.0), wood)
-	draw_line(Vector2(16.0, -1560.0), Vector2(16.0, 1894.0), wood_edge, TABLE_DETAIL_WIDTH)
-	draw_line(Vector2(1064.0, -1560.0), Vector2(1064.0, 1894.0), wood_edge, TABLE_DETAIL_WIDTH)
-	# A single low-contrast witness line gives the cabinet a manufactured edge without turning
-	# the negative space into a painted route or a second set of colliders.
-	draw_line(Vector2(30.0, 454.0), Vector2(30.0, 1868.0),
-			_table_alpha(brass, 0.20), TABLE_DETAIL_WIDTH)
-
-
-## R0's inlay describes material and wear, never a future route. The authored WallBuilder and
-## hardware nodes remain the only functional marks; all polygons here are paint-only context.
-func _draw_playfield_inlay() -> void:
-	var ink := _table_material(&"ink_glass", Feel.COL_INK)
-	var wood := _table_material(&"wood", Color("21150F"))
-	var wood_edge := _table_material(&"wood_edge", Color("6D3F23"))
-	var brass := _table_material(&"brass", Feel.COL_BRASS)
-	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
-
-	# Split walnut apron wings frame the real centre grate instead of painting a solid floor over
-	# its mouth. The open V makes the lower-field danger legible from either cradle.
-	var apron_left := PackedVector2Array([
-		Vector2(62.0, 1690.0), Vector2(205.0, 1570.0), Vector2(432.0, 1760.0),
-		Vector2(392.0, 1868.0), Vector2(62.0, 1868.0),
-	])
-	var apron_right := PackedVector2Array([
-		Vector2(918.0, 1690.0), Vector2(775.0, 1570.0), Vector2(548.0, 1760.0),
-		Vector2(588.0, 1868.0), Vector2(918.0, 1868.0),
-	])
-	for wing in [apron_left, apron_right]:
-		draw_colored_polygon(wing, wood)
-		draw_polyline(PackedVector2Array([wing[0], wing[1], wing[2], wing[3]]),
-				wood_edge, TABLE_RIM_WIDTH)
-	# A shallow ink basin behind the flippers creates separation without covering their pivots.
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(205.0, 1570.0), Vector2(432.0, 1760.0), Vector2(490.0, 1784.0),
-		Vector2(548.0, 1760.0), Vector2(775.0, 1570.0), Vector2(706.0, 1694.0),
-		Vector2(490.0, 1790.0), Vector2(274.0, 1694.0),
-	]), _table_alpha(ink, 0.38))
-	for side in [-1.0, 1.0]:
-		draw_line(Vector2(MIRROR_X + side * 82.0, 1792.0),
-			Vector2(MIRROR_X + side * 335.0, 1818.0),
-			_table_alpha(brass, 0.24), TABLE_DETAIL_WIDTH)
-
-	# Four brass fasteners establish the apron as a physical object, not a UI panel.
-	for p in [Vector2(92.0, 1732.0), Vector2(396.0, 1832.0),
-			Vector2(584.0, 1832.0), Vector2(888.0, 1732.0)]:
-		draw_circle(p, 7.0, _table_alpha(paper, 0.28))
-		draw_circle(p, 3.0, brass.darkened(0.35))
-
-	# Fixed, sparse wear: scuffs are broad enough to survive phone scaling and low-contrast
-	# enough that they cannot be mistaken for a target, lane, or invitation.
-	var wear := _table_alpha(paper, 0.075)
-	for p in [Vector2(232.0, 664.0), Vector2(640.0, 748.0), Vector2(252.0, 930.0),
-			Vector2(694.0, 1006.0), Vector2(402.0, 1218.0), Vector2(706.0, 1392.0),
-			Vector2(332.0, 1490.0), Vector2(660.0, 1514.0)]:
-		draw_line(p - Vector2(18.0, 4.0), p + Vector2(18.0, 4.0), wear, TABLE_DETAIL_WIDTH)
-	# The family seal is a quiet R0 composition anchor, not an interactable insert.
-	var seal_at := Vector2(MIRROR_X, 1350.0)
-	draw_arc(seal_at, 86.0, -2.86, 1.28, 28, _table_alpha(brass, 0.20), TABLE_DETAIL_WIDTH)
-	draw_arc(seal_at, 102.0, -2.68, 1.10, 28, _table_alpha(paper, 0.10), TABLE_DETAIL_WIDTH)
-	draw_line(seal_at + Vector2(-28.0, -34.0), seal_at + Vector2(-28.0, 38.0),
-			_table_alpha(brass, 0.18), 7.0)
-	draw_line(seal_at + Vector2(-22.0, 4.0), seal_at + Vector2(28.0, -38.0),
-			_table_alpha(brass, 0.18), 7.0)
-	draw_line(seal_at + Vector2(-14.0, 0.0), seal_at + Vector2(30.0, 40.0),
-			_table_alpha(brass, 0.18), 7.0)
-
-
-## Ball shadows are driven by the live registry position but never modify the ball, camera, or
-## physics. Drawing the contact shadow before children lets BallDesign's steel highlight remain
-## the brightest object on the felt, including during multiball.
-func _draw_ball_separation() -> void:
-	if Balls == null:
-		return
-	var shadow_color := _table_alpha(_table_material(&"ink_glass", Feel.COL_INK), 0.46)
-	for live_ball: Ball in Balls.live():
-		if live_ball == null or not is_instance_valid(live_ball):
-			continue
-		var p := to_local(live_ball.global_position)
-		if p.y < 0.0 or p.y > PLAY_BOTTOM + 40.0:
-			continue
-		draw_circle(p + Vector2(0.0, 10.0), Feel.BALL_RADIUS * 1.18, shadow_color)
-
-
-## The backglass gives the bare table one clear scene identity. R0 keeps the bulb row mostly
-## unlit; one slow earned-neon lamp is enough to make the machine feel alive without flooding
-## the sparse field with progression claims.
-func _draw_backglass() -> void:
-	var ink := _table_material(&"ink_glass", Feel.COL_INK)
-	var brass := _table_material(&"brass", Feel.COL_BRASS)
-	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
-	var neon := _table_material(&"earned_neon", Feel.COL_NEON_ROSE)
-	var plate := PackedVector2Array([
-		Vector2(218.0, 136.0), Vector2(762.0, 136.0),
-		Vector2(816.0, 400.0), Vector2(164.0, 400.0),
-	])
-	draw_colored_polygon(plate, ink.darkened(0.18))
-	var backglass := Presentation.art.resolve(&"table.backglass.eastport", null, false)
-	if backglass != null:
-		draw_texture_rect(backglass, Rect2(Vector2(164.0, 136.0), Vector2(652.0, 264.0)),
-				false, Color(1.0, 1.0, 1.0, 0.92))
-	draw_polyline(PackedVector2Array([
-		Vector2(218.0, 136.0), Vector2(762.0, 136.0),
-		Vector2(816.0, 400.0), Vector2(164.0, 400.0), Vector2(218.0, 136.0),
-	]), brass.darkened(0.20), TABLE_RIM_WIDTH)
-	var fan_at := Vector2(MIRROR_X, 392.0)
-	for i in range(9):
-		var x := lerpf(198.0, 782.0, float(i) / 8.0)
-		draw_line(fan_at, Vector2(x, 154.0), _table_alpha(brass, 0.18), TABLE_DETAIL_WIDTH)
-	draw_arc(fan_at, 236.0, PI + 0.18, TAU - 0.18, 32,
-			brass.darkened(0.55), TABLE_DETAIL_WIDTH)
-
-	var font := Presentation.theme.font_for(&"headline")
-	if font != null:
-		draw_string(font, Vector2(218.0, 274.0), "K I N G P I N",
-				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 54, brass)
-		draw_string(font, Vector2(218.0, 322.0), "THE FAMILY RUNS THIS TOWN",
-				HORIZONTAL_ALIGNMENT_CENTER, 544.0, 21, paper.darkened(0.18))
-		draw_string(font, Vector2(218.0, 362.0), "BARE ALLEY  /  RANK 0",
-				HORIZONTAL_ALIGNMENT_CENTER, 544.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.28))
-
-	var chase := int(floor(_show_clock * 1.8))
-	for i in range(14):
-		var top := i < 7
-		var u := float(i % 7) / 6.0
-		var p := Vector2(lerpf(234.0, 746.0, u), 142.0 if top else 396.0)
-		var hot := posmod(i - chase, 14) == 0
-		var col := neon if hot else brass.darkened(0.64)
-		draw_circle(p, 6.0 if hot else 4.0, col)
-
-
-func _draw_shot_labels() -> void:
-	var font := Presentation.theme.font_for(&"annotation_bold")
-	if font == null:
-		return
-	var brass := _table_material(&"brass", Feel.COL_BRASS)
-	var paper := _table_material(&"paper", Feel.COL_NEWSPRINT)
-	var label_col := brass.darkened(0.22)
-	# Labels sit in dead felt, never over the switch they describe. Their larger authored sizes
-	# keep the lower-field hierarchy functional at compact phone scale.
-	draw_string(font, Vector2(220.0, 982.0), "THE RACKET",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, label_col)
-	draw_string(font, Vector2(96.0, 1328.0), "BARE ALLEY",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.40))
-	draw_string(font, Vector2(334.0, 1528.0), "LOWER FIELD",
-			HORIZONTAL_ALIGNMENT_CENTER, 312.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.46))
-	draw_string(font, Vector2(346.0, 1862.0), "STORM GRATE",
-			HORIZONTAL_ALIGNMENT_CENTER, 288.0, TABLE_MICRO_LABEL_SIZE, paper.darkened(0.20))
-
-	var any_store := false
-	for store: Storefront in storefronts:
-		any_store = any_store or store.visible
-	if any_store:
-		draw_string(font, Vector2(410.0, 1360.0), "—  THE BLOCK  —",
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, paper.darkened(0.24))
-
-	if not rollovers.is_empty() and rollovers[0].visible:
-		for i in range(3):
-			var at: Vector2 = ROLLOVER_AT[i]
-			draw_string(font, at + Vector2(-42.0, -18.0), str(i + 1),
-					HORIZONTAL_ALIGNMENT_CENTER, 84.0, TABLE_LABEL_SIZE, brass.darkened(0.32))
-
-	if (spinner != null and spinner.visible) or (orbit != null and orbit.visible):
-		draw_set_transform(Vector2(103.0, 1125.0), -PI * 0.5, Vector2.ONE)
-		draw_string(font, Vector2.ZERO, "NUMBERS  •  GETAWAY",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, label_col)
-	if wire_bank != null and wire_bank.visible:
-		draw_set_transform(Vector2(882.0, 900.0), -1.91, Vector2.ONE)
-		draw_string(font, Vector2.ZERO, "THE WIRE",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_LABEL_SIZE, label_col)
-	draw_set_transform(Vector2(1007.0, 1710.0), -PI * 0.5, Vector2.ONE)
-	draw_string(font, Vector2.ZERO, "SHOOTER LANE",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, TABLE_MICRO_LABEL_SIZE, brass.darkened(0.30))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

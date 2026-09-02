@@ -1,30 +1,25 @@
 class_name NudgeController
 extends Node
 ## Leaning on the cabinet (docs/01 §5). A lean is two things at once: a table-space impulse
-## on the ball, and a spring-damped visual kick of the cabinet. It also feeds the Inspector's
-## suspicion — TILT kills the flippers until the guy is pinched.
-##
-## The visual kick is applied to `shake_target` (the camera rig) rather than to the table's
-## own transform: shoving live StaticBody2D/AnimatableBody2D geometry sideways mid-tick
-## launches a cradled ball, and the on-screen result is identical.
+## on every live ball, and a spring-damped visual kick of the camera. It also feeds the
+## Inspector's suspicion — TILT kills the flippers until the guy is pinched.
 
 signal shake_changed(offset: Vector2)
 
+## Table space: +x right, -z up the field.
 const DIRS := {
-	&"left": Vector2(1.0, -Feel.NUDGE_UP_BIAS),
-	&"right": Vector2(-1.0, -Feel.NUDGE_UP_BIAS),
-	&"up": Vector2(0.0, -1.0),
+	&"left": Vector3(1.0, 0.0, -Feel.NUDGE_UP_BIAS),
+	&"right": Vector3(-1.0, 0.0, -Feel.NUDGE_UP_BIAS),
+	&"up": Vector3(0.0, 0.0, -1.0),
 }
 
 var meter := TiltMeter.new()
-var shake_target: Node2D = null
+var shake_target: Camera3D = null
 var enabled: bool = true
 
 var _ball: Ball = null
 var _offset: Vector2 = Vector2.ZERO
 var _offset_vel: Vector2 = Vector2.ZERO
-var _base: Vector2 = Vector2.ZERO
-var _base_captured: bool = false
 var _cooldown: float = 0.0
 
 
@@ -47,10 +42,7 @@ func nudge(dir_name: StringName) -> bool:
 	if not DIRS.has(dir_name):
 		return false
 	_cooldown = Feel.NUDGE_COOLDOWN
-	var dir: Vector2 = (DIRS[dir_name] as Vector2).normalized()
-
-	# Multiball: a lean shoves the whole cabinet, so every live ball feels it. With an
-	# empty registry (M0 alley scenes) the single compat ref still works.
+	var dir: Vector3 = (DIRS[dir_name] as Vector3).normalized()
 	var live := Balls.live()
 	if live.is_empty():
 		if _ball != null and is_instance_valid(_ball):
@@ -58,11 +50,10 @@ func nudge(dir_name: StringName) -> bool:
 	else:
 		for b in live:
 			b.kick(dir * Feel.NUDGE_IMPULSE)
-	# camera moves *with* the impulse so the cabinet appears to jump the other way
 	if Presentation.fx == null or not Presentation.fx.reduced_motion:
-		_offset_vel += dir * Feel.NUDGE_VISUAL_OFFSET * sqrt(Feel.NUDGE_SPRING)
+		_offset_vel += Vector2(dir.x, dir.z) * Feel.NUDGE_VISUAL_OFFSET * sqrt(Feel.NUDGE_SPRING)
 	AudioDirector.play(&"nudge_thump")
-	Events.nudged.emit(dir)
+	Events.nudged.emit(Vector2(dir.x, dir.z))
 
 	match meter.lean():
 		&"warning":
@@ -83,8 +74,6 @@ func clear_tilt() -> void:
 
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
-	# Decay is relief, not a fresh warning. Re-emitting here used to replay the Inspector
-	# banner/haptic as suspicion fell, including a nonsensical 0/3 warning.
 	meter.advance(delta)
 
 
@@ -102,22 +91,17 @@ func _process(delta: float) -> void:
 	_offset_vel += accel * delta
 	_offset += _offset_vel * delta
 	_offset = _offset.limit_length(Feel.NUDGE_VISUAL_OFFSET)
-	if _offset.length() < 0.05 and _offset_vel.length() < 1.0:
+	if _offset.length() < 0.0005 and _offset_vel.length() < 0.01:
 		_offset = Vector2.ZERO
 		_offset_vel = Vector2.ZERO
 	_apply_shake()
 	shake_changed.emit(_offset)
 
 
-## Camera2D has a dedicated `offset` for exactly this; anything else gets moved bodily
-## (with its authored position remembered so repeated leans don't drift it).
+## Camera3D has frame offsets for exactly this, so the cabinet appears to jump without any
+## body in the physics world moving.
 func _apply_shake() -> void:
 	if shake_target == null or not is_instance_valid(shake_target):
 		return
-	if shake_target is Camera2D:
-		(shake_target as Camera2D).offset = _offset
-		return
-	if not _base_captured:
-		_base = shake_target.position
-		_base_captured = true
-	shake_target.position = _base + _offset
+	shake_target.h_offset = _offset.x
+	shake_target.v_offset = -_offset.y

@@ -7,8 +7,8 @@ func run(t: TestCtx) -> void:
 	var reg: Node = load("res://game/core/ball_registry.gd").new()
 	var a: Ball = Ball.new()
 	var b: Ball = Ball.new()
-	a.position = Vector2(300, 400)
-	b.position = Vector2(500, 1700)
+	a.position = Vector3(-1.0, 0.1, -3.0)
+	b.position = Vector3(0.5, 0.1, 3.5)
 
 	var counts: Array[int] = []
 	var lasts: Array = []
@@ -26,8 +26,8 @@ func run(t: TestCtx) -> void:
 
 	reg.register(b)
 	t.eq(reg.count(), 2, "two live balls")
-	t.eq(reg.primary(), b, "primary is the lowest ball (largest y)")
-	a.position.y = 1900.0
+	t.eq(reg.primary(), b, "primary is the lowest ball (largest z)")
+	a.position.z = 5.0
 	t.eq(reg.primary(), a, "primary follows the danger")
 
 	reg.unregister(a)

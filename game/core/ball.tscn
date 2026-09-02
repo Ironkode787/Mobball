@@ -1,6 +1,6 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=2 format=3 uid="uid://kingpin_ball3d"]
 
 [ext_resource type="Script" path="res://game/core/ball.gd" id="1_ball"]
 
-[node name="Ball" type="RigidBody2D"]
+[node name="Ball" type="RigidBody3D"]
 script = ExtResource("1_ball")

@@ -1,120 +1,55 @@
 class_name Docks
-extends Node2D
-## THE DOCKS — the lower-left yard (docs/02 §2 R5, specs/m3-fall-rise.md TABLE-3).
-##
-## The Club grew the table upward; the Docks grows it *sideways into the danger*. It is a
-## walled yard carved out of the field left of the block, and the only way in is down the
-## numbers lane: a raked one-way blade at the bottom of that lane catches anything coming
-## home and tips it through the dock mouth. Miss the lane and you never see the yard; take
-## the lane and you are committed.
-##
-## Inside, one line of six crates in three stacks lies along the quay's own rake — a solid
-## deck of cargo the ball has to break through. Which stack you clear decides where you land
-## (that is the whole shot):
-##
-##   * stacks 1 and 2 open onto the **quay**, which falls away to the **cargo ramp** and
-##     ships the load back to midfield. This is the paying line.
-##   * stack 3 stands over the **harbour**. Clear it and the ball goes straight off the pier.
-##
-## And over all of it the **crane** patrols its gantry, winds up for 1.2 visible seconds, and
-## swings whatever it is holding out over the water. That telegraph is the zone's whole
-## difficulty: the pier is a real drain — it pinches the ball exactly like the storm grate
-## downstairs — and no kickback reaches it, so the answer is to be gone before the hook drops.
-##
-## Geometry rules inherited from the M1/M2 lanes, all of them load-bearing here:
-##   * the roof, the crate deck and the quay share ONE rake (12°), so every lane between them
-##     is the same width end to end and nothing converges into a wedge;
-##   * that rake outruns wall friction (0.14), so nothing parks on the roof or the quay;
-##   * the strip left between the roof and Lucky's underside is narrower than a ball at every
-##     x — a wall, not a slot;
-##   * every gap in the standing crate deck is a wall, and every hole a cleared stack opens is
-##     wider than `dia + 20`.
-##
-## Money: crates pay `smuggling` through TableScore like any other switch. The timed runs,
-## the hot cargo and the heat are the flow lane's (FLOW-3).
+extends Node3D
+## THE DOCKS (R5): a walled yard low on the left behind a one-way gate off the left orbit
+## lane. Three container stacks on a raked deck, a gantry crane that swings the ball toward
+## the harbour, the pier you can fall off, and the cargo scoop: a kicker at the yard's foot
+## that fires the ball up a wireform over the yard's roof and back into the left lane.
 
-## The ball came in off the numbers lane.
 signal docks_entered()
-## A stack went down (0..2), and the set of cleared stacks changed.
 signal stack_cleared(stack: int)
 signal containers_state(cleared_stacks: Array)
-## The crane wound up / actually swung.
 signal crane_telegraph()
 signal crane_pulled()
-## The ball went off the pier. The table turns this into a drain exactly like the storm grate.
-signal pier_fall(ball: Ball)
-## The cargo made it out: the ramp crested back onto the main field.
 signal cargo_shipped(speed: float)
+signal pier_fall(ball: Ball)
 
-# ------------------------------------------------------------------ hardware ids
 const ID_DOCKS := &"docks"
 const ID_CONTAINERS := &"containers"
 const ID_CRANE := &"crane"
 const ID_CARGO_RAMP := &"cargo_ramp"
 
-# ------------------------------------------------------------------ the yard
-## Everything in here is parallel: 12° is the yard's rake, and the roof, the crate deck and
-## the quay all use it so their lanes never pinch.
-const RAKE_DEG := 12.0
-const WALL_THICK := 22.0
-const GUIDE_THICK := 18.0
-
-const ROOF_FROM := Vector2(157.0, 1146.0)
-const ROOF_TO := Vector2(420.0, 1202.0)
-## The dock mouth: the yard's left wall simply is not there between the roof and the quay
-## wall. It does not need to be — the blade outside it is the gate. A doorway with a lintel
-## would put its sill *below* the blade's right end, and a ball squirted back out of the yard
-## would then land in the numbers lane above the blade and climb it. With the mouth open to
-## the roof, anything leaving high lands on the solid blade and is tipped straight back in.
-const MOUTH_TOP := 1146.0
-const MOUTH_BOTTOM := 1272.0
-const LEFT_LOW_FROM := Vector2(157.0, 1272.0)
-const LEFT_LOW_TO := Vector2(157.0, 1390.0)
-const RIGHT_FROM := Vector2(420.0, 1202.0)
-const RIGHT_TO := Vector2(420.0, 1400.0)
-const QUAY_FROM := Vector2(166.0, 1380.0)
-const QUAY_TO := Vector2(300.0, 1408.0)
-## The harbour bed. It stops short of the slingshot's tip so a kicked ball still has its sky.
-const BED_FROM := Vector2(312.0, 1397.0)
-const BED_TO := Vector2(420.0, 1397.0)
-const BED_THICK := 13.0
-
-## The gate off the numbers lane. Raked at 20°, well past wall friction, so a ball coming
-## home is *tipped* through the mouth rather than merely stopped over it.
-##
-## It hangs this low for a reason the geometry will not let you argue with: the numbers lane's
-## own guide stops at y=1180 (M1, and not ours to move), and a ball riding the blade has to
-## pass *under* that guide's rounded end to reach the mouth. Higher up, the 37 px it needs
-## between the two is not there and the ball simply parks in the corner.
-const BLADE_FROM := Vector2(58.0, 1226.0)
-const BLADE_TO := Vector2(150.0, 1260.0)
-const BLADE_THICK := 16.0
-
-const CRATES_ORIGIN := Vector2(191.0, 1276.0)
-
-## The harbour: the pier edge is the quay's right end, and everything past it is water.
-const WATER_AT := Vector2(355.0, 1362.0)
-const WATER_SIZE := Vector2(108.0, 64.0)
-
-const GANTRY_FROM := Vector2(186.0, 1180.0)
-const GANTRY_TO := Vector2(400.0, 1226.0)
-
-## The cargo ramp's mouth sits on the quay, before the pier: roll off the deck with any pace
-## at all and the hoist takes you; dribble, and the water takes you.
-const CARGO_MOUTH_AT := Vector2(240.0, 1350.0)
-const CARGO_MOUTH_SIZE := Vector2(88.0, 64.0)
-const CARGO_ENTRY_SPEED := 350.0
-## A powered hoist, not a wireform: the climb costs far less than the Club's staircase does.
-const CARGO_CLIMB_GRAVITY := 55.0
-const CARGO_MAX_SPEED := 1200.0
-const CARGO_RELEASE_SPEED := 400.0
-const CARGO_PATH: PackedVector2Array = [
-	Vector2(240.0, 1350.0), Vector2(300.0, 1368.0), Vector2(360.0, 1340.0),
-	Vector2(420.0, 1276.0), Vector2(455.0, 1192.0), Vector2(480.0, 1102.0),
-	Vector2(490.0, 1024.0),
+const WALL_THICK := 0.07
+const ROOF_FROM := Vector2(-2.15, 0.0)
+const ROOF_TO := Vector2(-1.35, 0.15)
+const RIGHT_FROM := Vector2(-1.35, 0.15)
+const RIGHT_TO := Vector2(-1.35, 1.95)
+## The bed of the yard is a beam that falls away to the right, so whatever rolls down the yard
+## ends in the cargo scoop at its low end.
+const BED_FROM := Vector2(-1.35, 2.07)
+const BED_TO := Vector2(-2.16, 1.93)
+## The quay is a one-way flap: the kickback throws an outlane ball up into the yard through
+## it, and nothing in the yard rolls back down onto the flippers that way.
+const QUAY_FROM := Vector2(-2.52, 1.86)
+const QUAY_TO := Vector2(-2.16, 1.93)
+const BLADE_FROM := Vector2(-2.52, -0.02)
+const BLADE_TO := Vector2(-2.2, 0.0)
+const CRATES_ORIGIN := Vector2(-2.28, 0.55)
+## Off the end of the pier: a hole in the yard floor by the water, and the ball is gone.
+const WATER_AT := Vector2(-2.40, 1.62)
+const WATER_SIZE := Vector2(0.22, 0.28)
+const GANTRY_FROM := Vector2(-2.38, 0.32)
+const GANTRY_TO := Vector2(-1.45, 0.42)
+const SCOOP_AT := Vector2(-1.52, 1.76)
+const SCOOP_R := 0.16
+const CARGO_KICK := 19.0
+## The wireform starts a ball's height above the yard floor so the bed runs under its mouth;
+## the scoop lifts the ball into it. It soars over the crane's gantry (and over the Club's
+## return wireform, which crosses the yard low) before dropping into the left lane.
+const CARGO_PATH: PackedVector3Array = [
+	Vector3(-1.52, 0.34, 1.76), Vector3(-1.46, 0.50, 1.35), Vector3(-1.42, 0.78, 0.90),
+	Vector3(-1.50, 1.08, 0.45), Vector3(-1.75, 1.16, 0.00), Vector3(-2.08, 1.08, -0.50),
+	Vector3(-2.32, 0.86, -1.00), Vector3(-2.38, 0.60, -1.30), Vector3(-2.36, 0.46, -1.48),
 ]
-
-# ------------------------------------------------------------------ look (docs/07 §1)
 const COL_RUST := Color("A9552E")
 const COL_WATER := Color("173A4A")
 
@@ -122,15 +57,17 @@ var containers: ContainerStacks = null
 var crane: CraneMagnet = null
 var cargo_ramp: RampLane = null
 var gate: OneWayGate = null
-var pier: Area2D = null
+var quay_gate: OneWayGate = null
+var scoop: Area3D = null
 
 var _present: bool = false
 var _shell: WallPiece = null
 var _ball: Ball = null
 var _was_outside: bool = true
-
-
-# ====================================================================== build =====
+var _scoop_ball: Ball = null
+var _scoop_t: float = -1.0
+var _scoop_cooldown: float = 0.0
+var _look: Node3D = null
 
 
 func _ready() -> void:
@@ -138,30 +75,33 @@ func _ready() -> void:
 	_build_gate()
 	_build_containers()
 	_build_crane()
-	_build_cargo_ramp()
-	_build_pier()
+	_build_cargo()
+	_build_look()
 
 
 func _build_shell() -> void:
-	_shell = WallPiece.new()
+	_shell = WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, MaterialLib.shared().plastic(Color("5A4636"), 0.6))
 	_shell.name = "DocksShell"
-	_shell.color = Feel.COL_INK.lightened(0.16)
 	add_child(_shell)
 	_shell.bar(ROOF_FROM, ROOF_TO, WALL_THICK)
-	_shell.bar(LEFT_LOW_FROM, LEFT_LOW_TO, GUIDE_THICK)
 	_shell.bar(RIGHT_FROM, RIGHT_TO, WALL_THICK)
-	_shell.bar(QUAY_FROM, QUAY_TO, 20.0)
-	_shell.bar(BED_FROM, BED_TO, BED_THICK)
+	_shell.bar(BED_FROM, BED_TO, WALL_THICK)
+	# a gangway just inside the gate slides an arriving ball off the left wall toward the scoop,
+	# and a bollard rail above the water does the same for anything rolling down the wall: only
+	# the crane puts a ball in the harbour
+	_shell.bar(Vector2(-2.51, 0.14), Vector2(-2.20, 0.60), Layout.GUIDE_THICK)
+	_shell.bar(Vector2(-2.52, 1.24), Vector2(-2.28, 1.50), Layout.GUIDE_THICK)
 
 
 func _build_gate() -> void:
 	gate = OneWayGate.new()
 	gate.name = "DockGate"
-	gate.color = COL_RUST.lightened(0.2)
-	# Open from below: a ball flipped up the numbers lane goes straight through, and the same
-	# ball coming home lands on a solid blade that is raked into the mouth.
-	gate.configure(&"dock_gate", BLADE_FROM, BLADE_TO, BLADE_THICK, Vector2.DOWN)
+	gate.configure(&"dock_gate", BLADE_FROM, BLADE_TO, 0.04, Vector2(0.0, -1.0))
 	add_child(gate)
+	quay_gate = OneWayGate.new()
+	quay_gate.name = "QuayGate"
+	quay_gate.configure(&"quay_gate", QUAY_FROM, QUAY_TO, 0.04, Vector2(0.0, 1.0))
+	add_child(quay_gate)
 
 
 func _build_containers() -> void:
@@ -182,55 +122,116 @@ func _build_crane() -> void:
 	crane.pulled.connect(func(_b: Ball) -> void: crane_pulled.emit())
 
 
-func _build_cargo_ramp() -> void:
+func _build_cargo() -> void:
 	cargo_ramp = RampLane.new()
 	cargo_ramp.name = "CargoRamp"
-	cargo_ramp.entry_speed = CARGO_ENTRY_SPEED
-	cargo_ramp.climb_gravity = CARGO_CLIMB_GRAVITY
-	cargo_ramp.max_speed = CARGO_MAX_SPEED
-	cargo_ramp.release_speed = CARGO_RELEASE_SPEED
-	cargo_ramp.min_forward = 240.0
-	cargo_ramp.entry_center = CARGO_MOUTH_AT
-	cargo_ramp.entry_size = CARGO_MOUTH_SIZE
-	cargo_ramp.abort_at = QUAY_FROM + Vector2(30.0, -34.0)
-	cargo_ramp.color = COL_RUST
+	cargo_ramp.entry_speed = 0.0
+	cargo_ramp.entry_size = Vector2(0.4, 0.3)
+	cargo_ramp.flare_width = 0.40
+	cargo_ramp.color = COL_RUST.lightened(0.2)
 	cargo_ramp.configure(ID_CARGO_RAMP, CARGO_PATH)
 	add_child(cargo_ramp)
 	cargo_ramp.crested.connect(_on_cargo_crested)
+	scoop = Area3D.new()
+	scoop.name = "CargoScoop"
+	scoop.collision_layer = Feel.LAYER_ZONES
+	scoop.collision_mask = Feel.LAYER_BALL
+	scoop.monitorable = false
+	var cs := CollisionShape3D.new()
+	var cyl := CylinderShape3D.new()
+	cyl.radius = SCOOP_R
+	cyl.height = 0.2                 # stays under the wireform floor: a fired ball never re-trips it
+	cs.shape = cyl
+	scoop.position = Layout.p3(SCOOP_AT, 0.1)
+	scoop.add_child(cs)
+	add_child(scoop)
+	scoop.body_entered.connect(_on_scoop_entered)
 
 
-## The pier edge. Same shape as the storm grate downstairs — an Area2D that reports the ball
-## and lets the table do the losing, so a fall here costs a ball exactly like a drain does.
-func _build_pier() -> void:
-	pier = Area2D.new()
-	pier.name = "Pier"
-	pier.collision_layer = Feel.LAYER_ZONES
-	pier.collision_mask = Feel.LAYER_BALL
-	pier.monitorable = false
-	pier.position = WATER_AT
-	var cs := CollisionShape2D.new()
-	var rect := RectangleShape2D.new()
-	rect.size = WATER_SIZE
-	cs.shape = rect
-	pier.add_child(cs)
-	add_child(pier)
-	pier.body_entered.connect(_on_pier_entered)
+## The water is a hole in the yard floor; a ball drops in when its centre crosses the edge, so
+## the test is on the ball's centre, not on its rim brushing the hole (an Area3D would fire on
+## the rim). A ball the kickback throws up through the quay crosses the hole in a few
+## milliseconds and clears it; a ball rolling or dragged down onto the pier drops in.
+const PIER_CLEAR_SPEED := 8.0
 
 
-# ================================================================== the table =====
+func _pier_rect() -> Rect2:
+	var size := WATER_SIZE - Vector2(0.06, 0.06)
+	return Rect2(WATER_AT - size * 0.5, size)
+
+
+func _check_pier(b: Ball) -> void:
+	var p := b.table_position()
+	if p.y > 0.5 or not _pier_rect().has_point(Vector2(p.x, p.z)):
+		return
+	if b.local_velocity().z < -PIER_CLEAR_SPEED:
+		return
+	pier_fall.emit(b)
+
+
+func _build_look() -> void:
+	var lib := MaterialLib.shared()
+	_look = Node3D.new()
+	_look.name = "Look"
+	add_child(_look)
+	var water := PlaneMesh.new()
+	water.size = WATER_SIZE * 1.1
+	var wm := MeshInstance3D.new()
+	wm.mesh = water
+	wm.material_override = lib.water()
+	wm.position = Layout.p3(WATER_AT, 0.003)
+	_look.add_child(wm)
+	var pier_edge := MeshLib.begin()
+	MeshLib.prism(pier_edge, PackedVector2Array([
+		WATER_AT + Vector2(WATER_SIZE.x * 0.5, -WATER_SIZE.y * 0.5), WATER_AT + Vector2(WATER_SIZE.x * 0.5 + 0.06, -WATER_SIZE.y * 0.5),
+		WATER_AT + Vector2(WATER_SIZE.x * 0.5 + 0.06, WATER_SIZE.y * 0.5), WATER_AT + Vector2(WATER_SIZE.x * 0.5, WATER_SIZE.y * 0.5),
+	]), 0.03, 0.0)
+	var pe := MeshInstance3D.new()
+	pe.mesh = MeshLib.finish(pier_edge, lib.wood())
+	_look.add_child(pe)
+	# quay boards
+	var st := MeshLib.begin()
+	var n := 6
+	for i in range(n):
+		var a := QUAY_FROM.lerp(QUAY_TO, float(i) / float(n))
+		var b := QUAY_FROM.lerp(QUAY_TO, float(i + 1) / float(n) - 0.02)
+		MeshLib.prism(st, PackedVector2Array([a + Vector2(0, -0.14), b + Vector2(0, -0.14), b, a]), 0.015, 0.0)
+	var qm := MeshInstance3D.new()
+	qm.mesh = MeshLib.finish(st, lib.wood())
+	_look.add_child(qm)
+	# a scoop hood over the cargo kicker
+	var hood := BoxMesh.new()
+	hood.size = Vector3(0.36, 0.22, 0.2)
+	var hm := MeshInstance3D.new()
+	hm.mesh = hood
+	hm.material_override = lib.plastic(COL_RUST, 0.6)
+	hm.position = Layout.p3(SCOOP_AT + Vector2(0.0, 0.14), 0.30)
+	_look.add_child(hm)
+	var sign := TextMesh.new()
+	sign.text = "THE DOCKS"
+	sign.font = load("res://assets/fonts/Oswald-SemiBold.ttf")
+	sign.font_size = 44
+	sign.pixel_size = 0.0055
+	sign.depth = 0.02
+	var sm := MeshInstance3D.new()
+	sm.mesh = sign
+	sm.material_override = lib.neon(Feel.COL_NEON_TEAL, 2.4)
+	sm.position = Layout.p3(GANTRY_FROM.lerp(GANTRY_TO, 0.5), 1.15)
+	_look.add_child(sm)
 
 
 func set_ball(b: Ball) -> void:
 	_ball = b
 	if b == null or not is_instance_valid(b):
 		_was_outside = true
-	for holder: Node in [cargo_ramp, crane, gate]:
+	if _scoop_ball != b:
+		_scoop_ball = null
+		_scoop_t = -1.0
+	for holder: Node in [cargo_ramp, crane, gate, quay_gate]:
 		if holder != null:
 			holder.call(&"set_ball", b)
 
 
-## Every switchable piece of the yard, as the table's `_register` wants them: each one also
-## needs `docks` itself, because a crane with no yard under it is not hardware.
 func pieces() -> Array[Dictionary]:
 	return [
 		{"ids": [ID_CONTAINERS], "node": containers},
@@ -239,38 +240,71 @@ func pieces() -> Array[Dictionary]:
 	]
 
 
-func bounds() -> Rect2:
-	return Rect2(Vector2(ROOF_FROM.x - WALL_THICK, ROOF_FROM.y - WALL_THICK),
-			Vector2(RIGHT_TO.x + WALL_THICK - ROOF_FROM.x + WALL_THICK,
-			BED_TO.y + WALL_THICK - ROOF_FROM.y + WALL_THICK))
+func bounds() -> AABB:
+	return AABB(Vector3(-2.6, -0.1, -0.1), Vector3(1.3, 1.2, 2.3))
 
 
-## The yard's interior, used by the crane to decide what is in reach.
 func yard_rect() -> Rect2:
-	return Rect2(Vector2(LEFT_LOW_FROM.x, ROOF_FROM.y),
-			Vector2(RIGHT_TO.x - LEFT_LOW_FROM.x, BED_TO.y - ROOF_FROM.y))
+	return Rect2(Vector2(-2.52, ROOF_FROM.y), Vector2(RIGHT_TO.x + 2.52, BED_TO.y - ROOF_FROM.y))
 
 
 func holds_ball() -> bool:
-	return cargo_ramp != null and cargo_ramp.riding()
+	return (cargo_ramp != null and cargo_ramp.riding()) or _scoop_ball != null
 
 
-## Is a ball resting here on purpose? Only a ball on the hoist; everything else in the yard
-## is fair game for the coils, and a wedge in here is exactly what they are for.
 func search_exempt(ball: Ball) -> bool:
 	if ball == null or not is_instance_valid(ball) or not _present:
 		return false
 	return BallHold.is_held(ball) and holds_ball()
 
 
-func _physics_process(_delta: float) -> void:
-	if not _present or _ball == null or not is_instance_valid(_ball):
+func _physics_process(delta: float) -> void:
+	if not _present:
 		return
-	var inside := yard_rect().has_point(_ball.global_position)
+	_scoop_cooldown = maxf(0.0, _scoop_cooldown - delta)
+	if _scoop_ball != null:
+		if not is_instance_valid(_scoop_ball):
+			_scoop_ball = null
+		else:
+			_scoop_t += delta
+			BallHold.steer(_scoop_ball, Layout.p3(SCOOP_AT, Feel.BALL_RADIUS - 0.02), delta)
+			if _scoop_t >= 0.55:
+				_fire_scoop()
+	if _ball == null or not is_instance_valid(_ball):
+		return
+	var p := _ball.table_position()
+	var inside := p.y < 0.5 and yard_rect().has_point(Vector2(p.x, p.z))
 	if inside and _was_outside:
 		AudioDirector.play(&"wall_tap")
 		docks_entered.emit()
 	_was_outside = not inside
+	if inside:
+		_check_pier(_ball)
+
+
+func _on_scoop_entered(body: Node3D) -> void:
+	if not (body is Ball) or not _present or _scoop_ball != null or _scoop_cooldown > 0.0:
+		return
+	var b := body as Ball
+	if BallHold.is_held(b):
+		return
+	_scoop_ball = b
+	_scoop_t = 0.0
+	BallHold.take(b)
+	AudioDirector.play(&"safe_open")
+	TableScore.hit(&"cargo_scoop", b)
+
+
+func _fire_scoop() -> void:
+	var b := _scoop_ball
+	_scoop_ball = null
+	_scoop_t = -1.0
+	if b == null or not is_instance_valid(b):
+		return
+	var dir := (CARGO_PATH[1] - CARGO_PATH[0]).normalized()
+	_scoop_cooldown = 1.0
+	BallHold.release(b, CARGO_PATH[0] + Vector3(0.0, Feel.BALL_RADIUS + 0.01, 0.0), dir * CARGO_KICK)
+	AudioDirector.play(&"kickback")
 
 
 func _on_cargo_crested(speed: float) -> void:
@@ -279,27 +313,18 @@ func _on_cargo_crested(speed: float) -> void:
 	cargo_shipped.emit(speed)
 
 
-func _on_pier_entered(body: Node2D) -> void:
-	if not (body is Ball) or not _present:
-		return
-	pier_fall.emit(body as Ball)
 
 
-# =================================================================== dormancy =====
-
-
-## The yard's structure. Sub-hardware is switched by the table, which knows the owned set;
-## this owns the shell, the gate and the pier — the things that make the yard a place.
 func set_hardware_active(active: bool) -> void:
 	_present = active
 	visible = active
 	_was_outside = true
-	for piece: Node in [_shell, gate]:
+	for piece: Node in [_shell, gate, quay_gate]:
 		if piece != null:
 			Dormant.apply(piece, active)
-	if pier != null:
-		pier.collision_layer = Feel.LAYER_ZONES if active else 0
-		pier.collision_mask = Feel.LAYER_BALL if active else 0
+	if scoop != null:
+		scoop.collision_layer = Feel.LAYER_ZONES if active else 0
+		scoop.collision_mask = Feel.LAYER_BALL if active else 0
 	if not active:
 		_release_everything()
 
@@ -308,163 +333,12 @@ func is_hardware_active() -> bool:
 	return _present
 
 
-## Switching the yard off while the hoist has the ball would leave it riding a ramp that is
-## not there. It is put down on the quay instead, and the quay is inside the yard that just
-## went away — so it is put down where the mouth is, on the main field's side of the wall.
 func _release_everything() -> void:
-	if cargo_ramp != null and cargo_ramp.riding() and _ball != null and is_instance_valid(_ball):
-		BallHold.release(_ball, Vector2(103.0, MOUTH_BOTTOM + 60.0), Vector2.ZERO)
+	if _scoop_ball != null and is_instance_valid(_scoop_ball):
+		BallHold.release(_scoop_ball, Layout.p3(SCOOP_AT, Feel.BALL_RADIUS), Vector3.ZERO)
+	_scoop_ball = null
+	_scoop_t = -1.0
 	if cargo_ramp != null:
 		cargo_ramp.set_hardware_active(false)
 	if crane != null:
 		crane.set_active(false)
-
-
-# ==================================================================== drawing =====
-
-
-func _draw() -> void:
-	_draw_yard()
-	_draw_water()
-	var font := ThemeDB.fallback_font
-	if font != null:
-		draw_set_transform(ROOF_FROM + Vector2(16.0, 34.0), deg_to_rad(RAKE_DEG), Vector2.ONE)
-		draw_string(font, Vector2.ZERO, "THE DOCKS", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 26,
-			COL_RUST.lightened(0.35))
-		draw_string(font, Vector2(0.0, 22.0), "R5  /  UNDERBOSS  /  HOT CARGO",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 12, Feel.COL_NEWSPRINT.darkened(0.12))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-
-## Wet concrete under a sodium light: the yard reads colder and dirtier than the felt around
-## it, so the player can see where the gated area begins without a label.
-func _draw_yard() -> void:
-	var pts := PackedVector2Array([
-		ROOF_FROM + Vector2(0.0, WALL_THICK * 0.5),
-		ROOF_TO + Vector2(0.0, WALL_THICK * 0.5),
-		Vector2(RIGHT_TO.x - WALL_THICK * 0.5, RIGHT_TO.y),
-		Vector2(LEFT_LOW_TO.x + GUIDE_THICK * 0.5, RIGHT_TO.y),
-	])
-	draw_colored_polygon(pts, Feel.COL_FELT.lerp(COL_WATER, 0.45))
-	# Loading-bay hazard stripes frame the committed mini-field without using the reserved
-	# Heat color. They make the one-way gate and the safe quay route readable as one system.
-	for i in range(8):
-		var t0 := float(i) / 8.0
-		var t1 := minf(t0 + 0.055, 1.0)
-		var a := ROOF_FROM.lerp(ROOF_TO, t0) + Vector2(0.0, 12.0)
-		var b := ROOF_FROM.lerp(ROOF_TO, t1) + Vector2(0.0, 12.0)
-		draw_line(a, b, COL_RUST.lightened(0.20), 6.0)
-	# concrete seams and stencilled cargo arrows
-	for i in range(3):
-		var y := 1244.0 + float(i) * 44.0
-		draw_line(Vector2(174.0, y), Vector2(405.0, y + 48.0),
-				Color(Feel.COL_NEWSPRINT.r, Feel.COL_NEWSPRINT.g,
-				Feel.COL_NEWSPRINT.b, 0.07), 2.0)
-	for i in range(3):
-		var p := Vector2(190.0 + float(i) * 76.0, 1342.0 + float(i) * 6.0)
-		draw_polyline(PackedVector2Array([
-			p + Vector2(-10.0, 8.0), p, p + Vector2(10.0, 8.0),
-		]), COL_RUST.darkened(0.12), 4.0)
-	# quay boards, and a bollard so the pier edge reads as an edge
-	for i in range(7):
-		var t := (float(i) + 0.5) / 7.0
-		var a := QUAY_FROM.lerp(QUAY_TO, t)
-		draw_line(a + Vector2(0.0, -12.0), a + Vector2(0.0, 12.0),
-				Feel.COL_INK.lightened(0.10), 3.0)
-	draw_line(QUAY_TO, QUAY_TO + Vector2(0.0, 26.0), COL_RUST.darkened(0.2), 6.0)
-	draw_circle(QUAY_TO + Vector2(-14.0, -20.0), 9.0, COL_RUST)
-
-	# These marks are a draw-edge translation of the native yard states. They are deliberately
-	# adjacent to child hardware, never replacement geometry: the crate bank, crane, cargo lane,
-	# and one-way gate continue to own their own draw/collision state.
-	var cues: Array[Dictionary] = []
-	if containers != null and containers.has_method(&"visual_token"):
-		cues.append({"at": CRATES_ORIGIN + Vector2(108.0, -46.0), "token": containers.visual_token()})
-	if crane != null and crane.has_method(&"visual_token"):
-		cues.append({"at": GANTRY_FROM.lerp(GANTRY_TO, 0.50) + Vector2(0.0, -30.0),
-				"token": crane.visual_token()})
-	if cargo_ramp != null and cargo_ramp.has_method(&"visual_token"):
-		cues.append({"at": CARGO_MOUTH_AT + Vector2(-56.0, 0.0), "token": cargo_ramp.visual_token()})
-	if gate != null and gate.has_method(&"visual_token"):
-		cues.append({"at": BLADE_FROM.lerp(BLADE_TO, 0.50) + Vector2(0.0, -24.0),
-				"token": gate.visual_token()})
-	for cue_data: Dictionary in cues:
-		var token: Dictionary = cue_data["token"]
-		var at: Vector2 = cue_data["at"]
-		var state := String(token.get("state", &"idle"))
-		var mark := String(token.get("mark", &"outline"))
-		var pattern := String(token.get("pattern", &"stable_outline"))
-		var cue_col := Feel.COL_BRASS.darkened(0.48)
-		if state == "armed":
-			cue_col = Feel.COL_BRASS
-		elif state == "active":
-			cue_col = COL_WATER.lightened(0.48)
-		elif state == "completed":
-			cue_col = Feel.COL_NEWSPRINT
-		elif state == "disabled":
-			cue_col = Feel.COL_NEWSPRINT.darkened(0.48)
-		elif state == "danger":
-			cue_col = Feel.COL_DIRTY
-		var cue := Color(cue_col.r, cue_col.g, cue_col.b, 0.82)
-		var radius := 12.0
-		if mark == "invitation_pin":
-			draw_circle(at, radius * 0.36, cue)
-			draw_line(at + Vector2(0.0, radius * 0.30), at + Vector2(0.0, radius), cue, 3.0)
-		elif mark == "contact_pulse" or mark == "held_ring":
-			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
-			draw_circle(at, radius * 0.20, cue)
-		elif mark == "check_stamp" or mark == "marked_stamp":
-			draw_rect(Rect2(at - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)),
-					cue, false, 3.0)
-			draw_line(at + Vector2(-radius * 0.52, 0.0), at + Vector2(-radius * 0.10, radius * 0.40),
-					cue, 3.0)
-			draw_line(at + Vector2(-radius * 0.10, radius * 0.40), at + Vector2(radius * 0.56, -radius * 0.48),
-					cue, 3.0)
-		elif mark == "lock_offline":
-			draw_rect(Rect2(at - Vector2(radius * 0.72, radius * 0.34), Vector2(radius * 1.44, radius * 0.90)),
-					cue, false, 3.0)
-			draw_arc(at + Vector2(0.0, -radius * 0.25), radius * 0.42, PI, TAU, 12, cue, 3.0)
-		elif mark == "offline_cross":
-			draw_line(at + Vector2(-radius * 0.72, -radius * 0.72),
-				at + Vector2(radius * 0.72, radius * 0.72), cue, 3.0)
-			draw_line(at + Vector2(radius * 0.72, -radius * 0.72),
-				at + Vector2(-radius * 0.72, radius * 0.72), cue, 3.0)
-		elif mark == "cooldown_clock":
-			draw_arc(at, radius, -PI * 0.5, PI, 16, cue, 3.0)
-			draw_line(at, at + Vector2(0.0, -radius * 0.52), cue, 2.0)
-			draw_line(at, at + Vector2(radius * 0.34, radius * 0.20), cue, 2.0)
-		elif mark == "hazard_hatch" or mark == "telegraph_hatch" or mark == "jam_alert" \
-				or pattern == "hazard_hatch" or pattern == "telegraph_hatch":
-			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
-			for hatch in range(3):
-				var hy := at.y - radius * 0.62 + float(hatch) * radius * 0.52
-				draw_line(Vector2(at.x - radius * 0.68, hy), Vector2(at.x + radius * 0.68, hy - radius * 0.36), cue, 2.0)
-		else:
-			draw_arc(at, radius, 0.0, TAU, 20, cue, 3.0)
-
-
-func _draw_water() -> void:
-	var r := Rect2(WATER_AT - WATER_SIZE * 0.5, WATER_SIZE)
-	draw_rect(r, COL_WATER.darkened(0.35))
-	for i in range(7):
-		var y := lerpf(r.position.y + 12.0, r.end.y - 10.0, float(i) / 6.0)
-		var w := r.size.x * (0.34 + 0.12 * float(i % 3))
-		var x := r.position.x + 12.0 + float((i * 37) % 40)
-		draw_line(Vector2(x, y), Vector2(minf(x + w, r.end.x - 8.0), y),
-				COL_WATER.lightened(0.28), 3.0)
-	draw_rect(r, COL_WATER.lightened(0.10), false, 2.0)
-	# Broken reflection of the quay light: spectacle, but still unmistakably the danger zone.
-	for i in range(4):
-		var x := r.position.x + 18.0 + float(i) * 23.0
-		draw_line(Vector2(x, r.position.y + 8.0), Vector2(x + 9.0, r.end.y - 7.0),
-				Color(Feel.COL_BRASS.r, Feel.COL_BRASS.g, Feel.COL_BRASS.b, 0.13), 3.0)
-	# The pier is an authored loss area, not a route. A stable red hazard hatch and a broken
-	# edge make that consequence readable without consulting hue or adding another collider.
-	var danger := Color(Feel.COL_DIRTY.r, Feel.COL_DIRTY.g, Feel.COL_DIRTY.b, 0.72)
-	for i in range(3):
-		var x := r.position.x + 10.0 + float(i) * 34.0
-		draw_line(Vector2(x, r.position.y + 6.0), Vector2(x + 20.0, r.end.y - 6.0), danger, 3.0)
-	var font := ThemeDB.fallback_font
-	if font != null:
-		draw_string(font, r.position + Vector2(8.0, r.size.y * 0.62), "PIER  /  LOSS ZONE",
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, Feel.COL_NEWSPRINT.darkened(0.10))

@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://game/table/segments/progression_table.gd" id="1"]
 
-[node name="TableMain" type="Node2D"]
+[node name="TableMain" type="Node3D"]
 script = ExtResource("1")

@@ -1,36 +1,22 @@
 class_name BallHold
 extends RefCounted
-## Taking the ball off the playfield — the one contract every Club toy uses.
-##
-## The Club sits above the main field, and a 2D table has no second storey: a ball riding
-## the Staircase is drawn over the arch it is physically passing *above*. So a held ball is
-## lifted out of the world instead of being layered around it — `collision_layer = 0` means
-## no Area2D can see it (no rollovers score, no drain swallows it) and `collision_mask = 0`
-## means no wall can stop it. The holder then drives it by hand.
-##
-## Driving is done by writing velocity, never by teleporting: `place()` resets physics
-## interpolation every time it is called, and a ball moved that way 120 times a second
-## stutters on screen. Steering to a target point with the velocity that reaches it in one
-## tick looks identical to the solver and reads correctly to the interpolator — and, as a
-## bonus, `linear_velocity` stays honest, so the camera's look-ahead still works while the
-## ball is on a ramp.
-##
-## The restore is exact because Ball's own values are constants, not authored per instance.
+## Taking a ball out of free play (a saucer, a scoop, a kicker winding up) and giving it
+## back. A held ball is invisible to every collider and weightless, so nothing else on the
+## table can argue with the device that has it; `is_held` is how those devices stay out of
+## each other's way. Positions and velocities are table space (see Ball).
 
-const MAX_STEER := 5200.0
+const MAX_STEER := 60.0
 
 
-## Lift the ball out of the world. Idempotent.
 static func take(ball: Ball) -> void:
 	if ball == null or not is_instance_valid(ball):
 		return
 	ball.collision_layer = 0
 	ball.collision_mask = 0
 	ball.gravity_scale = 0.0
-	ball.angular_velocity = 0.0
+	ball.angular_velocity = Vector3.ZERO
 
 
-## Put it back exactly as Ball._ready() left it.
 static func give_back(ball: Ball) -> void:
 	if ball == null or not is_instance_valid(ball):
 		return
@@ -43,8 +29,6 @@ static func is_held(ball: Ball) -> bool:
 	return ball != null and is_instance_valid(ball) and ball.collision_layer == 0
 
 
-## BallHold deliberately has no draw owner. Callers can consume this draw-only snapshot for a
-## held ring or an idle socket while retaining ownership of capture/release visuals.
 static func visual_state(ball: Ball = null) -> Dictionary:
 	var held := is_held(ball)
 	var state := TableVisualState.VisualState.ACTIVE if held else TableVisualState.VisualState.IDLE
@@ -52,22 +36,19 @@ static func visual_state(ball: Ball = null) -> Dictionary:
 	if held:
 		mods.append(&"held")
 	var token := TableVisualState.state_token(state, mods)
-	token["draw_owner"] = &"caller"
-	token["physics_owner"] = &"ball_hold"
 	token["held"] = held
 	return token
 
 
-## Move a held ball to `to` over exactly one physics tick.
-static func steer(ball: Ball, to: Vector2, delta: float) -> void:
+## Move a held ball toward `to` this tick (critically damped: it arrives, it never orbits).
+static func steer(ball: Ball, to: Vector3, delta: float) -> void:
 	if ball == null or not is_instance_valid(ball):
 		return
-	var v := (to - ball.global_position) / maxf(delta, 0.00001)
+	var v := (to - ball.table_position()) / maxf(delta, 0.00001)
 	ball.set_velocity(v.limit_length(MAX_STEER))
 
 
-## Hand the ball back with a velocity of the holder's choosing.
-static func release(ball: Ball, at: Vector2, velocity: Vector2) -> void:
+static func release(ball: Ball, at: Vector3, velocity: Vector3) -> void:
 	if ball == null or not is_instance_valid(ball):
 		return
 	give_back(ball)

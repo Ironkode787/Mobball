@@ -29,7 +29,7 @@ const DIRECTOR_PERIOD := 3.0
 const DIRECTOR_PULLS := 2
 const DIRECTOR_PULL_GAP := 0.35
 const TELEGRAPH := 1.2
-const MAGNET_IMPULSE := 700.0
+const MAGNET_IMPULSE := 7.0
 const SIREN_DB := -4.0
 
 ## Phase 1 asks the table to run its raid hardware at double speed.
@@ -47,7 +47,7 @@ var phase: int = 0
 ## 0 = the mix is whole; 1..3 are the wires the Feds have cut.
 var wiretap_step: int = 0
 
-var _table: Node2D = null
+var _table: Node3D = null
 var _phase_left: float = 0.0
 var _next_magnet: float = MAGNET_PERIOD
 var _telegraphed: bool = false
@@ -62,7 +62,7 @@ func _ready() -> void:
 	set_physics_process(false)
 
 
-func begin(table: Node2D) -> void:
+func begin(table: Node3D) -> void:
 	if active:
 		return
 	_table = table
@@ -224,12 +224,11 @@ func _pull_ball() -> void:
 	var b := TableAPI.ball(_table)
 	if b == null:
 		return
-	var r := TableAPI.bounds(_table, Rect2(Vector2(40.0, 0.0), Vector2(900.0, 1900.0)))
-	var target := Vector2(r.position.x + r.size.x * 0.5, r.position.y + r.size.y)
-	var dir := target - b.global_position
-	if dir.length() < 1.0:
+	var here := Layout.plan(b.table_position())
+	var dir := Layout.CENTRE_DRAIN_AT - here
+	if dir.length() < 0.01:
 		return
-	b.kick(dir.normalized() * MAGNET_IMPULSE)
+	b.kick(Vector3(dir.x, 0.0, dir.y).normalized() * MAGNET_IMPULSE)
 
 
 func _end(survived: bool) -> void:

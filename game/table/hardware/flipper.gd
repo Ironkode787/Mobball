@@ -1,49 +1,37 @@
 class_name Flipper
-extends AnimatableBody2D
-## A solenoid bat. Kinematic body swept along an authored curve (docs/09 §2: curves, not
-## motors) so the feel is designed rather than emergent, with `sync_to_physics` doing the
-## impulse transfer through the solver.
+extends AnimatableBody3D
+## A solenoid bat. A kinematic body swept along an authored curve (docs/09 §2: curves, not
+## motors) so the feel is designed rather than emergent; Jolt reads the sweep's velocity off
+## the transform and hands it to the ball through the solver, so a flip is a real impact.
 ##
 ## Local geometry always points along +X; the right bat is the same shape turned around
-## (see Feel.flipper_rest_rotation). "Striking side" is local -Y on the left, +Y on the right.
+## (see Feel.flipper_rest_rotation). The striking face is local -Z on the left, +Z on the right.
 
 enum State { REST, RISING, HELD, FALLING }
 
 @export var side: StringName = &"left"
-## Bat size against the Feel numbers. 1.0 is the main table's bat, which is what the feel
-## sims measure; the Club's mini pair is 0.8. Scaled here rather than on the node's transform
-## on purpose — a scaled Node2D would leave `to_local` reporting stretched coordinates and
-## quietly break the swept-contact guard below, which compares against a real ball radius.
 @export var size_scale: float = 1.0
 
 var state: State = State.REST
-var progress: float = 0.0           ## 0 rest, 1 fully extended
-var dead: bool = false              ## tilt kills the flippers until the ball drains
-## Fresh Rubbers / Steel Toes: `Stats.flipper_power()` scales the surface speed the bat is
-## guaranteed to hand the ball. 1.0 is the M0 curve, which is what the feel sims measure.
+var progress: float = 0.0
+var dead: bool = false
 var power_scale: float = 1.0
 
 var _phase_time: float = 0.0
 var _fall_from: float = 0.0
 var _held: bool = false
-var _buffered_at: float = -1000.0   ## engine time of a press that arrived mid-return
-var _ang_vel: float = 0.0
-var _prev_rotation: float = 0.0
+var _buffered_at: float = -1000.0
 var _ball: Ball = null
-var _prev_local_y: float = 0.0
-var _prev_local_valid: bool = false
 var _glow: float = 0.0
 var _pivot_stall: float = 0.0
-
 var _rest_rot: float = 0.0
-var _up_rot: float = 0.0
 var _strike_sign: float = -1.0
-var _clock: float = 0.0             ## physics-tick time; never wall time (headless sims)
-var _present: bool = true           ## hardware switch — the Club's bats before it is bought
-## Sammy's crew put a wrench through the linkage (specs/m2-content.md §5). Seconds left of
-## the jam, and of the wrench gag that telegraphs it.
+var _clock: float = 0.0
+var _present: bool = true
 var _jam: float = 0.0
 var _telegraph: float = 0.0
+var _bat_mesh: MeshInstance3D = null
+var _lamp: StandardMaterial3D = null
 
 
 func _ready() -> void:
@@ -53,11 +41,10 @@ func _ready() -> void:
 	collision_mask = 0
 	physics_material_override = Feel.make_material(Feel.FLIPPER_FRICTION, Feel.FLIPPER_BOUNCE)
 	_rest_rot = Feel.flipper_rest_rotation(side)
-	_up_rot = Feel.flipper_up_rotation(side)
 	_strike_sign = 1.0 if side == &"right" else -1.0
-	rotation = _rest_rot
-	_prev_rotation = rotation
+	rotation.y = _rest_rot
 	_build_shapes()
+	_build_look()
 
 
 func bat_length() -> float:
@@ -72,39 +59,53 @@ func tip_radius() -> float:
 	return Feel.FLIPPER_TIP_RADIUS * size_scale
 
 
+func _outline(grow: float = 0.0) -> PackedVector2Array:
+	return MeshLib.capsule_poly(Vector2.ZERO, Vector2(bat_length(), 0.0),
+			pivot_radius() + grow, tip_radius() + grow, 8)
+
+
 func _build_shapes() -> void:
-	var l := bat_length()
-	var rp := pivot_radius()
-	var rt := tip_radius()
+	var h := Feel.FLIPPER_HEIGHT * clampf(size_scale, 0.6, 1.0)
+	var shape := CollisionShape3D.new()
+	var hull := ConvexPolygonShape3D.new()
+	var pts := PackedVector3Array()
+	for p in _outline(0.01):
+		pts.append(Vector3(p.x, 0.02, p.y))
+		pts.append(Vector3(p.x, 0.02 + h, p.y))
+	hull.points = pts
+	shape.shape = hull
+	shape.name = "Bat"
+	add_child(shape)
 
-	var pivot := CollisionShape2D.new()
-	var pc := CircleShape2D.new()
-	pc.radius = rp
-	pivot.shape = pc
-	pivot.name = "Pivot"
-	add_child(pivot)
 
-	var tip := CollisionShape2D.new()
-	var tc := CircleShape2D.new()
-	tc.radius = rt
-	tip.shape = tc
-	tip.position = Vector2(l, 0.0)
-	tip.name = "Tip"
-	add_child(tip)
-
-	var body := CollisionShape2D.new()
-	var quad := ConvexPolygonShape2D.new()
-	quad.set_point_cloud(PackedVector2Array([
-		Vector2(0.0, -rp), Vector2(l, -rt), Vector2(l, rt), Vector2(0.0, rp),
-	]))
-	body.shape = quad
-	body.name = "Bat"
-	add_child(body)
+func _build_look() -> void:
+	var lib := MaterialLib.shared()
+	var h := Feel.FLIPPER_HEIGHT * clampf(size_scale, 0.6, 1.0)
+	var st := MeshLib.begin()
+	MeshLib.prism(st, _outline(), h * 0.62, 0.03 + h * 0.19, false, 1.0)
+	_lamp = lib.lamp(Color(1.0, 0.86, 0.55), 0.3)
+	_lamp.albedo_color = Color("E9DFC8")
+	_lamp.emission_energy_multiplier = 0.0
+	_bat_mesh = MeshInstance3D.new()
+	_bat_mesh.mesh = MeshLib.finish(st, _lamp)
+	_bat_mesh.name = "BatBody"
+	add_child(_bat_mesh)
+	var st2 := MeshLib.begin()
+	MeshLib.prism(st2, _outline(0.012), h * 0.36, 0.02, false, 1.0)
+	var rubber := MeshInstance3D.new()
+	rubber.mesh = MeshLib.finish(st2, lib.rubber_red())
+	rubber.name = "Rubber"
+	add_child(rubber)
+	var st3 := MeshLib.begin()
+	MeshLib.post(st3, Vector2.ZERO, pivot_radius() * 0.45, h + 0.06, 0.0, 12)
+	var cap := MeshInstance3D.new()
+	cap.mesh = MeshLib.finish(st3, lib.chrome_dark())
+	cap.name = "PivotCap"
+	add_child(cap)
 
 
 func set_ball(b: Ball) -> void:
 	_ball = b
-	_prev_local_valid = false
 
 
 func press() -> void:
@@ -116,7 +117,7 @@ func press() -> void:
 			_fire()
 		State.FALLING:
 			_held = true
-			_buffered_at = _now()
+			_buffered_at = _clock
 		_:
 			_held = true
 
@@ -134,9 +135,6 @@ func set_pressed(pressed: bool) -> void:
 		release()
 
 
-## Is the button down on this bat right now? The Club's mini pair rides the main flippers'
-## button state rather than reading the input actions itself, so the deck inherits the input
-## buffer, the touch zones and the tilt kill for free and there is one input path, not two.
 func is_held() -> bool:
 	return _held
 
@@ -155,10 +153,6 @@ func revive() -> void:
 	_telegraph = 0.0
 
 
-## THE WRENCH (specs/m2-content.md §5). A jam is not a tilt and not dormancy: the bat is
-## bought, present and alive, it simply eats input until the wrench comes out — and it droops
-## on the way in, so a cradled ball is lost with it. Separate from `dead` on purpose; a Night
-## that tilts mid-jam must still clear both independently.
 func jam(seconds: float) -> void:
 	if not _present or seconds <= 0.0:
 		return
@@ -168,13 +162,11 @@ func jam(seconds: float) -> void:
 	_buffered_at = -1000.0
 	if state == State.RISING or state == State.HELD:
 		_begin_fall()
-	queue_redraw()
 
 
 func unjam() -> void:
 	_jam = 0.0
 	_telegraph = 0.0
-	queue_redraw()
 
 
 func is_jammed() -> bool:
@@ -185,21 +177,16 @@ func jam_left() -> float:
 	return _jam
 
 
-## The gag before the wrench: the bat rattles for `seconds` and the player gets to decide
-## what to do with the ball first (spec §5: 2 s of notice, every time).
 func telegraph(seconds: float) -> void:
 	if not _present or seconds <= 0.0:
 		return
 	_telegraph = maxf(_telegraph, seconds)
-	queue_redraw()
 
 
 func is_telegraphed() -> bool:
 	return _telegraph > 0.0
 
 
-## Dormant hardware (game/table/hardware/dormant.gd). Separate from `dead`, which is the
-## tilt state the session owns: a bat that was never bought is not a bat that got tilted.
 func set_hardware_active(active: bool) -> void:
 	_present = active
 	visible = active
@@ -210,89 +197,49 @@ func set_hardware_active(active: bool) -> void:
 	_buffered_at = -1000.0
 	state = State.REST
 	progress = 0.0
-	rotation = _rest_rot
+	rotation.y = _rest_rot
 
 
 func is_hardware_active() -> bool:
 	return _present
 
 
-## Draw-edge translation of the native flipper state. `HELD` is a persistent active cue;
-## motion remains active, while jam/telegraph and tilt are danger/disabled cues respectively.
 func visual_state() -> Dictionary:
-	var state := TableVisualState.VisualState.IDLE
+	var vs := TableVisualState.VisualState.IDLE
 	var mods: Array[StringName] = []
 	if not _present or dead:
-		state = TableVisualState.VisualState.DISABLED
+		vs = TableVisualState.VisualState.DISABLED
 		if dead:
 			mods.append(&"dead")
 	elif _jam > 0.0:
-		state = TableVisualState.VisualState.DANGER
+		vs = TableVisualState.VisualState.DANGER
 		mods.append(&"jam")
 	elif _telegraph > 0.0:
-		state = TableVisualState.VisualState.DANGER
+		vs = TableVisualState.VisualState.DANGER
 		mods.append(&"telegraph")
-	elif self.state != State.REST:
-		state = TableVisualState.VisualState.ACTIVE
-		mods.append(&"held" if self.state == State.HELD else &"pulse")
-	return TableVisualState.state_token(state, mods)
+	elif state != State.REST:
+		vs = TableVisualState.VisualState.ACTIVE
+		mods.append(&"held" if state == State.HELD else &"pulse")
+	return TableVisualState.state_token(vs, mods)
 
 
-func _ambient_material(role: StringName, fallback: Color) -> Color:
-	if Presentation.city != null:
-		var candidate := Presentation.city.material_for(role)
-		if candidate.a > 0.0:
-			return candidate
-	return fallback
-
-
-func _reduced_flash() -> bool:
-	return Presentation.fx != null and Presentation.fx.reduced_flash
-
-
-func _draw_bat_hatch(l: float, rp: float, color: Color, alpha: float) -> void:
-	var hatch := Color(color, alpha)
-	for i in range(3):
-		var x := l * (0.26 + float(i) * 0.20)
-		draw_line(Vector2(x - rp * 0.32, -rp * 0.44), Vector2(x + rp * 0.32, rp * 0.44),
-				hatch, maxf(2.0, rp * 0.10))
-
-
-func _draw_held_marks(l: float, rp: float, color: Color) -> void:
-	var mark := Color(color, 0.78)
-	for x: float in [l * 0.25, l * 0.50, l * 0.75]:
-		draw_line(Vector2(x, -rp * 0.60), Vector2(x + rp * 0.22, 0.0), mark, 2.5)
-		draw_line(Vector2(x + rp * 0.22, 0.0), Vector2(x, rp * 0.60), mark, 2.5)
-
-
-func _now() -> float:
-	return _clock
-
-
-## Global AABB of the bat right now — used by tests and by trap/cradle checks.
-func bat_aabb() -> Rect2:
-	var l := bat_length()
-	var rp := pivot_radius()
-	var rt := tip_radius()
-	var pts := [
-		to_global(Vector2(0.0, -rp)), to_global(Vector2(0.0, rp)),
-		to_global(Vector2(l, -rt)), to_global(Vector2(l, rt)),
-	]
-	var r := Rect2(pts[0], Vector2.ZERO)
-	for p: Vector2 in pts:
-		r = r.expand(p)
-	return r
-
-
-## Outward normal of the striking face, in global space.
+## Plan-space unit normal of the striking face.
 func strike_normal() -> Vector2:
-	return Vector2(0.0, _strike_sign).rotated(global_rotation)
+	var n := Vector3(0.0, 0.0, _strike_sign).rotated(Vector3.UP, rotation.y)
+	return Vector2(n.x, n.z)
 
 
-## Where a ball sits when cradled at `t` along the bat (0 = pivot, 1 = tip).
-func cradle_point(t: float) -> Vector2:
+## Table-space point a ball rests at when cradled `t` of the way along the bat.
+func cradle_point(t: float) -> Vector3:
 	var x := bat_length() * clampf(t, 0.0, 1.0)
-	return to_global(Vector2(x, 0.0)) + strike_normal() * (_bat_radius(x) + Feel.BALL_RADIUS)
+	var along := Vector3(x, 0.0, 0.0).rotated(Vector3.UP, rotation.y)
+	var n := strike_normal() * (_bat_radius(x) + Feel.BALL_RADIUS)
+	return position + along + Vector3(n.x, 0.0, n.y) + Vector3(0.0, Feel.BALL_RADIUS, 0.0)
+
+
+func _bat_radius(local_x: float) -> float:
+	var t := clampf(local_x / bat_length(), 0.0, 1.0)
+	return lerpf(pivot_radius(), tip_radius(), t)
 
 
 func _fire() -> void:
@@ -300,8 +247,6 @@ func _fire() -> void:
 	_phase_time = 0.0
 	_buffered_at = -1000.0
 	_glow = 1.0
-	# A ball parked on the pivot dome sits at the center of rotation — the flip alone
-	# imparts nothing there, so the bat shrugs it toward the blade itself.
 	var sitter := _pivot_sitter()
 	if sitter != null:
 		sitter.kick(_pivot_pop_direction() * Feel.FLIPPER_PIVOT_POP)
@@ -309,25 +254,25 @@ func _fire() -> void:
 	AudioDirector.play(&"flipper_up")
 
 
-## The ball asleep on the pivot boss, if any: slow, hugging the pivot circle, sitting on
-## its upper half. Checks every live ball (multiball) with the bound ball as fallback.
 func _pivot_sitter() -> Ball:
-	var reach := Feel.FLIPPER_PIVOT_RADIUS * size_scale + Feel.BALL_RADIUS + 8.0
+	var reach := pivot_radius() + Feel.BALL_RADIUS + 0.06
 	var candidates: Array[Ball] = Balls.live()
 	if candidates.is_empty() and _ball != null and is_instance_valid(_ball):
 		candidates = [_ball]
 	for b in candidates:
-		if b.linear_velocity.length() > Feel.HARDWARE_STALL_SPEED:
+		if b.speed() > Feel.HARDWARE_STALL_SPEED:
 			continue
-		var rel := b.global_position - global_position
-		if rel.length() <= reach and rel.y < 6.0:
+		var rel := b.table_position() - position
+		rel.y = 0.0
+		if rel.length() <= reach and rel.z * _strike_sign > -0.05:
 			return b
 	return null
 
 
-func _pivot_pop_direction() -> Vector2:
-	var tip := (to_global(Vector2(bat_length(), 0.0)) - global_position).normalized()
-	return (strike_normal() * 0.8 + tip * 0.6).normalized()
+func _pivot_pop_direction() -> Vector3:
+	var tip := Vector3(1.0, 0.0, 0.0).rotated(Vector3.UP, rotation.y)
+	var n := strike_normal()
+	return (Vector3(n.x, 0.0, n.y) * 0.8 + tip * 0.6).normalized()
 
 
 func _begin_fall() -> void:
@@ -339,7 +284,6 @@ func _begin_fall() -> void:
 
 func _physics_process(delta: float) -> void:
 	_clock += delta
-	# Un-flipped naps on the pivot dome end on a timer too — the ball must never live there.
 	if _present and not dead and _pivot_sitter() != null:
 		_pivot_stall += delta
 		if _pivot_stall >= Feel.FLIPPER_PIVOT_STALL_SECONDS:
@@ -352,20 +296,27 @@ func _physics_process(delta: float) -> void:
 		_pivot_stall = 0.0
 	if _jam > 0.0:
 		_jam = maxf(_jam - delta, 0.0)
-		if _jam <= 0.0:
-			queue_redraw()
 	if _telegraph > 0.0:
 		_telegraph = maxf(_telegraph - delta, 0.0)
-		queue_redraw()
 	_advance(delta)
-	var target := FlipperCurve.rotation_for(side, progress)
-	_ang_vel = wrapf(target - _prev_rotation, -PI, PI) / maxf(delta, 0.00001)
-	rotation = target
-	_prev_rotation = target
-	_guard_ball(delta)
+	rotation.y = FlipperCurve.rotation_for(side, progress)
 	if _glow > 0.0:
 		_glow = maxf(_glow - delta * 5.0, 0.0)
-		queue_redraw()
+
+
+func _process(delta: float) -> void:
+	if _lamp == null:
+		return
+	var wanted := 0.0
+	if _jam > 0.0 or _telegraph > 0.0:
+		wanted = 0.6 + 0.4 * sin(_clock * 26.0)
+		_lamp.emission = Feel.COL_DIRTY
+	else:
+		_lamp.emission = Color(1.0, 0.86, 0.55)
+		wanted = _glow * 0.9
+	_lamp.emission_energy_multiplier = lerpf(_lamp.emission_energy_multiplier, wanted,
+			1.0 - exp(-14.0 * delta))
+	_lamp.albedo_color = Color("6A5A48") if dead else Color("E9DFC8")
 
 
 func _advance(delta: float) -> void:
@@ -392,137 +343,12 @@ func _advance(delta: float) -> void:
 			progress = 0.0
 
 
-## A press that landed during the return stroke re-fires the instant the bat is home,
-## as long as it was inside Feel.INPUT_BUFFER of that moment (mobile touch latency budget).
 func _consume_buffer() -> void:
 	if dead or _jam > 0.0:
 		return
 	if _held:
 		_fire()
 		return
-	if _now() - _buffered_at <= Feel.INPUT_BUFFER:
+	if _clock - _buffered_at <= Feel.INPUT_BUFFER:
 		_fire()
 	_buffered_at = -1000.0
-
-
-## Belt-and-suspenders swept test (docs/09 §2). The bat can sweep ~24 px per tick at the
-## tip; if the solver ever lets the ball out the wrong side we put it back and hand it the
-## surface velocity rather than letting a shot silently vanish.
-func _guard_ball(delta: float) -> void:
-	if _ball == null or not is_instance_valid(_ball):
-		_prev_local_valid = false
-		return
-	var local := to_local(_ball.global_position)
-	var span_max := bat_length() + tip_radius()
-	var in_span := local.x > -pivot_radius() and local.x < span_max
-	var bat_r := _bat_radius(local.x)
-	var reach := bat_r + Feel.BALL_RADIUS
-
-	if in_span and _prev_local_valid and _ang_vel != 0.0:
-		var was_striking := _prev_local_y * _strike_sign > 0.0
-		var now_striking := local.y * _strike_sign > 0.0
-		if was_striking and not now_striking and absf(local.y) < reach:
-			_rescue(local, bat_r)
-			local = to_local(_ball.global_position)
-
-	if in_span and absf(local.y) <= reach + 2.0 and local.y * _strike_sign > 0.0:
-		_assist(local, reach, delta)
-
-	_prev_local_y = local.y
-	_prev_local_valid = true
-
-
-func _bat_radius(local_x: float) -> float:
-	var t := clampf(local_x / bat_length(), 0.0, 1.0)
-	return lerpf(pivot_radius(), tip_radius(), t)
-
-
-func _rescue(local: Vector2, bat_r: float) -> void:
-	var fixed := Vector2(local.x, _strike_sign * (bat_r + Feel.BALL_RADIUS + 1.0))
-	_ball.place(to_global(fixed))
-	var rel := _ball.global_position - global_position
-	var surface := _ang_vel * Vector2(-rel.y, rel.x)
-	_ball.set_velocity(surface)
-
-
-## Guarantee the authored curve's power actually reaches the ball. Uses the surface speed at
-## the real contact point, so tip shots stay hotter than base shots.
-func _assist(local: Vector2, reach: float, _delta: float) -> void:
-	if _ang_vel == 0.0 or state != State.RISING:
-		return
-	if absf(local.y) > reach + 1.0:
-		return
-	var rel := _ball.global_position - global_position
-	var surface := _ang_vel * Vector2(-rel.y, rel.x)
-	var n := (to_global(local) - to_global(Vector2(local.x, 0.0))).normalized()
-	if n == Vector2.ZERO:
-		return
-	var vn_surface := surface.dot(n) * power_scale
-	if vn_surface <= 0.0:
-		return
-	var vn_ball := _ball.linear_velocity.dot(n)
-	if vn_ball < vn_surface:
-		_ball.set_velocity(_ball.linear_velocity + n * (vn_surface - vn_ball))
-
-
-func _draw() -> void:
-	if not _present:
-		return
-	var token := visual_state()
-	var l := bat_length()
-	var rp := pivot_radius()
-	var rt := tip_radius()
-	var brass := _ambient_material(&"brass", Feel.COL_BRASS)
-	var ink := _ambient_material(&"ink_glass", Feel.COL_INK)
-	var paper := _ambient_material(&"paper", Feel.COL_NEWSPRINT)
-	var danger := Feel.COL_DIRTY
-	var flash := _glow * (0.25 if _reduced_flash() else 1.0)
-	var state_name := String(token["state"])
-	if state_name == "disabled":
-		brass = ink.lightened(0.32)
-	elif state_name == "danger":
-		brass = brass.lerp(danger, 0.55)
-	if _glow > 0.0:
-		brass = brass.lerp(paper, flash * 0.70)
-	if _jam > 0.0:
-		brass = brass.lerp(danger, 0.55).darkened(0.25)
-	elif _telegraph > 0.0:
-		# the wrench gag: the bat rattles a warning before the linkage goes
-		var warning_phase := 0.5 if _reduced_flash() \
-				else 0.5 + 0.5 * sin(_clock * 26.0)
-		brass = brass.lerp(danger, 0.35 * warning_phase)
-	var body := PackedVector2Array([
-		Vector2(0.0, -rp), Vector2(l, -rt), Vector2(l, rt), Vector2(0.0, rp),
-	])
-	draw_colored_polygon(body, brass)
-	draw_circle(Vector2.ZERO, rp, brass)
-	draw_circle(Vector2(l, 0.0), rt, brass)
-	draw_arc(Vector2.ZERO, rp, 0.0, TAU, 24, ink, 3.0)
-	draw_arc(Vector2(l, 0.0), rt, 0.0, TAU, 20, ink, 3.0)
-	draw_line(Vector2(0.0, -rp), Vector2(l, -rt), ink, 3.0)
-	draw_line(Vector2(0.0, rp), Vector2(l, rt), ink, 3.0)
-	# Ivory grip and a walnut pinstripe make the bats feel like bespoke machine parts. The
-	# inlay follows the real taper, so it still reads correctly on the Club's smaller pair.
-	var ivory := paper.darkened(0.10)
-	var in_rp := rp * 0.34
-	var in_rt := rt * 0.30
-	draw_line(Vector2(rp * 0.72, 0.0), Vector2(l - rt * 0.62, 0.0),
-			ivory.lerp(brass, 0.28), maxf(4.0, in_rp * 0.42))
-	draw_circle(Vector2(l * 0.68, 0.0), maxf(3.0, in_rt * 0.60), ink)
-	draw_circle(Vector2.ZERO, rp * 0.32, ink)
-	draw_circle(Vector2.ZERO, rp * 0.13, brass.lightened(0.28))
-	if String(token["mark"]) == "held_ring":
-		_draw_held_marks(l, rp, paper)
-	elif state_name == "danger":
-		_draw_bat_hatch(l, rp, paper, 0.76 if not _reduced_flash() else 0.52)
-	elif state_name == "disabled":
-		# Tilt/dead is a quiet disabled mark; no hue is required to read the crossed linkage.
-		draw_line(Vector2(l * 0.30, -rp * 0.54), Vector2(l * 0.70, rp * 0.54), paper, 4.0)
-		draw_line(Vector2(l * 0.30, rp * 0.54), Vector2(l * 0.70, -rp * 0.54), paper, 4.0)
-	if _jam > 0.0:
-		# the wrench itself, laid across the linkage
-		var mid := Vector2(l * 0.42, 0.0)
-		draw_line(mid - Vector2(0.0, rp * 1.1), mid + Vector2(0.0, rp * 1.1),
-				paper.darkened(0.15), 7.0)
-		draw_arc(mid - Vector2(0.0, rp * 1.1), rp * 0.42, PI * 0.2, PI * 1.8, 14,
-				paper.darkened(0.15), 6.0)

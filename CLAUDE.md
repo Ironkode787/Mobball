@@ -35,7 +35,7 @@ workstreams live in `specs/`.
 | `project.godot`, `CLAUDE.md`, `docs/`, `specs/`, `game/content/`, `tests/run_tests.gd`, `tests/t.gd`, `game/core/` (frozen — request changes via report), `game/economy/` (frozen) | orchestrator only |
 | `game/flow/` (public surface of `game.gd` is contract-locked), `game/ui/count/`, `game/ui/hud*`, `game/main.gd`, `game/main.tscn`, `tests/sim/night_sim*`, flow tests | flow workstream |
 | `game/meta/` (`stats.gd` API contract-locked), `game/ui/ledger/`, `tests/test_stats.gd`, `tests/test_upgrades_data.gd` | meta workstream |
-| `game/table/` (keep `tests/sim/feel_sim` green; `table_main.tscn` path is contract), `game/table/view3d/` (the 3D renderer of the 2D sim — see `specs/table-3d-flow.md`), `tests/sim/table_growth_sim*`, `tests/shot_table3d*`, `tests/probe_plunger*` | table workstream |
+| `game/table/` (keep `tests/sim/feel_sim` and `tests/sim/machine_sim` green; `table_main.tscn` path is contract — see `specs/table-3d-flow.md`), `tests/shot_machine*`, `tests/probe_machine*` | table workstream |
 | `tools/audiogen/`, `assets/audio/`, `game/audio/`, `tests/test_audio_assets.gd` | audio workstream |
 
 Do not edit outside your lane; if you need a change elsewhere (a new Events signal, a Feel
@@ -47,14 +47,19 @@ Workstream agents do **not** commit or push — the orchestrator reviews, commit
 
 ## Physics & display invariants (do not change without design sign-off)
 
-- 120 Hz physics tick, physics interpolation ON, gravity via `project.godot`.
+- The table is a real 3D machine (specs/table-3d-flow.md): Jolt physics at 240 Hz, physics
+  interpolation ON, 1 unit = 10 cm, the playfield root inclined `Feel.PLAYFIELD_PITCH_DEG`
+  under the project's 98.1 u/s² gravity. Every position lives in `game/table/layout.gd`,
+  every tuning number in `game/core/feel.gd`; the ball API is table-space (`Ball.kick`,
+  `set_velocity`, `place`, `table_position`).
 - Base viewport 1080×1920 portrait, `canvas_items` stretch, expand aspect.
-- Physics layers: 1 walls · 2 ball · 3 flippers · 4 hardware · 5 zones.
-- Renderer: GL Compatibility (low-end Android target). The playfield is simulated in 2D and
-  rendered in 3D (`game/table/view3d/`): geometry proxies derive from colliders, never the
-  other way round. `KINGPIN_TABLE_2D=1` shows the flat 2D drawing for debugging.
-- Screenshots: `tools/shot.sh out.png res://tests/shot_table3d.tscn` (Xvfb + software GL);
-  `SHOT3D_VIEW=bare|block|full|deck|stairs|dome` picks the career stage and framing.
+- Physics layers (3D): 1 walls · 2 ball · 3 flippers · 4 hardware · 5 zones. Dormant hardware
+  is invisible **and** collision-free (`Dormant`, `set_hardware_active`).
+- Renderer: GL Compatibility (low-end Android target). Colliders come first; every mesh is
+  built from the same numbers (`WallBuilder`, `RampLane`), never the other way round.
+- Screenshots: `tools/shot.sh out.png res://tests/shot_machine.tscn` (Xvfb + software GL);
+  `SHOT_VIEW=bare|block|full`, `SHOT_CAM=high|deck`, `SHOT_BALL=x,z`. Physics probe:
+  `godot --headless --fixed-fps 60 --path . res://tests/probe_machine.tscn`.
 - Input actions are registered **in code** (see `game/core/feel.gd`), not in `project.godot`.
 
 ## Audio contract

@@ -15,7 +15,7 @@ const DURATION := 45.0
 ## The Captain yanks the ball drain-ward on this period, telegraphed a beat early.
 const MAGNET_PERIOD := 6.0
 const TELEGRAPH := 1.2
-const MAGNET_IMPULSE := 620.0
+const MAGNET_IMPULSE := 6.2
 ## The siren sits under the mode, not on top of it.
 const SIREN_DB := -6.0
 ## Table tint while the sirens are on.
@@ -27,7 +27,7 @@ var active: bool = false
 var duration: float = DURATION
 var time_left: float = DURATION
 
-var _table: Node2D = null
+var _table: Node3D = null
 var _next_magnet: float = MAGNET_PERIOD
 var _telegraphed: bool = false
 ## One looping wail under the whole mode, stopped when the mode ends (specs/audio-wave2 §1:
@@ -39,7 +39,7 @@ func _ready() -> void:
 	set_physics_process(false)
 
 
-func begin(table: Node2D) -> void:
+func begin(table: Node3D) -> void:
 	if active:
 		return
 	_table = table
@@ -107,16 +107,15 @@ func _pull_ball() -> void:
 	var b := TableAPI.ball(_table)
 	if b == null:
 		return
-	var target := _drain_point()
-	var dir := (target - b.global_position)
-	if dir.length() < 1.0:
+	var here := Layout.plan(b.table_position())
+	var dir := _drain_point() - here
+	if dir.length() < 0.01:
 		return
-	b.kick(dir.normalized() * MAGNET_IMPULSE)
+	b.kick(Vector3(dir.x, 0.0, dir.y).normalized() * MAGNET_IMPULSE)
 
 
 func _drain_point() -> Vector2:
-	var r := TableAPI.bounds(_table, Rect2(Vector2(40.0, 0.0), Vector2(900.0, 1900.0)))
-	return Vector2(r.position.x + r.size.x * 0.5, r.position.y + r.size.y)
+	return Layout.CENTRE_DRAIN_AT
 
 
 func _end(survived: bool) -> void:

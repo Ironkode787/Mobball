@@ -35,7 +35,7 @@ func _roles(t: TestCtx) -> void:
 	# authored lane is ever moved upward into a corner target in a future table.
 	t.eq(InputController.classify_touch_role(Vector2(960.0, 1200.0), SCREEN), &"lane",
 			"shooter lane wins over all nudge roles")
-	t.eq(Feel.NUDGE_IMPULSE, 360.0, "baseline nudge impulse is the mobile-feel value")
+	t.eq(Feel.NUDGE_IMPULSE, 4.0, "baseline nudge impulse is the mobile-feel value (table units)")
 
 
 func _intents(t: TestCtx) -> void:

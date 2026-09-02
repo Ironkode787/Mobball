@@ -1,70 +1,76 @@
 class_name Briefcase
-extends Node2D
-## The mystery briefcase (specs/m3-fall-rise.md sub-wave B, docs/05). A man in a trench coat
-## leaves a case on the felt, and it is yours if you can get to it inside a minute. If you
-## cannot, he comes back and picks it up, and you get to watch him walk off with it.
-##
-## **It has no collision geometry, deliberately** — the same reasoning the hold saucers are
-## built on. A collider that appears in the middle of a live playfield is a change to the
-## machine's geometry mid-Night: a new thing to park on, a new gap to wedge in, and a new
-## deflection the player never learned. So the case is a token: the ball reaches it and it is
-## gone. Contact is measured against the case's own capsule, not a generous circle, so it
-## still has to be *hit* — it is just that hitting it is the last thing that happens to it.
-##
-## The table owns where it lands (ProgressionTable.BRIEFCASE_SPOTS) and the flow lane owns
-## what is inside it. Nothing here touches money.
+extends Node3D
+## The bagman's case, put down on the felt for a minute: touch it to collect, or watch him
+## pick it up and walk. No collider — it is a token, not furniture.
 
-## The ball got to it first.
 signal collected(ball: Ball)
-## Sixty seconds went by and the bagman came back for it. Fires when he starts walking, not
-## when the drawing finishes: the case is out of play the moment the clock runs out.
 signal expired()
 
-const LENGTH := 44.0
-const THICK := 22.0
-## Half the token's longest reach — the table's spot rules are written in these px.
+const LENGTH := 0.22
+const THICK := 0.11
 const REACH := (LENGTH + THICK) * 0.5
-## Sat at an angle, like something put down in a hurry. Nothing can rest on it (there is
-## nothing to rest on), so this is character rather than physics.
 const RAKE_DEG := -12.0
 const LIFETIME := 60.0
-## The walk-off: he picks it up and leaves the frame. Cosmetic, and short enough that a
-## briefcase dropped the instant one expires never overlaps the last one on screen.
 const WALK_SECONDS := 0.8
-const WALK_DISTANCE := 150.0
+const WALK_DISTANCE := 0.75
 
 @export var id: StringName = &"briefcase"
 
-## Overridable so sims can run the clock in a second instead of a minute.
 var lifetime: float = LIFETIME
-
 var _live: bool = false
 var _left: float = 0.0
 var _walk: float = 0.0
 var _glow: float = 0.0
 var _walk_dir: float = -1.0
 var _resolution: StringName = &"none"
+var _look: Node3D = null
+var _lamp: StandardMaterial3D = null
 
 
 func _ready() -> void:
+	var lib := MaterialLib.shared()
+	_look = Node3D.new()
+	add_child(_look)
+	var body := BoxMesh.new()
+	body.size = Vector3(LENGTH, 0.16, THICK)
+	var bm := MeshInstance3D.new()
+	bm.mesh = body
+	bm.material_override = lib.plastic(Color("3A2418"), 0.5)
+	bm.position.y = 0.08
+	_look.add_child(bm)
+	_lamp = lib.lamp(Feel.COL_BRASS)
+	var trim := BoxMesh.new()
+	trim.size = Vector3(LENGTH * 0.9, 0.02, THICK + 0.01)
+	var tm := MeshInstance3D.new()
+	tm.mesh = trim
+	tm.material_override = _lamp
+	tm.position.y = 0.09
+	_look.add_child(tm)
+	var handle := TorusMesh.new()
+	handle.inner_radius = 0.02
+	handle.outer_radius = 0.035
+	var hm := MeshInstance3D.new()
+	hm.mesh = handle
+	hm.material_override = lib.brass()
+	hm.position = Vector3(0.0, 0.17, 0.0)
+	hm.rotation.x = PI * 0.5
+	_look.add_child(hm)
 	visible = false
 
 
-## Put a case down here and start its clock. Re-dropping while one is live is the caller's
-## business to avoid (ProgressionTable.spawn_briefcase refuses it).
 func drop_at(at: Vector2) -> void:
-	position = at
-	rotation = deg_to_rad(RAKE_DEG)
+	position = Layout.p3(at)
+	rotation.y = deg_to_rad(RAKE_DEG)
 	_live = true
 	_resolution = &"none"
 	_left = maxf(lifetime, 0.1)
 	_walk = 0.0
 	_glow = 1.0
-	# he leaves the way he came: toward the nearer side wall
-	_walk_dir = -1.0 if at.x < ProgressionTable.MIRROR_X else 1.0
+	_walk_dir = -1.0 if at.x < 0.0 else 1.0
 	visible = true
+	if _look != null:
+		_look.position = Vector3.ZERO
 	AudioDirector.play(&"briefcase_drop")
-	queue_redraw()
 
 
 func is_live() -> bool:
@@ -75,27 +81,25 @@ func seconds_left() -> float:
 	return _left if _live else 0.0
 
 
-## Take it off the table now, with no signal — the table's own teardown path (a Night ends,
-## the piece is switched off) rather than either of the two ways a case can be resolved.
 func clear() -> void:
 	_live = false
 	_walk = 0.0
 	_resolution = &"none"
 	visible = false
-	queue_redraw()
 
 
 func _physics_process(delta: float) -> void:
 	if _walk > 0.0:
 		_walk = maxf(_walk - delta, 0.0)
+		var t := 1.0 - _walk / WALK_SECONDS
+		if _look != null:
+			_look.position = Vector3(_walk_dir * WALK_DISTANCE * t, 0.12 * sin(t * PI), 0.0)
 		if _walk <= 0.0:
 			visible = false
-		queue_redraw()
 	if not _live:
 		return
 	if _glow > 0.0:
 		_glow = maxf(_glow - delta * 1.5, 0.0)
-		queue_redraw()
 	_left -= delta
 	if _left <= 0.0:
 		_take_it_back()
@@ -105,18 +109,27 @@ func _physics_process(delta: float) -> void:
 		_collect(ball)
 
 
-## The nearest live ball actually touching the case. Measured against the capsule so a ball
-## flying past 50 px away does not collect a case it never reached.
+func _process(delta: float) -> void:
+	if _lamp != null:
+		var blink := 1.0 if (_left > 10.0 or fmod(_left, 0.5) > 0.25) else 0.2
+		_lamp.emission_energy_multiplier = lerpf(_lamp.emission_energy_multiplier,
+				(1.2 * blink + _glow) if _live else 0.0, 1.0 - exp(-10.0 * delta))
+
+
 func _toucher() -> Ball:
 	var half := LENGTH * 0.5
-	var axis := Vector2.RIGHT.rotated(rotation)
-	var reach := THICK * 0.5 + Feel.BALL_RADIUS + 2.0
+	var axis := Vector2.RIGHT.rotated(-rotation.y)
+	var reach := THICK * 0.5 + Feel.BALL_RADIUS + 0.02
+	var here := Layout.plan(position)
 	for b in Balls.live():
 		if b == null or not is_instance_valid(b) or BallHold.is_held(b):
 			continue
-		var p := b.global_position
-		var along := clampf((p - global_position).dot(axis), -half, half)
-		if (global_position + axis * along).distance_to(p) <= reach:
+		var p := b.table_position()
+		if absf(p.y - Feel.BALL_RADIUS) > 0.3:
+			continue
+		var pp := Vector2(p.x, p.z)
+		var along := clampf((pp - here).dot(axis), -half, half)
+		if (here + axis * along).distance_to(pp) <= reach:
 			return b
 	return null
 
@@ -128,7 +141,6 @@ func _collect(ball: Ball) -> void:
 	AudioDirector.play(&"drop_clack")
 	TableScore.hit(id, ball)
 	collected.emit(ball)
-	queue_redraw()
 
 
 func _take_it_back() -> void:
@@ -137,21 +149,13 @@ func _take_it_back() -> void:
 	_resolution = &"expired"
 	AudioDirector.play(&"briefcase_leave")
 	expired.emit()
-	queue_redraw()
 
 
-# =================================================================== dormancy =====
-
-
-## Nothing here is ever bought, so this is only the table's teardown door: switching the
-## token off takes any live case off the felt without resolving it either way.
 func set_hardware_active(active: bool) -> void:
 	if not active:
 		clear()
 
 
-## Draw-only translation. The case never gains a collider or an input state: live is the
-## armed invitation, while a resolved case keeps a completion mark for evidence/a11y probes.
 func visual_state() -> Dictionary:
 	var state := TableVisualState.VisualState.DISABLED
 	var mods: Array[StringName] = []
@@ -166,85 +170,3 @@ func visual_state() -> Dictionary:
 
 func visual_token() -> Dictionary:
 	return visual_state()
-
-
-func _ambient(role: StringName, fallback: Color) -> Color:
-	if Presentation != null and Presentation.city != null:
-		var city_col := Presentation.city.material_for(role)
-		if city_col.a > 0.0:
-			return city_col
-	if Presentation != null and Presentation.theme != null:
-		var material := Presentation.theme.material_for(role)
-		var fill: Variant = material.get("fill", fallback)
-		if fill is Color:
-			return fill as Color
-	return fallback
-
-
-func _draw_case_mark(center: Vector2, radius: float, token: Dictionary, color: Color) -> void:
-	var mark := String(token["mark"])
-	if mark == "invitation_pin":
-		draw_circle(center, radius * 0.42, color)
-		draw_line(center + Vector2(0.0, radius * 0.38), center + Vector2(0.0, radius), color, 3.0)
-	elif mark == "check_stamp" or mark == "marked_stamp":
-		draw_rect(Rect2(center - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), color, false, 3.0)
-		draw_line(center + Vector2(-radius * 0.5, 0.0), center + Vector2(-radius * 0.08, radius * 0.4), color, 3.0)
-		draw_line(center + Vector2(-radius * 0.08, radius * 0.4), center + Vector2(radius * 0.56, -radius * 0.5), color, 3.0)
-	else:
-		draw_arc(center, radius, 0.0, TAU, 20, color, 3.0)
-
-
-# ==================================================================== drawing =====
-
-
-func _draw() -> void:
-	if not _live and _walk <= 0.0:
-		return
-	var token := visual_token()
-	var t := 0.0 if _walk <= 0.0 else 1.0 - _walk / WALK_SECONDS
-	var slide := Vector2(_walk_dir * WALK_DISTANCE * t, -18.0 * sin(t * PI))
-	var fade := 1.0 - t
-	var half := LENGTH * 0.5
-	var ink := _ambient(&"ink_glass", Feel.COL_INK)
-	var brass := _ambient(&"brass", Feel.COL_BRASS)
-	var paper := _ambient(&"paper", Feel.COL_NEWSPRINT)
-	var body := ink.lightened(0.16).lerp(brass, _glow * 0.35)
-	body.a = fade
-	var trim := brass.lerp(paper, _glow * 0.6)
-	trim.a = fade
-
-	# the man, when there is one: a coat and a hat, walking out of frame with the case
-	if _walk > 0.0:
-		var coat := Feel.COL_INK.lightened(0.06)
-		coat.a = fade
-		var at := slide + Vector2(_walk_dir * 22.0, -30.0)
-		draw_rect(Rect2(at + Vector2(-13.0, -18.0), Vector2(26.0, 44.0)), coat)
-		draw_circle(at + Vector2(0.0, -26.0), 11.0, coat)
-		draw_line(at + Vector2(-17.0, -32.0), at + Vector2(17.0, -32.0), coat, 5.0)
-
-	var shadow := ink.darkened(0.3)
-	shadow.a = fade
-	draw_rect(Rect2(slide + Vector2(-half - 4.0, -THICK * 0.5 - 4.0),
-			Vector2(LENGTH + 8.0, THICK + 8.0)), shadow)
-	draw_rect(Rect2(slide + Vector2(-half, -THICK * 0.5), Vector2(LENGTH, THICK)), ink)
-	draw_rect(Rect2(slide + Vector2(-half + 2.0, -THICK * 0.5 + 2.0),
-			Vector2(LENGTH - 4.0, THICK - 4.0)), body)
-	# handle, seam and two brass clasps: enough case to read at a glance
-	draw_arc(slide + Vector2(0.0, -THICK * 0.5), 9.0, PI, TAU, 12, trim, 3.0)
-	draw_line(slide + Vector2(-half + 4.0, 0.0), slide + Vector2(half - 4.0, 0.0),
-			trim.darkened(0.45), 2.0)
-	draw_line(slide + Vector2(-half + 4.0, -THICK * 0.26), slide + Vector2(half - 4.0, -THICK * 0.26),
-			paper.darkened(0.30), 2.0)
-	for x: float in [-9.0, 9.0]:
-		draw_rect(Rect2(slide + Vector2(x - 3.0, -2.5), Vector2(6.0, 5.0)), trim)
-	var font := Presentation.theme.font_for(&"annotation") if Presentation != null \
-			and Presentation.theme != null else ThemeDB.fallback_font
-	if font != null and _walk <= 0.0:
-		draw_string(font, slide + Vector2(-half + 6.0, 4.0), "CASE", HORIZONTAL_ALIGNMENT_LEFT,
-				-1.0, 9, paper.darkened(0.12))
-		var seconds := "%02d" % int(ceili(maxf(_left, 0.0)))
-		draw_string(font, slide + Vector2(half + 12.0, 4.0), seconds, HORIZONTAL_ALIGNMENT_LEFT,
-				-1.0, 10, trim)
-	if _live:
-		var cue := Color(trim.r, trim.g, trim.b, fade * (0.30 + _glow * 0.50))
-		_draw_case_mark(slide + Vector2(0.0, -THICK * 0.9), 8.0, token, cue)

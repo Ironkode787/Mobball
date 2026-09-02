@@ -8,7 +8,10 @@ signal launched(power: float)
 
 var power: float = 0.0
 var charging: bool = false
-var lane_rect: Rect2 = Rect2()
+## Table-space box the ball must rest in to be plungeable (the shooter lane).
+var lane_box: AABB = AABB()
+## Table-space direction the ball is fired in (up the lane).
+var lane_dir: Vector3 = Vector3(0.0, 0.0, -1.0)
 var enabled: bool = true
 
 var _ball: Ball = null
@@ -22,7 +25,7 @@ func set_ball(b: Ball) -> void:
 func ball_ready() -> bool:
 	if _ball == null or not is_instance_valid(_ball):
 		return false
-	if not lane_rect.has_point(_ball.global_position):
+	if not lane_box.has_point(_ball.table_position()):
 		return false
 	return _ball.speed() <= Feel.PLUNGER_REST_SPEED
 
@@ -58,8 +61,8 @@ func launch(p: float) -> void:
 	var clamped := clampf(p, 0.0, 1.0)
 	if clamped <= 0.0:
 		return
-	_ball.set_velocity(Vector2.ZERO)
-	_ball.kick(Vector2.UP * (clamped * Feel.PLUNGER_MAX_IMPULSE))
+	_ball.set_velocity(Vector3.ZERO)
+	_ball.kick(lane_dir.normalized() * (clamped * Feel.PLUNGER_MAX_IMPULSE))
 	_ball.launched = true
 	AudioDirector.play(&"plunger_launch")
 	Events.ball_launched.emit(_ball, clamped)

@@ -1,111 +1,121 @@
-# Table redesign — 3D presentation and the 90s shot map
+# The machine — a real 3D pinball table
 
-> Status: shipped in the `claude/table-layout-visuals-v9c9sy` branch. Owner: table workstream.
+> Status: shipped on `claude/table-layout-visuals-v9c9sy`. Replaces the 2D simulation and the
+> earlier "3D mirror of the 2D table" entirely.
 
-## 1. What changed and why
+## 1. What this is
 
-The M1–M3 playfield was a flat vector drawing of a prototype: hairline walls, banks scattered at
-odd angles, a right "orbit" with no lane, ramps meandering across the middle. Two things were
-done together, because one without the other would still read as a prototype:
+KINGPIN's table is now simulated in 3D with Jolt at real pinball scale and dressed as a 90s
+Bally/Williams-style machine. The ball is a rigid sphere that rolls on a waxed, inclined
+playfield; flippers are kinematic bats swept along an authored curve; ramps are steel channels
+the ball climbs or rolls back out of under its own energy; the Club and the Penthouse are
+raised playfields inside the same cabinet; City Hall is the crowning wireform loop over the
+back. Nothing is scripted about where the ball goes — every switch is an `Area3D` reading a
+real trajectory.
 
-1. **The playfield is rendered in 3D.** The 2D simulation under `game/table/` is unchanged in
-   kind — every collider, sensor, rule and sim still lives there — and `game/table/view3d/`
-   renders it as a lit, perspective, multi-storey machine. The 2D table hides its own drawing
-   (`table.visible = false`), the `Camera3D` is slaved to the 2D `CameraRig`, and every
-   `CanvasLayer` (HUD, screens, feedback) keeps painting on top. `KINGPIN_TABLE_2D=1` restores
-   the flat renderer for debugging.
-2. **The layout was redrawn as a 90s Williams-style machine** (`progression_table.gd` constants).
-   The physics constants in `Feel` are untouched except `PLUNGER_MAX_IMPULSE` (3900 → 4000, the
-   ball speed cap) so the Drop-Off can reach the far top lane.
+The career (ranks, upgrade ids, jobs, modes, economy) is unchanged: the table still publishes
+the same properties, methods and signals to the flow lane through `TableAPI`, and every
+Ledger id still owns a piece of hardware that stands up when bought.
 
-## 2. The shot map (table px, +y down)
+## 2. Units and physics
 
-```
-        ┌──────────────── arch (outer wall, r≈512) ─────────────────┐
-        │   orbit channel: 104–165 px between the arch and the RING │
-        │  ring r=320 @ (500,569): left arm 180°→235°, right 305°→0°│
-        │        ╲ post  post  post  post ╱   ← 3 TOP LANES hang    │
-        │  spinner ╲ [1] [2] [3] ╱  bribe   off the ring (y 255→400)│
-   left lane│      (440,600)(560,600)  ● ●    payphones ▤ ▤ ▤ right lane
-   x 58–171 │          (500,690) ●  pops        (735–775, 640–840) │ x 829–933
-        │                  NONNA'S (490,890) ▬▬▬  faces down        │
-        │   LUCKY'S (345,1030) ▬▬▬                Staircase mouth   │
-        │   faces the right flipper           (625,1160) ⌒ ramp up  │
-        │   docks (R5) ┌────┐            FAT TONY'S (745,1085) ▬▬▬ │
-        │              └────┘            faces the left flipper     │
-        │     kickback │ sling      open centre alley      sling │  │
-        │              ╲  ◢ flipper L        flipper R ◣  ╱       │
-        └──────────────────── drain (storm grate) ──────────────────┘
-```
-
-**From the left flipper (steep → shallow):** the bribe notch (700,470) threading the Wire and
-Fat Tony's · the Staircase mouth · Fat Tony's bank · the payphone bank · the right orbit
-("Truck Route", lane guide x=820, y 569→1000).
-
-**From the right flipper:** the left orbit/spinner lane ("Getaway Loop", guide x=180) ·
-Lucky's bank · the docks entrance (down the left lane, R5) · the bribe notch.
-
-**Both flippers:** the centre alley up into Nonna's and the pop nest; the pops feed the top
-lanes' exits back onto the flippers.
-
-**The Drop-Off (skill shot).** The plunger exits the one-way gate onto the arch and rides the
-channel. Its power picks the outcome, probed headless with `tests/probe_plunger.tscn`:
-
-| starter band | power | lands in |
-|---|---|---|
-| short pull | 0.945 | lane 3 (right) |
-| middle pull | 0.970 | lane 2 (centre) |
-| long pull | 0.990 | lane 1 (left) |
-| Real Plunger, full | 1.000 | the whole orbit, down the spinner lane |
-
-## 3. Layout rules the geometry test enforces (`tests/test_table_geometry.gd`)
-
-- Lanes pass a 56 px ball with 20 px to spare: both orbit lanes, the channel over the lanes,
-  every top lane at its narrow end, the route between the left guide and the Block, the
-  route between Lucky's lower end and the docks roof.
-- Gaps are routes or walls, never ball-sized: the notch beside each outer post, Fat Tony's
-  against the right guide, each payphone's back against the guide.
-- Bank ends stay 40 px off an 80 px centre alley; bank rows keep 76 px between them.
-- No pop bumper sits under a lane exit (a ball would pogo in the lane); the nest is offset so
-  a lane ball meets a can on its shoulder.
-- Banks face their flipper; Nonna's is raked 12° so nothing parks on its roof.
-
-## 4. The 3D presentation (`game/table/view3d/`)
-
-| File | Role |
+| Thing | Value |
 |---|---|
-| `table_space.gd` | px→m (×0.01), storey heights: main field 0, Club/Penthouse/City Hall +1.15 m |
-| `view3d_mesh.gd` | SurfaceTool builders: rail (rounded polyline), post, prism, tube, box, disc, ring |
-| `view3d_materials.gd` | procedural felt/wood/brass/steel/rubber/lamp/neon materials, ball skins from `BallDesign` |
-| `table_view_3d.gd` | environment, key/fill light, lamp budget (6 omni), camera slaving, room (cabinet, backbox, storey slabs), proxy registry, screen projector |
-| `proxies/*.gd` | one proxy per hardware class; `wall_proxy.gd` is the catch-all for any `StaticBody2D` |
+| Unit | 1 unit = 10 cm (a 20.25" × 42" playfield is 5.14 × 10.7 units) |
+| Ball | radius 0.135 (27 mm), mass 1, CCD on, never sleeps |
+| Incline | 6.5° — the playfield root is rotated; gravity is the project's 98.1 u/s² |
+| Physics | Jolt, 240 Hz, penetration slop 0.004, speculative contact 0.02 |
+| Surfaces | playfield friction 0.09 (waxed wood), walls 0.14/bounce 0.18, rubber 0.40/0.58, steel rails 0.08/0.15 |
+| Flippers | length 0.78, 45 ms to full extension, curve in `FlipperCurve`; the Club's pair is half size |
+| Plunger | 34 u/s at full pull; starter bands 0.55 / 0.58 / 0.80 |
 
-Rules:
+All constants live in `game/core/feel.gd`; all positions in `game/table/layout.gd`.
 
-- **Geometry comes from colliders.** Walls are extruded from `WallBuilder` chains or the
-  body's `CollisionShape2D`s; a proxy never invents a surface the ball cannot touch.
-- **State comes from `visual_state()`.** Lamps read the hardware's own token: armed lights an
-  invitation, active flashes, disabled is dark, danger is police blue. Dropped targets sink.
-- **The ball rides ramps for real.** `RampProxy3D.height_at()` is the wireform's profile and the
-  lift `BallProxy3D` applies, so what climbs is what shows.
-- **Feedback stays anchored.** `Presentation.projector` is this view; `_screen_position()`
-  projects through the 3D camera, so hit numbers still land on the ball.
-- **Budget.** ≤ 6 real omni lights (storefront neon, flipper GI); everything else is emissive.
-  One draw call per wall body. Shadows: one directional light.
+## 3. The shot map (plan coordinates: x right, z toward the player)
 
-## 5. Sims re-tuned to the new geometry
+```
+        ┌──────────────── arch (r 2.6 about (0,-2.8)) ───────────────┐
+        │  orbit channel between the arch and the RING (r 1.975)     │
+        │  funnel lanes 3 (320°→285°) and 2 (285°→250°) hang off it   │
+   left │      spinner   ● pops (-0.62,-3.42) (0.78,-3.40)  bribe   │ right lane
+   lane │      rollover1 (0.05,-2.85)  ▬ payphones ▤▤▤ (1.4..1.6)   │ x 1.80–2.14
+ x -2.54│              NONNA'S (0,-1.55) faces down                  │ shooter lane
+  –2.18 │  LUCKY'S (-1.25,-0.55)              FAT TONY'S (1.30,0.10) │ x 2.20–2.54
+        │  docks yard (R5)             Staircase mouth (0.60,0.95)   │
+        │  x -2.5..-1.35 z 0..2         ramp up the right side       │
+        │  kickback │ sling            alley            sling │       │
+        │           ╲ ◢ bat (-1.135,4.4)   bat (0.765,4.4) ◣ ╱       │
+        └──────────────────────── drain ─────────────────────────────┘
+   upper storey (0.9 u up): PENTHOUSE x -2.45..-0.55 | CLUB x 0.55..2.20, z -5.25..-3.35
+```
 
-Only fixture constants changed: parking spots (`SAFE_POINT`s) moved into the open centre
-alley, the first-ten coaching point sits over the starter can, the plunger band expectations
-follow the new bands, and the club sim's refused-ramp check accepts a ball that has already
-come back below the mouth. `feel_sim` (the M0 alley) is untouched and still green.
+The play axis is `Layout.MIRROR_X = -0.185` because the shooter lane lives inside the arch;
+the bottom assembly is symmetric about it.
 
-## 6. Next
+**From the left bat (steep → shallow):** bribe notch · Staircase mouth · Fat Tony's · payphones
+· right orbit (Truck Route). **From the right bat:** left orbit (Getaway Loop, spinner,
+rollover 1) · Lucky's · the docks gate (R5) · bribe notch. **Both:** the centre alley into
+Nonna's and the pops.
 
-- Bench identity on the 3D ball uses a generated equirect skin; a crest decal pass would make
-  the guys as recognisable as in Roll Call.
-- The Docks, Penthouse and City Hall get landmark props now; the Club deck still wants its
-  roulette bowl and slot-reel cabinet dressed.
-- Build-in (the little guys with hammers) is still 2D-only and therefore hidden in 3D.
-- Camera: a slightly lower pitch during multiball and a nudge kick in 3D (the 2D offset
-  carries through the canvas transform already).
+**The Drop-Off** is a physics ladder: a plunged ball climbs the arch and peels off the outer
+wall the moment it drops under ~5 u/s, into whichever funnel is under it. Soft (0.55) dies
+into lane 3, medium (0.58) carries to lane 2 at the apex, hard (≥0.68) never peels — it laps
+the arch and comes down the left lane over rollover 1. Measured with
+`tests/probe_machine.tscn`; asserted by `tests/sim/machine_sim.tscn`.
+
+**Upstairs.** The Staircase (mouth on the left bat's line) climbs the right edge over the
+payphones, the right lane and the shooter gate, and enters the Club deck through its right
+wall; a shot under ~24 u/s rolls back out of the mouth. The deck holds the roulette bowl, the
+slot reels, the High Roller and back-room saucers and two mini flippers; its exit chute at the
+bottom-left drops into a wireform down the left-centre corridor to the left inlane. The
+Penthouse stairs leave the deck diagonally through its top-left corner (a mini-flipper shot),
+sweep along the back of the machine in one arc at deck height and come into the Penthouse
+through the open corner behind its back wall, so a 20 u/s shot arrives with pace. The stairs'
+exit points straight at the City Hall ring's funnel mouth: with enough speed the ball climbs
+out over the room's left wall, sweeps round the outside of the room and comes back in over
+the front wall to land at the right; a ball that fails rolls back out onto the room floor,
+slides off the raked backs of the two chair targets and leaves by the front-left chute into
+the left lane above the spinner.
+
+**The Docks** (R5) are a walled yard low on the left behind a one-way gate off the left lane.
+A gangway slides arrivals off the wall, the bed beam falls away to the right, and everything
+ends in the cargo scoop: a kicker that lifts the ball into a wireform soaring over the crane's
+gantry and dropping it into the left lane above the Getaway Loop entry. The quay is a one-way
+flap so the outlane kickback throws a ball up into the yard. The water off the pier's left
+corner is fenced from rolling balls by a bollard rail; only the crane puts a ball in it.
+
+## 4. Code map
+
+| Path | Role |
+|---|---|
+| `game/core/feel.gd`, `ball.gd`, `plunger.gd`, `banded_plunger.gd`, `nudge.gd`, `camera_rig.gd` | physics core (all vectors in table space) |
+| `game/table/layout.gd` | every position |
+| `game/table/segments/progression_table.gd` | the machine: cabinet, walls, hardware, drains, career unlocking, flow API |
+| `game/table/segments/club_deck.gd`, `penthouse.gd`, `city_hall.gd`, `docks.gd` | the four career segments |
+| `game/table/hardware/*.gd` | flipper, bumper, slingshot, standup/drop target, target bank, storefront, rollover, spinner, orbit lane, one-way gate, kickback, hold saucer, drain/crane magnet, roulette, slot reels, containers, boss target, briefcase, build-in, wall piece, ramp lane |
+| `game/table/wall_builder.gd` | polylines → box + post colliders + rail mesh |
+| `game/table/hardware/ramp_lane.gd` | swept steel channel (trimesh, flared mouth, inward lips) + mouth/crest sensors |
+| `game/table/look/` | material library, mesh builders, the cobblestone playfield shader, dressing (lamp rows, plastics, toys, apron cards, GI) |
+
+Conventions: a piece is a `Node3D` placed with `Layout.p3()`; targets face their local +Z
+(`Layout.yaw_facing`); `set_hardware_active()` makes a piece invisible **and** collision-free;
+`visual_state()` publishes the lamp state; balls are addressed in table space through
+`Ball.kick / set_velocity / place / table_position`.
+
+## 5. Gate
+
+`tools/check.sh` imports, runs `tests/test_*.gd`, boot-smokes `main.tscn`, then runs every
+`tests/sim/*.tscn` with `--fixed-fps 60` (240 Hz physics, four ticks a frame, no wall-clock
+pacing): `feel_sim` (roll, serve, flip pace, trap, 25 s soak), `machine_sim` (ladder,
+Staircase, both orbits, kickback and outlanes, docks, Penthouse and dome, dormancy),
+`night_sim_first10` (the first ten minutes end to end) and `night_sim` (Nights, raids, bench,
+save, Safe). Screenshots: `tools/shot.sh out.png res://tests/shot_machine.tscn` with
+`SHOT_VIEW=bare|block|full`, `SHOT_CAM=high|deck`, `SHOT_BALL=x,z`.
+
+## 6. Known limits and next
+
+- The continuous Real Plunger's lane-2 window is a few percent wide: a genuine skill shot.
+- The bosses' cars ride their rails and the raid's cops and magnets work, but their fights have
+  not yet been re-tuned to 3D speeds; `BossTarget.min_speed` gates are in u/s now.
+- Build-in scaffolding is a lift-and-tarp animation; the little guys with hammers are gone.
+- The Club's roulette bowl and slot reels are functional primitives; they want proper toys.

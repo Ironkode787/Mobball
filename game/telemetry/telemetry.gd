@@ -77,7 +77,7 @@ func _on_night_started(night_no: int) -> void:
 	store.record("night_started", {"night_bucket": _night_bucket(night_no)})
 
 
-func _on_ball_launched(_ball: Node2D, _power: float) -> void:
+func _on_ball_launched(_ball: Node3D, _power: float) -> void:
 	if not _night_active or _first_launch_seen:
 		return
 	_first_launch_seen = true

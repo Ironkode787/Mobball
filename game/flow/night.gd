@@ -58,7 +58,8 @@ const SURVIVE_SECONDS := 60.0
 const HOT_BAND := 2
 ## Anything above this line is upstairs in the Club (the deck lives in negative y). A deck
 ## visit — the window the slots Jackpot has to be completed inside — ends when nothing is.
-const DECK_LINE := 0.0
+## Height (table units) above which a ball is on a raised storey — the Club deck.
+const DECK_LINE := 0.5
 ## Where the Family Meeting's second guy comes in, as an offset from the deck's own socket:
 ## on the deck, below the back room, above the mini bats. Derived from the table's geometry
 ## rather than restated, so the deck can move without this following it.
@@ -79,7 +80,7 @@ const BOSS_CEREMONY := 2.4
 ## Gap between the tote board's three chimes.
 const WIRE_ARPEGGIO_GAP := 0.09
 
-var table: Node2D = null
+var table: Node3D = null
 var nudge: NudgeController = null
 var input: InputController = null
 var raid: RaidMode = null
@@ -175,7 +176,7 @@ func _ready() -> void:
 # =================================================================== setup =====
 
 
-func bind(p_table: Node2D, p_nudge: NudgeController = null, p_input: InputController = null) -> void:
+func bind(p_table: Node3D, p_nudge: NudgeController = null, p_input: InputController = null) -> void:
 	table = p_table
 	nudge = p_nudge
 	input = p_input
@@ -930,10 +931,8 @@ func _try_slippery(guy: Dictionary, ball: Ball) -> bool:
 func _is_outlane_drain(ball: Ball) -> bool:
 	if ball == null or not is_instance_valid(ball):
 		return false
-	var r := TableAPI.bounds(table, Rect2())
-	if r.size.x <= 0.0:
-		return true
-	var t := (ball.global_position.x - r.position.x) / r.size.x
+	var p := Layout.plan(ball.table_position())
+	var t := (p.x - Layout.PLAY_LEFT) / (Layout.PLAY_RIGHT - Layout.PLAY_LEFT)
 	return t <= OUTLANE_BAND or t >= 1.0 - OUTLANE_BAND
 
 
@@ -949,7 +948,7 @@ func _on_scored(id: StringName, value: int) -> void:
 	Game.earn_switch(Switches.group_for(id), BigMoney.from_float(float(value)), {"switch": id})
 
 
-func _on_switch_hit(id: StringName, _ball_node: Node2D, strength: float) -> void:
+func _on_switch_hit(id: StringName, _ball_node: Node3D, strength: float) -> void:
 	if not running:
 		return
 	var group := Switches.group_for(id)
@@ -1015,7 +1014,7 @@ func _open_skill_window() -> void:
 	_light_lane(_skill_lane)
 
 
-func _on_ball_launched(ball_node: Node2D, _power: float) -> void:
+func _on_ball_launched(ball_node: Node3D, _power: float) -> void:
 	if not running:
 		return
 	var ball := ball_node as Ball
@@ -1092,7 +1091,7 @@ func _tick_deck() -> void:
 	if not Game.casino.visit_open():
 		return
 	for b in Balls.live():
-		if b.global_position.y < DECK_LINE:
+		if b.table_position().y > DECK_LINE:
 			return
 	Game.casino.close_visit()
 
@@ -1617,7 +1616,7 @@ func _all_storefronts_armed() -> bool:
 	if shops.size() < int(Switches.COVER_SIZE.get(&"storefronts", 3)):
 		return false
 	for s: Variant in shops:
-		var node := s as Node2D
+		var node := s as Node3D
 		if node == null or not is_instance_valid(node) or not node.visible:
 			return false
 		if not node.has_method("state_name"):
@@ -1813,7 +1812,6 @@ func _set_raid_visual(on: bool) -> void:
 		# The table owns its own red wash and cop targets; do not tint it twice.
 		table.call("set_raid_active", on)
 		return
-	table.modulate = RaidMode.DARKEN if on else Color.WHITE
 
 
 # ============================================================ the Commission =====
