@@ -22,6 +22,12 @@ Run `bash tools/ship.sh`. The gate rejects a dirty or untracked source tree, ins
 AAB manifest and signer, scans packaged resources, builds a universal APK with Bundletool, and
 installs that APK on the connected device for a launch/error smoke test before declaring success.
 
+## Debug builds
+
+Sideload APKs are never committed (`build/` is ignored). Publish them as GitHub pre-release
+assets with `bash tools/release_apk.sh <tag>`, which builds the "Android Development" preset,
+tags HEAD and uploads the APK with its sha256.
+
 ## Cohorts
 
 Run three deliberate rounds rather than one large ambiguous test:
