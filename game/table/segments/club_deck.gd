@@ -97,8 +97,7 @@ func _build_floor() -> void:
 	cs.position = Vector3((DECK_LEFT + DECK_RIGHT) * 0.5, DECK_H - 0.06, (DECK_TOP + DECK_BOTTOM) * 0.5)
 	_floor.add_child(cs)
 	var lib := MaterialLib.shared()
-	var felt := lib.felt().duplicate() as StandardMaterial3D
-	felt.albedo_color = Color("6E5AA8").lerp(Color.WHITE, 0.5)
+	var felt := lib.carpet(Color("6E5AA8").lerp(Color.WHITE, 0.35))
 	var st := MeshLib.begin()
 	MeshLib.box(st, Vector3((DECK_LEFT + DECK_RIGHT) * 0.5, DECK_H - 0.06, (DECK_TOP + DECK_BOTTOM) * 0.5),
 			Vector3(w, 0.12, d), 0.5)

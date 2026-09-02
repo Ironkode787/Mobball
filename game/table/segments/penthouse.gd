@@ -96,7 +96,7 @@ func _build_floor() -> void:
 	cs.position = center
 	_floor.add_child(cs)
 	var lib := MaterialLib.shared()
-	var carpet := lib.plastic(Color("3A2E5C"), 0.9)
+	var carpet := lib.carpet(Color("3A2E5C").lightened(0.2))
 	var st := MeshLib.begin()
 	MeshLib.box(st, center, Vector3(w, 0.12, d), 0.5)
 	var mi := MeshInstance3D.new()

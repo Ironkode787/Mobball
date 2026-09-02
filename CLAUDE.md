@@ -28,6 +28,14 @@ workstreams live in `specs/`.
   with the MCP for Blender addon listening on 9876; `.mcp.json` registers the `blender` MCP
   server (`uvx blender-mcp`) that drives it.
 
+## Textures
+
+- Surface textures are CC0 PBR sets from Poly Haven, fetched by `python3 tools/texgen/fetch.py`
+  into `assets/textures/<id>/` (diffuse / nor_gl / rough JPG + `.import` with mipmaps). The
+  playfield shader (`game/table/look/playfield.gdshader`) and `MaterialLib.pbr()` use them
+  when present and fall back to the procedural look when not; new sets go in `SET` in the
+  fetch script and get a row in `assets/ASSETS.md`.
+
 ## Code style
 
 - Typed GDScript everywhere (`var x: float`, typed params & returns). Tabs for indentation

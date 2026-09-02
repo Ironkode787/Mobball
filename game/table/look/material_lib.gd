@@ -134,6 +134,50 @@ func grate_texture() -> ImageTexture:
 	return tex
 
 
+# ---------------------------------------------------------------- PBR sets -------
+
+const TEX_DIR := "res://assets/textures/"
+
+
+## One map of a Poly Haven set fetched by tools/texgen/fetch.py, or null when it is not there.
+func tex(asset: String, map: String, res: String = "1k") -> Texture2D:
+	var path := "%s%s/%s_%s_%s.jpg" % [TEX_DIR, asset, asset, map, res]
+	var key := "tex:" + path
+	if _cache.has(key):
+		return _cache[key]
+	var t: Texture2D = null
+	if ResourceLoader.exists(path):
+		t = load(path) as Texture2D
+	_cache[key] = t
+	return t
+
+
+func has_set(asset: String) -> bool:
+	return tex(asset, "diffuse") != null or tex(asset, "diffuse", "2k") != null
+
+
+## A lit surface from a PBR set: albedo tinted by `tint`, normal and roughness maps when the
+## set carries them. `tiles_per_unit` sets the UV scale for meshes whose UVs are in units.
+func pbr(key: String, asset: String, tint: Color, tiles_per_unit: float = 1.0,
+		diffuse_res: String = "1k") -> StandardMaterial3D:
+	return _std(key, func(m: StandardMaterial3D) -> void:
+		m.albedo_color = tint
+		m.albedo_texture = tex(asset, "diffuse", diffuse_res)
+		var n := tex(asset, "nor_gl")
+		if n != null:
+			m.normal_enabled = true
+			m.normal_texture = n
+			m.normal_scale = 0.7
+		var r := tex(asset, "rough")
+		if r != null:
+			m.roughness_texture = r
+			m.roughness_texture_channel = BaseMaterial3D.TEXTURE_CHANNEL_RED
+		m.roughness = 1.0
+		m.metallic = 0.0
+		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		m.uv1_scale = Vector3(tiles_per_unit, tiles_per_unit, tiles_per_unit))
+
+
 # ------------------------------------------------------------------ materials -----
 
 
@@ -156,6 +200,8 @@ func felt() -> StandardMaterial3D:
 
 
 func wood() -> StandardMaterial3D:
+	if has_set("dark_wood"):
+		return pbr("wood", "dark_wood", city_color(&"wood_edge", Color("6D3F23")).lightened(0.45), 1.0)
 	return _std("wood", func(m: StandardMaterial3D) -> void:
 		var base := city_color(&"wood", Color("21150F"))
 		var edge := city_color(&"wood_edge", Color("6D3F23"))
@@ -166,10 +212,30 @@ func wood() -> StandardMaterial3D:
 
 
 func wood_dark() -> StandardMaterial3D:
+	if has_set("dark_wood"):
+		return pbr("wood_dark", "dark_wood", Color("7A6658"), 0.5)
 	return _std("wood_dark", func(m: StandardMaterial3D) -> void:
 		var base := city_color(&"wood_dark", Color("0B0908"))
 		m.albedo_texture = wood_texture("wood_dark_tex", base.lightened(0.06), base.lightened(0.16))
 		m.roughness = 0.6)
+
+
+## Deck planks for a floor whose UVs span 0..1 over `size` units (a PlaneMesh).
+func lane_wood(size: Vector2) -> StandardMaterial3D:
+	if not has_set("wood_floor_deck"):
+		return wood()
+	var m := pbr("lane_wood:%.2fx%.2f" % [size.x, size.y], "wood_floor_deck", Color("9C8672"), 1.0)
+	m.uv1_scale = Vector3(size.x * 0.9, size.y * 0.9, 1.0)
+	return m
+
+
+## Room carpet (the Club, the Penthouse) tinted per room; felt-like when the set is missing.
+func carpet(tint: Color) -> StandardMaterial3D:
+	if has_set("dirty_carpet"):
+		return pbr("carpet:%s" % tint.to_html(false), "dirty_carpet", tint.lightened(0.25), 1.6)
+	var m := felt().duplicate() as StandardMaterial3D
+	m.albedo_color = tint
+	return m
 
 
 func brass() -> StandardMaterial3D:

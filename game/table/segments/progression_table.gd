@@ -292,6 +292,14 @@ func _build_cabinet() -> void:
 	street.shader = load("res://game/table/look/playfield.gdshader")
 	street.set_shader_parameter("field_size", Vector2(w, d))
 	street.set_shader_parameter("mirror_x", Layout.MIRROR_X)
+	if _lib.has_set("brick_pavement_02") and _lib.has_set("asphalt_02"):
+		street.set_shader_parameter("textured", true)
+		street.set_shader_parameter("stone_albedo", _lib.tex("brick_pavement_02", "diffuse", "2k"))
+		street.set_shader_parameter("stone_normal", _lib.tex("brick_pavement_02", "nor_gl"))
+		street.set_shader_parameter("stone_rough", _lib.tex("brick_pavement_02", "rough"))
+		street.set_shader_parameter("alley_albedo", _lib.tex("asphalt_02", "diffuse"))
+		street.set_shader_parameter("alley_normal", _lib.tex("asphalt_02", "nor_gl"))
+		street.set_shader_parameter("alley_rough", _lib.tex("asphalt_02", "rough"))
 	fm.material_override = street
 	fm.position = Vector3(0.0, 0.0, center_z)
 	fm.name = "Street"
@@ -301,7 +309,7 @@ func _build_cabinet() -> void:
 	lane.size = Vector2(Layout.PLAY_RIGHT - Layout.DIVIDER_X, Layout.LANE_FLOOR_Z - Layout.DIVIDER_TOP)
 	var lm := MeshInstance3D.new()
 	lm.mesh = lane
-	lm.material_override = _lib.wood()
+	lm.material_override = _lib.lane_wood(lane.size)
 	lm.position = Vector3((Layout.DIVIDER_X + Layout.PLAY_RIGHT) * 0.5, 0.004, (Layout.DIVIDER_TOP + Layout.LANE_FLOOR_Z) * 0.5)
 	floor_body.add_child(lm)
 	# the glass: invisible ceiling so nothing ever leaves the cabinet

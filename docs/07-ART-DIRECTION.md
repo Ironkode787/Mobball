@@ -108,6 +108,7 @@ Numbers on the HUD use tabular figures; money counts up with slot-machine odomet
 | UI furniture, panels, icons base | **Kenney.nl** packs (UI Pack, Game Icons, Casino/Boardgame packs) | CC0 |
 | Thematic icons (fedora, dice, money bags, wiretap, etc.) | **game-icons.net** (~4,000 icons) | CC BY 3.0 (credit file) |
 | Textures: felt, wood, brass, paper, cork | **ambientCG**, **CC0-Textures** | CC0 |
+| PBR surface sets for the 3D table (street, asphalt, wood, carpet) | **Poly Haven** (`tools/texgen/fetch.py`) | CC0 |
 | Palettes / reference | **Lospec** | reference |
 | Period photos/textures (newsprint, city) | Library of Congress & public-domain archives; NYPL Digital Collections PD sets | PD (verify per item) |
 | Anything gap-filling | **OpenGameArt** (filter CC0/CC-BY) | per item |
