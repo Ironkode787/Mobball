@@ -57,6 +57,17 @@ func _build_look() -> void:
 	var lib := MaterialLib.shared()
 	var r := radius()
 	_lamp = lib.lamp(Color(1.0, 0.80, 0.42))
+	var tex: Texture2D = null
+	if Presentation != null and Presentation.art != null:
+		tex = Presentation.art.resolve(&"prop.trash_can", null, false)
+	var can := ToyLib.instance(&"bumper_can")
+	if can != null:
+		can.scale = Vector3.ONE * size_scale
+		ToyLib.bind(can, "Lamp", _lamp)
+		if tex != null:
+			ToyLib.bind(can, "Art", lib.decal(tex))
+		add_child(can)
+		return
 	var body := CylinderMesh.new()
 	body.top_radius = r * 0.62
 	body.bottom_radius = r * 0.66
@@ -86,9 +97,6 @@ func _build_look() -> void:
 	cm.position.y = 0.48
 	cm.name = "Cap"
 	add_child(cm)
-	var tex: Texture2D = null
-	if Presentation != null and Presentation.art != null:
-		tex = Presentation.art.resolve(&"prop.trash_can", null, false)
 	if tex != null:
 		# the art is a top-down lid on ink: printed on a disc the size of the cap's top, the
 		# inscribed circle of the square lands on the cap and the corners are never built

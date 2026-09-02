@@ -9,6 +9,7 @@ var _lib: MaterialLib = null
 var _bulbs: StandardMaterial3D = null
 var _clock: float = 0.0
 var _toys: Array[Node3D] = []
+var _drums: Array[Node3D] = []
 ## Dressing that belongs to a piece of hardware shows only while that piece stands.
 var _tied: Array[Dictionary] = []      ## { node: Node3D, hardware: Node }
 var _root: Node3D = null
@@ -96,11 +97,26 @@ func _build_plastics() -> void:
 		mi.name = "SlingPlastic"
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
-	# payphone plastic: the wire bank's art standing behind the phones
+	# the payphone bank: a pedestal phone behind each wire target, or the flat art if the
+	# toy is missing
 	var tex: Texture2D = null
 	if Presentation != null and Presentation.art != null:
 		tex = Presentation.art.resolve(&"prop.payphone_bank", null, false)
-	if tex != null:
+	if ToyLib.has(&"payphone"):
+		var face_yaw := Layout.yaw_facing(Layout.WIRE_FACE)
+		for i in range(Layout.WIRE_AT.size()):
+			var phone := ToyLib.instance(&"payphone")
+			var at: Vector2 = Layout.WIRE_AT[i]
+			phone.position = Layout.p3(at - Layout.WIRE_FACE * 0.17, 0.0)
+			phone.rotation.y = face_yaw
+			phone.scale = Vector3.ONE * 0.85
+			var face := _lib.lamp(Color(1.0, 0.86, 0.55))
+			face.emission_energy_multiplier = 0.9
+			ToyLib.bind(phone, "Lamp", face)
+			phone.name = "Payphone%d" % (i + 1)
+			add_child(phone)
+			_tie(phone, _hardware("wire_bank"))
+	elif tex != null:
 		var quad := PlaneMesh.new()
 		var w := 1.0
 		quad.size = Vector2(w, w * float(tex.get_height()) / float(tex.get_width()))
@@ -135,6 +151,42 @@ func _build_plastics() -> void:
 
 
 func _build_toys() -> void:
+	if ToyLib.has(&"pizza_sign") and ToyLib.has(&"washing_machine") and ToyLib.has(&"safe"):
+		_build_toy_meshes()
+		return
+	_build_toy_primitives()
+
+
+## The generated toys (specs/meshes.md): each stands where its primitive stood.
+func _build_toy_meshes() -> void:
+	var pizza := ToyLib.instance(&"pizza_sign")
+	var nonna: Vector2 = Layout.STOREFRONT_AT[1]
+	pizza.position = Layout.p3(nonna + Vector2(0.0, -0.75), 0.60)
+	add_child(pizza)
+	var spin := ToyLib.find(pizza, "Spin")
+	if spin != null:
+		_toys.append(spin)
+	_tie(pizza, _hardware("storefronts", 1))
+
+	var washer := ToyLib.instance(&"washing_machine")
+	var lucky: Vector2 = Layout.STOREFRONT_AT[0]
+	washer.position = Layout.p3(lucky + Vector2(-0.35, -0.85), 0.66)
+	washer.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[0])
+	add_child(washer)
+	var door := ToyLib.find(washer, "Door")
+	if door != null:
+		_drums.append(door)
+	_tie(washer, _hardware("storefronts", 0))
+
+	var safe := ToyLib.instance(&"safe")
+	var tony: Vector2 = Layout.STOREFRONT_AT[2]
+	safe.position = Layout.p3(tony + Vector2(0.3, -0.85), 0.62)
+	safe.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[2])
+	add_child(safe)
+	_tie(safe, _hardware("storefronts", 2))
+
+
+func _build_toy_primitives() -> void:
 	# Nonna's: a slowly turning pizza on a pole over the pizzeria
 	var pizza := Node3D.new()
 	pizza.name = "PizzaSign"
@@ -322,5 +374,8 @@ func _process(delta: float) -> void:
 	for t in _toys:
 		if is_instance_valid(t):
 			t.rotation.y += delta * 0.6
+	for d in _drums:
+		if is_instance_valid(d):
+			d.rotation.z += delta * 1.4
 	if _bulbs != null:
 		_bulbs.emission_energy_multiplier = 1.5 + 0.15 * sin(_clock * 2.3)

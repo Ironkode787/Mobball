@@ -17,6 +17,17 @@ workstreams live in `specs/`.
   universal APK on the connected release-test device for a packaged-runtime smoke test. The
   build has no debug-key fallback; see `release/CLOSED_BETA.md` for required credentials.
 
+## Meshes & Blender
+
+- Table toys are generated meshes: `tools/meshgen/toys.py` (bpy) → `bash tools/meshgen/build.sh`
+  → `assets/meshes/*.glb` (+ `tools/meshgen/preview/*.png`). Pieces load them through
+  `ToyLib` and keep their primitive look as the fallback; see `specs/meshes.md` for the list,
+  the node contract (`Lamp*`, `Art*`) and the budgets. Never hand-edit a `.glb`.
+- Blender binary (this environment): `/workspace/tools/blender/blender` (4.2 LTS). For
+  interactive modelling, `tools/blender/serve.sh` starts Blender (under Xvfb when headless)
+  with the MCP for Blender addon listening on 9876; `.mcp.json` registers the `blender` MCP
+  server (`uvx blender-mcp`) that drives it.
+
 ## Code style
 
 - Typed GDScript everywhere (`var x: float`, typed params & returns). Tabs for indentation

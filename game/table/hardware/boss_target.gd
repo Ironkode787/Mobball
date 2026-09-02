@@ -91,6 +91,14 @@ func _build_look() -> void:
 	add_child(_look)
 	var l := body_length
 	var w := body_thick
+	_lamp = lib.lamp(Feel.COL_DIRTY)
+	var car := ToyLib.instance(&"truck" if kind == &"truck" else &"sedan")
+	if car != null:
+		var native := Vector2(0.64, 0.28) if kind == &"truck" else Vector2(0.72, 0.24)
+		car.scale = Vector3(l / native.x, 1.0, w / native.y)
+		ToyLib.bind(car, "Lamp", _lamp)
+		_look.add_child(car)
+		return
 	var body := BoxMesh.new()
 	body.size = Vector3(l, 0.24, w)
 	var bm := MeshInstance3D.new()
@@ -112,7 +120,6 @@ func _build_look() -> void:
 	var wm := MeshInstance3D.new()
 	wm.mesh = MeshLib.finish(wheels, lib.rubber())
 	_look.add_child(wm)
-	_lamp = lib.lamp(Feel.COL_DIRTY)
 	var roof := BoxMesh.new()
 	roof.size = Vector3(0.08, 0.05, 0.08)
 	var rm := MeshInstance3D.new()

@@ -44,14 +44,24 @@ func _ready() -> void:
 			_targets.append(t)
 	# a cabinet behind the reels
 	var lib := MaterialLib.shared()
-	var cab := BoxMesh.new()
-	cab.size = Vector3(COL_PITCH * 3.0 + 0.1, 0.55, 0.12)
-	var cm := MeshInstance3D.new()
-	cm.mesh = cab
-	cm.material_override = lib.plastic(Color("3A1F3F"), 0.35)
-	cm.position = Vector3(0.0, 0.275, -ROW_PITCH * 1.5 - 0.12)
-	cm.name = "Cabinet"
-	add_child(cm)
+	var sign_y := 0.62
+	var machine := ToyLib.instance(&"slot_machine")
+	if machine != null:
+		machine.position = Vector3(0.0, 0.0, -ROW_PITCH * 1.5 - 0.12)
+		var marquee := lib.lamp(Feel.COL_NEON_ROSE)
+		marquee.emission_energy_multiplier = 1.6
+		ToyLib.bind(machine, "Lamp", marquee)
+		add_child(machine)
+		sign_y = 0.70
+	else:
+		var cab := BoxMesh.new()
+		cab.size = Vector3(COL_PITCH * 3.0 + 0.1, 0.55, 0.12)
+		var cm := MeshInstance3D.new()
+		cm.mesh = cab
+		cm.material_override = lib.plastic(Color("3A1F3F"), 0.35)
+		cm.position = Vector3(0.0, 0.275, -ROW_PITCH * 1.5 - 0.12)
+		cm.name = "Cabinet"
+		add_child(cm)
 	var sign := TextMesh.new()
 	sign.text = "SLOTS"
 	sign.font = load("res://assets/fonts/Oswald-SemiBold.ttf")
@@ -61,7 +71,7 @@ func _ready() -> void:
 	var sm := MeshInstance3D.new()
 	sm.mesh = sign
 	sm.material_override = lib.neon(Feel.COL_NEON_ROSE, 2.4)
-	sm.position = Vector3(0.0, 0.62, -ROW_PITCH * 1.5 - 0.10)
+	sm.position = Vector3(0.0, sign_y, -ROW_PITCH * 1.5 - 0.10)
 	add_child(sm)
 
 

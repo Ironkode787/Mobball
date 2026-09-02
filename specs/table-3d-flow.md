@@ -122,4 +122,5 @@ save, Safe). Screenshots: `tools/shot.sh out.png res://tests/shot_machine.tscn` 
 - The bosses' cars ride their rails and the raid's cops and magnets work, but their fights have
   not yet been re-tuned to 3D speeds; `BossTarget.min_speed` gates are in u/s now.
 - Build-in scaffolding is a lift-and-tarp animation; the little guys with hammers are gone.
-- The Club's roulette bowl and slot reels are functional primitives; they want proper toys.
+- The Club's roulette bowl is a functional primitive; the slot cabinet, pops, cars, vans and
+  storefront toys are generated meshes now (specs/meshes.md), the bowl and crane are next.

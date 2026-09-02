@@ -43,6 +43,7 @@ func _ready() -> void:
 			var t := DropTarget.new()
 			t.name = "Stack%dCrate%d" % [s + 1, c + 1]
 			t.thickness = CRATE_THICK
+			t.mesh_id = &"container"
 			t.configure(StringName("%s_%d%d" % [id, s + 1, c + 1]),
 					Vector2(along, along * step), Vector2(0.0, -1.0).rotated(rake), CRATE_LENGTH)
 			add_child(t)

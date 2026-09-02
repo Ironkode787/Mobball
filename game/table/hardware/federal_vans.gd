@@ -18,13 +18,22 @@ func _ready() -> void:
 		var van := Node3D.new()
 		van.position = Layout.p3(VAN_AT[i], 0.0)
 		add_child(van)
-		var body := BoxMesh.new()
-		body.size = Vector3(0.5, 0.26, 0.26)
-		var bm := MeshInstance3D.new()
-		bm.mesh = body
-		bm.material_override = lib.plastic(Color("1E2634"), 0.4)
-		bm.position.y = 0.18
-		van.add_child(bm)
+		var toy := ToyLib.instance(&"van")
+		if toy != null:
+			# nose up-field, angled in toward the flippers
+			toy.rotation.y = PI * 0.5 + (-0.35 if i == 0 else 0.35)
+			var bar := lib.lamp(Feel.COL_COP)
+			bar.emission_energy_multiplier = 2.0
+			ToyLib.bind(toy, "Lamp", bar)
+			van.add_child(toy)
+		else:
+			var body := BoxMesh.new()
+			body.size = Vector3(0.5, 0.26, 0.26)
+			var bm := MeshInstance3D.new()
+			bm.mesh = body
+			bm.material_override = lib.plastic(Color("1E2634"), 0.4)
+			bm.position.y = 0.18
+			van.add_child(bm)
 		var beam := SpotLight3D.new()
 		beam.light_color = Feel.COL_COP
 		beam.light_energy = 3.0

@@ -13,6 +13,10 @@ const PLATE_HEIGHT := 0.40
 var down: bool = false
 var length: float = 0.22
 var thickness: float = 0.06
+## A ToyLib id to dress the plate with (the containers on the docks); empty = ink plate.
+var mesh_id: StringName = &""
+## Native footprint of the toy, (length, thickness): the plate scales it to its own size.
+var mesh_footprint: Vector2 = Vector2(0.16, 0.10)
 var facing: Vector2 = Vector2(0.0, 1.0)
 var _present: bool = true
 var _face: Area3D = null
@@ -63,6 +67,14 @@ func _build_look() -> void:
 	_plate = Node3D.new()
 	_plate.name = "Plate"
 	add_child(_plate)
+	_lamp = lib.lamp(Color(1.0, 0.86, 0.55))
+	if mesh_id != &"":
+		var toy := ToyLib.instance(mesh_id)
+		if toy != null:
+			toy.scale = Vector3(length / mesh_footprint.x, 1.0, thickness / mesh_footprint.y)
+			ToyLib.bind(toy, "Lamp", _lamp)
+			_plate.add_child(toy)
+			return
 	var body := BoxMesh.new()
 	body.size = Vector3(length, PLATE_HEIGHT, thickness)
 	var bm := MeshInstance3D.new()
@@ -70,7 +82,6 @@ func _build_look() -> void:
 	bm.material_override = lib.ink()
 	bm.position.y = PLATE_HEIGHT * 0.5
 	_plate.add_child(bm)
-	_lamp = lib.lamp(Color(1.0, 0.86, 0.55))
 	var face := BoxMesh.new()
 	face.size = Vector3(length * 0.78, PLATE_HEIGHT * 0.55, 0.012)
 	var fm := MeshInstance3D.new()
