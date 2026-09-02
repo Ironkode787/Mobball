@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d0p42l7tx02vp"
-path="res://.godot/imported/wood_floor_deck_rough_1k.jpg-d3a7e1c176b9861569c908a264dee7ea.ctex"
+path.s3tc="res://.godot/imported/wood_floor_deck_rough_1k.jpg-d3a7e1c176b9861569c908a264dee7ea.s3tc.ctex"
+path.etc2="res://.godot/imported/wood_floor_deck_rough_1k.jpg-d3a7e1c176b9861569c908a264dee7ea.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/wood_floor_deck/wood_floor_deck_rough_1k.jpg"
-dest_files=["res://.godot/imported/wood_floor_deck_rough_1k.jpg-d3a7e1c176b9861569c908a264dee7ea.ctex"]
+dest_files=["res://.godot/imported/wood_floor_deck_rough_1k.jpg-d3a7e1c176b9861569c908a264dee7ea.s3tc.ctex", "res://.godot/imported/wood_floor_deck_rough_1k.jpg-d3a7e1c176b9861569c908a264dee7ea.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

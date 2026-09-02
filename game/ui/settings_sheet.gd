@@ -12,6 +12,7 @@ const TOGGLES: Array[Dictionary] = [
 	{&"id": &"reduced_flash", &"label": "Reduced flash"},
 	{&"id": &"haptics_enabled", &"label": "Haptics"},
 	{&"id": &"subtitles_enabled", &"label": "Subtitles"},
+	{&"id": &"fast_graphics", &"label": "Fast graphics"},
 ]
 
 var _content: MarginContainer = null

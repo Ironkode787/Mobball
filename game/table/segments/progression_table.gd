@@ -203,6 +203,7 @@ func _read_env_hook() -> void:
 
 
 func _build_environment() -> void:
+	RenderProfile.apply(get_viewport())
 	var env_node := WorldEnvironment.new()
 	env_node.name = "Environment"
 	var env := Environment.new()
@@ -225,24 +226,28 @@ func _build_environment() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.05
 	env.tonemap_white = 6.0
-	env.glow_enabled = true
+	# glow is a full-screen blur chain: too dear for the phone tier, where the emissive
+	# materials carry the neon on their own
+	env.glow_enabled = not RenderProfile.low()
 	env.glow_intensity = 0.55
 	env.glow_bloom = 0.02
 	env.glow_hdr_threshold = 1.05
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	env_node.environment = env
+	env_node.add_to_group(RenderProfile.GROUP_ENVIRONMENT)
 	add_child(env_node)
 
 	var sun := DirectionalLight3D.new()
 	sun.name = "KeyLight"
 	sun.light_color = Color(1.0, 0.92, 0.80)
 	sun.light_energy = 1.15
-	sun.shadow_enabled = true
+	sun.shadow_enabled = RenderProfile.shadows()
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
-	sun.directional_shadow_max_distance = 40.0
+	sun.directional_shadow_max_distance = 22.0
 	sun.shadow_bias = 0.03
 	sun.shadow_normal_bias = 1.5
 	sun.rotation_degrees = Vector3(-58.0, 34.0, 0.0)
+	sun.add_to_group(RenderProfile.GROUP_KEY_LIGHT)
 	add_child(sun)
 	var fill := DirectionalLight3D.new()
 	fill.name = "FillLight"
@@ -251,8 +256,9 @@ func _build_environment() -> void:
 	fill.shadow_enabled = false
 	fill.rotation_degrees = Vector3(-40.0, -140.0, 0.0)
 	add_child(fill)
-	_lamp(Vector3(0.0, 2.4, 3.6), Color(1.0, 0.9, 0.75), 1.3, 6.5, "FlipperGI")
-	_lamp(Vector3(0.0, 2.6, -2.6), Color(1.0, 0.88, 0.7), 0.9, 6.5, "UpperGI")
+	if RenderProfile.fill_lights():
+		_lamp(Vector3(0.0, 2.4, 3.6), Color(1.0, 0.9, 0.75), 1.3, 6.5, "FlipperGI")
+		_lamp(Vector3(0.0, 2.6, -2.6), Color(1.0, 0.88, 0.7), 0.9, 6.5, "UpperGI")
 
 
 func _lamp(at: Vector3, color: Color, energy: float, range_m: float, p_name: String) -> OmniLight3D:
@@ -292,7 +298,7 @@ func _build_cabinet() -> void:
 	street.shader = load("res://game/table/look/playfield.gdshader")
 	street.set_shader_parameter("field_size", Vector2(w, d))
 	street.set_shader_parameter("mirror_x", Layout.MIRROR_X)
-	if _lib.has_set("brick_pavement_02") and _lib.has_set("asphalt_02"):
+	if _lib.has_set("brick_pavement_02") and _lib.has_set("asphalt_02") and not RenderProfile.off("street_textures"):
 		street.set_shader_parameter("textured", true)
 		street.set_shader_parameter("stone_albedo", _lib.tex("brick_pavement_02", "diffuse", "2k"))
 		street.set_shader_parameter("stone_normal", _lib.tex("brick_pavement_02", "nor_gl"))

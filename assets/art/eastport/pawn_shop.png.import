@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://8ug88avhnfuj"
-path="res://.godot/imported/pawn_shop.png-53618453b3ee04b5c4f93038fa67f264.ctex"
+path.s3tc="res://.godot/imported/pawn_shop.png-53618453b3ee04b5c4f93038fa67f264.s3tc.ctex"
+path.etc2="res://.godot/imported/pawn_shop.png-53618453b3ee04b5c4f93038fa67f264.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/art/eastport/pawn_shop.png"
-dest_files=["res://.godot/imported/pawn_shop.png-53618453b3ee04b5c4f93038fa67f264.ctex"]
+dest_files=["res://.godot/imported/pawn_shop.png-53618453b3ee04b5c4f93038fa67f264.s3tc.ctex", "res://.godot/imported/pawn_shop.png-53618453b3ee04b5c4f93038fa67f264.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

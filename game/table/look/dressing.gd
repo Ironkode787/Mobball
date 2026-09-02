@@ -348,6 +348,8 @@ func _build_apron() -> void:
 
 
 func _build_gi(_root: Node3D) -> void:
+	if not RenderProfile.fill_lights():
+		return
 	for at in [Vector3(-1.4, 2.3, 1.2), Vector3(1.4, 2.3, 1.2)]:
 		var l := OmniLight3D.new()
 		l.light_color = Color(1.0, 0.9, 0.74)

@@ -482,7 +482,8 @@ func _refresh() -> void:
 	var owned := LedgerState.get_owned()
 	reveal.rank = _rank()
 	reveal.note_dirty_held(_dirty())
-	_board.set_trophies(_trophies())
+	if _board.set_trophies(_trophies()):
+		_install_portrait_cards()
 	# `observe`, not `states`: the board banks what flipped, it never drains the queue. Seeing
 	# a card here does not spend the Count's stinger (docs/04 — the flip is a scripted beat).
 	var states := reveal.observe(owned)

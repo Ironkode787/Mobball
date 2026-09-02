@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://n3rgxhw7yd37"
-path="res://.godot/imported/asphalt_02_rough_1k.jpg-65f391a7ad23a2a59b70703363dddabf.ctex"
+path.s3tc="res://.godot/imported/asphalt_02_rough_1k.jpg-65f391a7ad23a2a59b70703363dddabf.s3tc.ctex"
+path.etc2="res://.godot/imported/asphalt_02_rough_1k.jpg-65f391a7ad23a2a59b70703363dddabf.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/asphalt_02/asphalt_02_rough_1k.jpg"
-dest_files=["res://.godot/imported/asphalt_02_rough_1k.jpg-65f391a7ad23a2a59b70703363dddabf.ctex"]
+dest_files=["res://.godot/imported/asphalt_02_rough_1k.jpg-65f391a7ad23a2a59b70703363dddabf.s3tc.ctex", "res://.godot/imported/asphalt_02_rough_1k.jpg-65f391a7ad23a2a59b70703363dddabf.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

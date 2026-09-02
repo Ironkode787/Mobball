@@ -42,7 +42,7 @@ dest_files=["res://.godot/imported/{name}-{hash}.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

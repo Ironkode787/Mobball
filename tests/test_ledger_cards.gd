@@ -13,7 +13,122 @@ func run(t: TestCtx) -> void:
 	_test_spoil_descriptors(t)
 	_test_trophy_card(t)
 	_test_trophy_shelf(t)
+	_test_edge_cards_stay_visible(t)
+	_test_pinch_bookkeeping(t)
 	_test_blackbook_page(t)
+
+
+# --- the tactile window -------------------------------------------------------
+
+
+func _revealed_board(t: TestCtx) -> LedgerBoard:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		t.fail("no SceneTree to build a board in")
+		return null
+	var board := LedgerBoard.new()
+	board.size = Vector2(1080.0, 1600.0)
+	tree.root.add_child(board)
+	var catalog := Upgrades.shared()
+	board.build(catalog, [])
+	var states: Dictionary = {}
+	for id in catalog.ids():
+		states[id] = Reveal.State.REVEALED
+	board.refresh(states, {}, 7, BigMoney.parse("1M"))
+	return board
+
+
+func _visible_ids(board: LedgerBoard) -> PackedStringArray:
+	var out := PackedStringArray()
+	for id: Variant in board._cards:
+		if (board._cards[id] as LedgerCard).visible:
+			out.append(String(id))
+	return out
+
+
+## A card that straddles the window's edge is clipped, never switched off: hiding it whole
+## made cards wink out under the finger on every pan and pinch ("cards disappear randomly").
+func _test_edge_cards_stay_visible(t: TestCtx) -> void:
+	var board := _revealed_board(t)
+	if board == null:
+		return
+	var window := Rect2(Vector2.ZERO, board.size)
+	for zoom in [1.0, 0.62, LedgerBoard.ZOOM_MAX]:
+		board.set_zoom(zoom)
+		var straddling := 0
+		var hidden_inside := 0
+		for id: Variant in board._cards:
+			var rect := board.card_rect_in_view(String(id))
+			var card: LedgerCard = board._cards[id]
+			if window.intersects(rect) and not window.encloses(rect):
+				straddling += 1
+				if not card.visible:
+					hidden_inside += 1
+			elif not window.intersects(rect.grow(LedgerBoard.CULL_MARGIN)):
+				t.ok(not card.visible, "%s is off the window at zoom %.2f and stays switched off" % [id, zoom])
+		t.ok(straddling > 0, "at zoom %.2f some cards straddle the window edge" % zoom)
+		t.eq(hidden_inside, 0, "at zoom %.2f no straddling card is hidden" % zoom)
+		t.ok(_visible_ids(board).size() > 0, "at zoom %.2f the window is not empty" % zoom)
+	# a pan by a few pixels must never change what is drawable, only what is on screen
+	board.set_zoom(1.0)
+	var before := _visible_ids(board).size()
+	board._pan += Vector2(-7.0, -5.0)
+	board._apply_view()
+	t.ok(absi(_visible_ids(board).size() - before) <= 2, "a small pan does not empty a row of cards")
+	(Engine.get_main_loop() as SceneTree).root.remove_child(board)
+	board.free()
+
+
+func _touch(board: LedgerBoard, index: int, at: Vector2, pressed: bool) -> void:
+	var ev := InputEventScreenTouch.new()
+	ev.index = index
+	ev.position = at
+	ev.pressed = pressed
+	board._gui_input(ev)
+
+
+func _drag(board: LedgerBoard, index: int, at: Vector2) -> void:
+	var ev := InputEventScreenDrag.new()
+	ev.index = index
+	ev.position = at
+	board._gui_input(ev)
+
+
+## Three fingers, a lost release, a finger lifted mid-pinch: the view must stay bounded and the
+## board must forget fingers it will never see lifted.
+func _test_pinch_bookkeeping(t: TestCtx) -> void:
+	var board := _revealed_board(t)
+	if board == null:
+		return
+	board.set_zoom(1.0)
+	var zoom0 := board.zoom()
+	_touch(board, 0, Vector2(300.0, 800.0), true)
+	_touch(board, 1, Vector2(700.0, 800.0), true)
+	t.ok(board._pinching, "two fingers pinch")
+	_touch(board, 2, Vector2(500.0, 300.0), true)
+	_drag(board, 2, Vector2(500.0, 320.0))
+	t.ok(is_finite(board.zoom()) and board.zoom() >= LedgerBoard.ZOOM_MIN and board.zoom() <= LedgerBoard.ZOOM_MAX,
+			"a third finger keeps the zoom bounded")
+	_touch(board, 0, Vector2(300.0, 800.0), false)
+	t.ok(board._pinching, "lifting one of three keeps pinching with the other two")
+	var pan_before: Vector2 = board._pan
+	_drag(board, 1, Vector2(702.0, 801.0))
+	t.ok(pan_before.distance_to(board._pan) < 40.0, "the surviving pair does not fling the sheet")
+	_touch(board, 1, Vector2(702.0, 801.0), false)
+	_touch(board, 2, Vector2(500.0, 320.0), false)
+	t.ok(not board._pinching and board._touches.is_empty(), "all fingers up ends the pinch")
+	# a finger the board never sees lifted must not turn the next tap into a pinch
+	var settled := board.zoom()
+	_touch(board, 0, Vector2(400.0, 900.0), true)
+	board._notification(Node.NOTIFICATION_APPLICATION_FOCUS_OUT)
+	t.ok(board._touches.is_empty(), "losing focus forgets the fingers")
+	_touch(board, 1, Vector2(500.0, 900.0), true)
+	t.ok(not board._pinching, "one real finger after a lost release is not a pinch")
+	_touch(board, 1, Vector2(500.0, 900.0), false)
+	t.near(board.zoom(), settled, 1e-6, "the tap left the zoom alone")
+	t.ok(zoom0 > 0.0, "the board started at a real zoom")
+	(Engine.get_main_loop() as SceneTree).root.remove_child(board)
+	board.free()
 
 
 # --- trophies -----------------------------------------------------------------

@@ -125,12 +125,12 @@ func _test_launder_fraction(t: TestCtx) -> void:
 
 
 func _test_launder_cap(t: TestCtx) -> void:
-	# Cap binds: 8% of $10k is $800, cap is $200 (the v0 Pocket Money cap).
+	# Cap binds: 8% of $10k is $800, cap is $400 (the v0 Pocket Money cap).
 	var capped := _wallet(BigMoney.of(1.0, 4))
 	var moved := capped.launder_fraction(0.08, Rates.pocket_money_per_night())
-	_same(t, moved, BigMoney.of(2.0, 2), "the cap wins when the fraction is bigger")
-	_same(t, capped.dirty, BigMoney.of(9.8, 3), "only the capped amount leaves dirty")
-	_same(t, capped.clean, BigMoney.of(2.0, 2), "only the capped amount lands clean")
+	_same(t, moved, BigMoney.of(4.0, 2), "the cap wins when the fraction is bigger")
+	_same(t, capped.dirty, BigMoney.of(9.6, 3), "only the capped amount leaves dirty")
+	_same(t, capped.clean, BigMoney.of(4.0, 2), "only the capped amount lands clean")
 
 	# Fraction binds: 8% of $1k is $80, well under the $200 cap.
 	var loose := _wallet(BigMoney.of(1.0, 3))

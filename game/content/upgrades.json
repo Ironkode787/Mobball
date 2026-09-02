@@ -111,7 +111,7 @@
       "branch": "fronts", "tier": 1,
       "name": "Coin-Op Washer",
       "flavor": "It washes socks. Among other things.",
-      "cost": "1.5K", "repeat": null, "requires": [],
+      "cost": "1K", "repeat": null, "requires": [],
       "reveal": {"dirty_held": "2K"},
       "effects": [
         {"kind": "unlock_hardware", "target": "laundromat_loop"},

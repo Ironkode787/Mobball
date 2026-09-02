@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dx6b10sipm3cb"
-path="res://.godot/imported/asphalt_02_diffuse_1k.jpg-2378d0923b7042c32987f7c8663cf340.ctex"
+path.s3tc="res://.godot/imported/asphalt_02_diffuse_1k.jpg-2378d0923b7042c32987f7c8663cf340.s3tc.ctex"
+path.etc2="res://.godot/imported/asphalt_02_diffuse_1k.jpg-2378d0923b7042c32987f7c8663cf340.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/asphalt_02/asphalt_02_diffuse_1k.jpg"
-dest_files=["res://.godot/imported/asphalt_02_diffuse_1k.jpg-2378d0923b7042c32987f7c8663cf340.ctex"]
+dest_files=["res://.godot/imported/asphalt_02_diffuse_1k.jpg-2378d0923b7042c32987f7c8663cf340.s3tc.ctex", "res://.godot/imported/asphalt_02_diffuse_1k.jpg-2378d0923b7042c32987f7c8663cf340.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -31,7 +31,7 @@ the same problem more elegantly (a career criminal's actual arc):
 
 | Tier | Method | Rate / cap | Notes |
 |------|--------|------------|-------|
-| v0 | **Pocket Money** | auto-cleans first $200/Night | R0 grace so the first upgrades flow; fades in relevance |
+| v0 | **Pocket Money** | auto-cleans first $400/Night | R0 grace so the first upgrades flow; fades in relevance |
 | v1 | **Laundromat loop** | each pass washes 8% of held dirty, cap/Night scales with upgrades | The teaching feature: aim = income |
 | v1.5 | **Front businesses** (Pizzeria, Pawn, later others) | passive: each washes X/s while its bank is armed | Idle laundering; upgradeable |
 | v2 | **The Casino** | bet dirty at the tables; **winnings pay out clean** | House edge starts 8%, Influence upgrades push it to player-favored 4% — the only "positive EV laundry" and it's variance city |

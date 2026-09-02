@@ -52,8 +52,9 @@ const RANK_MAX := 7
 
 # --- Laundering (docs/03 §2) --------------------------------------------------
 
-## v0 Pocket Money: the first $200 of a Night wash themselves.
-const POCKET_MONEY_PER_NIGHT_MANTISSA := 2.0
+## v0 Pocket Money: the first $400 of a Night wash themselves. It is the only clean faucet
+## before the first front, so it sets the pace of the whole first quarter hour.
+const POCKET_MONEY_PER_NIGHT_MANTISSA := 4.0
 const POCKET_MONEY_PER_NIGHT_EXP := 2
 ## v1 Laundromat loop: each pass washes 8% of held dirty.
 const LAUNDER_LOOP_FRACTION := 0.08

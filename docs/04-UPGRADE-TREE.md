@@ -58,7 +58,7 @@ least one visible table change (pillar P1).
 | T1 | Coin-Op Washer | laundromat loop v0: washes 8%/pass | washer visible through window |
 | T1 | Bigger Safe ↻ | idle cap 2h→4/8/12/24h | safe grows in the back-room art |
 | T2 | Industrial Washers ↻ | +4% wash rate/lvl (cap 24%) | steam from laundromat roof |
-| T2 | Creative Accounting | Pocket Money auto-clean $200→$1k/Night | ledger book on the counter |
+| T2 | Creative Accounting | Pocket Money auto-clean $400→$1k/Night | ledger book on the counter |
 | T3 | Pizzeria Books | pizzeria becomes passive washer (1%/s of held dirty while armed) | "CASH ONLY" sign |
 | T3 | Pawn Fencing | briefcase items sell for clean | pawn window fills with junk |
 | T4 | ★ **The Casino Wash** | casino winnings pay CLEAN (the v2 pipeline) | golden coin tray on the deck |

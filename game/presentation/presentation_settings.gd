@@ -13,6 +13,9 @@ var reduced_motion := false
 var reduced_flash := false
 var haptics_enabled := true
 var subtitles_enabled := true
+## Fast graphics: no glow, a small shadow map, the 3D view rendered smaller. Phones default
+## to it (RenderProfile); the toggle is the player's override either way.
+var fast_graphics := OS.has_feature("mobile")
 var bus_levels := {
 	"Music": 1.0,
 	"Mechanics": 1.0,
@@ -32,6 +35,7 @@ func load_into(bus: EffectBus) -> void:
 		reduced_flash = bool(cfg.get_value(SECTION, "reduced_flash", false))
 		haptics_enabled = bool(cfg.get_value(SECTION, "haptics_enabled", true))
 		subtitles_enabled = bool(cfg.get_value(SECTION, "subtitles_enabled", true))
+		fast_graphics = bool(cfg.get_value(SECTION, "fast_graphics", fast_graphics))
 		for bus_name: String in AUDIO_BUSES:
 			bus_levels[bus_name] = clampf(float(cfg.get_value(
 					AUDIO_SECTION, bus_name.to_lower(), 1.0)), 0.0, 1.0)
@@ -44,6 +48,7 @@ func save() -> bool:
 	cfg.set_value(SECTION, "reduced_flash", reduced_flash)
 	cfg.set_value(SECTION, "haptics_enabled", haptics_enabled)
 	cfg.set_value(SECTION, "subtitles_enabled", subtitles_enabled)
+	cfg.set_value(SECTION, "fast_graphics", fast_graphics)
 	for bus_name: String in AUDIO_BUSES:
 		cfg.set_value(AUDIO_SECTION, bus_name.to_lower(), bus_level(bus_name))
 	return cfg.save(path) == OK
@@ -65,6 +70,9 @@ func set_toggle(id: StringName, enabled: bool, bus: EffectBus) -> bool:
 		&"reduced_flash": reduced_flash = enabled
 		&"haptics_enabled": haptics_enabled = enabled
 		&"subtitles_enabled": subtitles_enabled = enabled
+		&"fast_graphics":
+			fast_graphics = enabled
+			RenderProfile.apply_live()
 		_: return false
 	apply(bus)
 	return save()
@@ -76,6 +84,7 @@ func toggle_value(id: StringName) -> bool:
 		&"reduced_flash": return reduced_flash
 		&"haptics_enabled": return haptics_enabled
 		&"subtitles_enabled": return subtitles_enabled
+		&"fast_graphics": return fast_graphics
 		_: return false
 
 

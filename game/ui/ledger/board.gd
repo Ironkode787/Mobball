@@ -24,6 +24,9 @@ const TIER_GAP := 58.0
 const MAX_COLUMNS_PER_TIER := 2
 ## Movement (in screen px) past which a press is a pan, not a tap.
 const TAP_SLOP := 14.0
+## Cards this far outside the window still draw, so the purchase-stamp scale and the pin's
+## shadow never pop at the edge.
+const CULL_MARGIN := 24.0
 ## Zoom rungs: readable, mid, and "show me the whole conspiracy" (computed to fit the
 ## board's width, so it stays honest as content grows).
 const ZOOM_STEPS: PackedFloat64Array = [1.0, 0.62, 0.0]
@@ -147,11 +150,13 @@ func build(from_catalog: Upgrades, trophies: Array[Dictionary] = []) -> void:
 
 
 ## The spoils this board is showing. Rebuilding only when the set actually changed keeps the
-## pan, the zoom and every card's pin angle exactly where the player left them.
-func set_trophies(trophies: Array[Dictionary]) -> void:
+## pan, the zoom and every card's pin angle exactly where the player left them. Returns true
+## when the board was rebuilt (every card is a fresh node then).
+func set_trophies(trophies: Array[Dictionary]) -> bool:
 	if catalog == null or _trophy_ids(trophies) == _trophy_ids(_trophies):
-		return
+		return false
 	build(catalog, trophies)
+	return true
 
 
 static func _trophy_ids(list: Array[Dictionary]) -> PackedStringArray:
@@ -488,13 +493,14 @@ func _apply_view() -> void:
 	_sync_card_visibility()
 
 
-## A clipped index card reads as a rendering bug, not as a panned map. Hide cards that are
-## only partly inside the tactile window; panning another few pixels reveals them whole.
-## Face/state truth remains in `_drawable`, so a hidden model card is never made visible here.
+## Cards outside the tactile window are switched off so a 60-card sheet costs what the
+## screen shows. A card that straddles the edge stays on and is clipped by the board — hiding
+## it whole made cards wink out under the finger on every pan and pinch. Face/state truth
+## remains in `_drawable`, so a hidden model card is never made visible here.
 func _sync_card_visibility() -> void:
 	if _cards.is_empty() or size.x < 2.0 or size.y < 2.0:
 		return
-	var viewport := Rect2(Vector2.ZERO, size)
+	var viewport := Rect2(Vector2.ZERO, size).grow(CULL_MARGIN)
 	for id: Variant in _cards:
 		var card: LedgerCard = _cards[id]
 		var wanted := bool(_drawable.get(String(id), false))
@@ -502,7 +508,7 @@ func _sync_card_visibility() -> void:
 			card.visible = false
 			continue
 		var rect := card_rect_in_view(String(id))
-		card.visible = viewport.encloses(rect)
+		card.visible = viewport.intersects(rect)
 
 
 func _on_resized() -> void:
@@ -526,11 +532,13 @@ func _gui_input(event: InputEvent) -> void:
 		var st := event as InputEventScreenTouch
 		if st.pressed:
 			_touches[st.index] = st.position
-			if _touches.size() == 2:
-				_begin_pinch()
+			if _touches.size() >= 2:
+				_begin_pinch()             # a third finger re-baselines rather than skewing
 		else:
 			_touches.erase(st.index)
-			if _pinching and _touches.size() < 2:
+			if _pinching and _touches.size() >= 2:
+				_begin_pinch()             # the two that remain become the pinch
+			elif _pinching:
 				_pinching = false
 				_dragging = false          # the survivor re-anchors on its next press
 		return
@@ -573,11 +581,21 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 
+## Fingers the board never saw lifted (a release over the header, the app backgrounded
+## mid-pinch) would turn the next single tap into a one-finger pinch that flings the sheet.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_WINDOW_FOCUS_OUT or what == NOTIFICATION_APPLICATION_FOCUS_OUT \
+			or (what == NOTIFICATION_VISIBILITY_CHANGED and not is_visible_in_tree()):
+		_touches.clear()
+		_pinching = false
+		_dragging = false
+
+
 func _begin_pinch() -> void:
 	_pinching = true
 	_dragging = false
 	_drag_travel = TAP_SLOP * 2.0          # a pinch is never a tap
-	var pts := _touches.values()
+	var pts := _touches.values().slice(-2)
 	_pinch_start_dist = maxf((pts[0] as Vector2).distance_to(pts[1] as Vector2), 1.0)
 	_pinch_start_zoom = _zoom
 	_pinch_mid = ((pts[0] as Vector2) + (pts[1] as Vector2)) * 0.5
@@ -586,7 +604,7 @@ func _begin_pinch() -> void:
 ## Two fingers = absolute control, exactly like a map: the world point under the pinch
 ## midpoint stays under it (zoom anchor), and moving both fingers together pans.
 func _update_pinch() -> void:
-	var pts := _touches.values()
+	var pts := _touches.values().slice(-2)
 	var a := pts[0] as Vector2
 	var b := pts[1] as Vector2
 	var mid := (a + b) * 0.5

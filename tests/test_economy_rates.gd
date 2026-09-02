@@ -57,7 +57,7 @@ func _test_rank_scale(t: TestCtx) -> void:
 
 
 func _test_launder_and_safe_constants(t: TestCtx) -> void:
-	_same(t, Rates.pocket_money_per_night(), BigMoney.of(2.0, 2), "Pocket Money washes $200/Night")
+	_same(t, Rates.pocket_money_per_night(), BigMoney.of(4.0, 2), "Pocket Money washes $400/Night")
 	t.eq(Rates.LAUNDER_LOOP_FRACTION, 0.08, "the laundromat loop washes 8% a pass")
 	t.ok(Rates.LAUNDER_LOOP_FRACTION_MAX > Rates.LAUNDER_LOOP_FRACTION, "upgrades raise the wash rate")
 	t.eq(Rates.LAUNDER_LOOP_FRACTION_MAX, 0.24, "Industrial Washers cap it at 24%")

@@ -3,19 +3,21 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bahveotojkbgj"
-path="res://.godot/imported/dirty_carpet_nor_gl_1k.jpg-3016827bb5dba83ad35725e0f5847ba2.ctex"
+path.s3tc="res://.godot/imported/dirty_carpet_nor_gl_1k.jpg-3016827bb5dba83ad35725e0f5847ba2.s3tc.ctex"
+path.etc2="res://.godot/imported/dirty_carpet_nor_gl_1k.jpg-3016827bb5dba83ad35725e0f5847ba2.etc2.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/dirty_carpet/dirty_carpet_nor_gl_1k.jpg"
-dest_files=["res://.godot/imported/dirty_carpet_nor_gl_1k.jpg-3016827bb5dba83ad35725e0f5847ba2.ctex"]
+dest_files=["res://.godot/imported/dirty_carpet_nor_gl_1k.jpg-3016827bb5dba83ad35725e0f5847ba2.s3tc.ctex", "res://.godot/imported/dirty_carpet_nor_gl_1k.jpg-3016827bb5dba83ad35725e0f5847ba2.etc2.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

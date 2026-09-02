@@ -188,7 +188,7 @@ func _test_baseline(t: TestCtx, fixture: Upgrades) -> void:
 	t.eq(s.launder_rate(), 0.0, "no laundromat loop yet")
 	_money(t, s.launder_cap(), "0", "no wash cap yet")
 	t.eq(s.passive_wash_per_sec(), 0.0, "no passive washer")
-	_money(t, s.pocket_money(), "200", "Pocket Money starts at the docs/03 $200")
+	_money(t, s.pocket_money(), "400", "Pocket Money starts at the docs/03 $400")
 	t.eq(s.safe_hours(), Rates.SAFE_CAP_HOURS_BASE, "the Safe starts at 2h")
 	t.eq(s.bench_slots(), 4, "the Bench opens with four guys")
 	t.eq(s.ball_saves(), 0, "no ball saves at R0")
@@ -236,7 +236,7 @@ func _test_full_fold(t: TestCtx, fixture: Upgrades) -> void:
 	t.near(s.launder_rate(), 0.10, 1e-9, "launder_rate_add x2 levels")
 	_money(t, s.launder_cap(), "2K", "launder_cap_add x2 levels")
 	t.near(s.passive_wash_per_sec(), 0.02, 1e-9, "passive_wash_add x2 levels")
-	_money(t, s.pocket_money(), "500", "pocket_money_set beats the $200 base")
+	_money(t, s.pocket_money(), "500", "pocket_money_set beats the $400 base")
 	t.near(s.safe_hours(), 9.0, 1e-9, "safe_hours_set 3 at level 3 is 9h")
 	t.eq(s.bench_slots(), 8, "4 base + 2 per level x2")
 	t.eq(s.tilt_leans(), 5, "3 base + 1 per level x2")
@@ -307,7 +307,7 @@ func _test_recompute_is_pure(t: TestCtx, fixture: Upgrades) -> void:
 
 	s.recompute({})
 	t.eq(s.value_mult(&"bumpers"), 1.0, "respec back to nothing restores the baseline")
-	_money(t, s.pocket_money(), "200", "respec restores the Pocket Money base")
+	_money(t, s.pocket_money(), "400", "respec restores the Pocket Money base")
 	t.eq(s.bench_slots(), 4, "respec restores the Bench base")
 
 	# `set` effects take the best owned, never the last one applied.
