@@ -6,7 +6,7 @@ extends SceneTree
 ## ever executes, which used to hang the runner forever (META-3 finding). _process keeps
 ## iterating either way, so it quits with rc=3 if the suite never finished.
 
-const WATCHDOG_SECONDS := 180.0
+const WATCHDOG_SECONDS := 90.0
 
 var _finished := false
 var _started_msec := 0
@@ -57,10 +57,13 @@ func _initialize() -> void:
 		ran += 1
 
 	print("---")
-	print("test files: %d  checks: %d  failures: %d" % [ran, t.checks, t.failures.size()])
+	print("test files: %d  assertions: %d  failures: %d  skips: %d" % [
+		ran, t.checks, t.failures.size(), t.skips.size()])
+	for msg in t.skips:
+		print("SKIP  " + msg)
 	for msg in t.failures:
 		printerr("FAIL  " + msg)
 	if t.failures.is_empty():
-		print("OK")
+		print("OK" if t.skips.is_empty() else "OK (with skipped checks)")
 	_finished = true
 	quit(0 if t.failures.is_empty() else 1)

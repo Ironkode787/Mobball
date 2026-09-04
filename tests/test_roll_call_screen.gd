@@ -4,15 +4,15 @@ extends RefCounted
 
 
 func run(t: TestCtx) -> void:
-	Game.new_game(20260831)
-	Game.open_roll_call()
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null:
 		t.fail("Roll Call screen test needs a SceneTree")
 		return
 	if Presentation.safe.get_viewport() == null:
-		t.ok(true, "headless script runner has no viewport; device/capture runs the real-node layout")
+		t.skip("no viewport in script runner; use tests/device_probe.tscn for Roll Call interaction and layout")
 		return
+	Game.new_game(20260831)
+	Game.open_roll_call()
 	var original_presentation_parent := Presentation.get_parent()
 	var test_viewport: Window = null
 	var attached_presentation := Presentation.get_viewport() == null

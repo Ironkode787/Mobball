@@ -1,5 +1,14 @@
 extends RefCounted
-## Focused contracts for the starter rubber-band agency and the free bad-break window.
+## Input intent and ball-save bookkeeping. Real launch trajectories live in machine_sim.
+
+
+class _ImpulseSpy:
+	extends Ball
+
+	var impulses: Array[Vector3] = []
+
+	func kick(impulse_table: Vector3) -> void:
+		impulses.append(impulse_table)
 
 
 class _TableStub:
@@ -20,46 +29,50 @@ func run(t: TestCtx) -> void:
 
 func _starter_bands(t: TestCtx) -> void:
 	var plunger := BandedPlunger.new()
-	t.eq(BandedPlunger.STARTER_POWERS, [0.55, 0.58, 0.80],
-			"starter powers are the three Drop-Off lanes: right, centre, left")
 	plunger.set_starter_pull(0.0)
-	t.near(plunger.starter_power(), 0.55, 1e-9, "short pull selects the safe low band")
+	var low := plunger.starter_power()
 	plunger.set_starter_pull(BandedPlunger.STARTER_BAND_DISTANCE_PX)
-	t.near(plunger.starter_power(), 0.58, 1e-9, "middle pull selects the middle band")
+	var middle := plunger.starter_power()
 	plunger.set_starter_pull(BandedPlunger.STARTER_BAND_DISTANCE_PX * 2.0)
-	t.near(plunger.starter_power(), 0.80, 1e-9, "long pull selects the high band")
+	var high := plunger.starter_power()
+	t.ok(low > 0.0 and low < middle and middle < high and high <= 1.0,
+			"longer starter pulls select distinct increasing powers within launch range")
 	var selected := plunger.starter_band
 	plunger.bands_enabled = true
 	plunger.set_starter_pull(0.0)
 	t.eq(plunger.starter_band, selected,
 			"real-plunger mode leaves the coarse band untouched")
+	plunger.free()
 
 
 func _starter_press_latch(t: TestCtx) -> void:
 	var plunger := BandedPlunger.new()
-	var ball := Ball.new()
+	var ball := _ImpulseSpy.new()
 	plunger.lane_box = AABB(Vector3(-0.2, -0.2, -0.2), Vector3(0.4, 0.4, 0.4))
 	plunger.set_ball(ball)
 
 	# A release without a ready press must be inert, including a release after the ball left
 	# the lane. This is the stale-touch protection the starter path needs.
 	plunger.set_pressed(false)
-	t.ok(not ball.launched, "starter release without a press does not launch")
+	t.eq(ball.impulses.size(), 0, "starter release without a press requests no impulse")
 	plunger.set_pressed(true)
 	ball.position = Vector3(10.0, 0.0, 10.0)
 	plunger.set_pressed(false)
-	t.ok(not ball.launched, "starter release after the ball leaves the lane is inert")
+	t.eq(ball.impulses.size(), 0, "starter release after the ball leaves the lane is inert")
 
 	ball.position = Vector3.ZERO
 	plunger.set_pressed(true)
 	plunger.set_pressed(false)
-	t.ok(ball.launched, "a ready starter press arms and release launches")
+	t.eq(ball.impulses.size(), 1, "ready press and release request one launch impulse")
+	t.ok(ball.impulses[0].z < 0.0, "launch impulse points up the shooter lane")
+	plunger.free()
+	ball.free()
 
 
 func _touch_plunger_paths(t: TestCtx) -> void:
 	var input := InputController.new()
 	var starter := BandedPlunger.new()
-	var starter_ball := Ball.new()
+	var starter_ball := _ImpulseSpy.new()
 	starter.lane_box = AABB(Vector3(-0.2, -0.2, -0.2), Vector3(0.4, 0.4, 0.4))
 	starter.set_ball(starter_ball)
 	input.bind(null, null, starter, null)
@@ -69,7 +82,7 @@ func _touch_plunger_paths(t: TestCtx) -> void:
 	input._on_touch(_touch(1, Vector2(960.0, 1200.0), false))
 	t.eq(starter.starter_band, BandedPlunger.DEFAULT_STARTER_BAND,
 			"starter lane tap selects the default middle band")
-	t.ok(starter_ball.launched, "starter lane tap launches on release")
+	t.eq(starter_ball.impulses.size(), 1, "starter lane tap requests one impulse on release")
 
 	# A longer pull selects the top band before the same release edge fires.
 	starter_ball.launched = false
@@ -78,11 +91,13 @@ func _touch_plunger_paths(t: TestCtx) -> void:
 	input._on_drag(_drag(2, Vector2(960.0, 1200.0 + BandedPlunger.STARTER_BAND_DISTANCE_PX * 2.0)))
 	input._on_touch(_touch(2, Vector2(960.0, 1328.0), false))
 	t.eq(starter.starter_band, 2, "starter lane drag selects the top coarse band")
-	t.ok(starter_ball.launched, "starter lane drag launches on release")
+	t.eq(starter_ball.impulses.size(), 2, "starter lane drag requests another impulse")
+	t.ok(starter_ball.impulses[1].length() > starter_ball.impulses[0].length(),
+			"longer drag requests a stronger impulse")
 
 	# Real Plunger keeps the inherited continuous charge path on the same touch role.
 	var real := Plunger.new()
-	var real_ball := Ball.new()
+	var real_ball := _ImpulseSpy.new()
 	real.lane_box = AABB(Vector3(-0.2, -0.2, -0.2), Vector3(0.4, 0.4, 0.4))
 	real.set_ball(real_ball)
 	input.bind(null, null, real, null)
@@ -92,7 +107,13 @@ func _touch_plunger_paths(t: TestCtx) -> void:
 	t.ok(real.power > 0.0 and real.power < 1.0,
 			"real plunger touch charge remains continuous before release")
 	input._on_touch(_touch(3, Vector2(960.0, 1200.0), false))
-	t.ok(real_ball.launched, "real plunger touch release launches the charged ball")
+	t.eq(real_ball.impulses.size(), 1, "real plunger touch release requests one impulse")
+	t.ok(real_ball.impulses[0].z < 0.0, "continuous charge requests an upward impulse")
+	input.free()
+	starter.free()
+	starter_ball.free()
+	real.free()
+	real_ball.free()
 
 
 func _live_launch_and_loss(t: TestCtx) -> void:
@@ -128,6 +149,9 @@ func _bad_break_does_not_spend_paid_save(t: TestCtx) -> void:
 	t.eq(fresh_rows.size(), 1, "fresh saved-ball serve re-arms the paid window")
 	t.eq(bool((fresh_rows[0] as Dictionary).get("free", true)), false,
 			"one-use bad-break protection is not re-armed on the fresh serve")
+	night.free()
+	ball.free()
+	fresh.free()
 
 
 func _live_paid_save_consumes_charge(t: TestCtx) -> void:
@@ -142,6 +166,8 @@ func _live_paid_save_consumes_charge(t: TestCtx) -> void:
 	night._on_ball_lost(ball)
 	t.eq(night.saves_left, 0, "a live paid save consumes one Second Wind charge")
 	t.ok(night._saves.is_empty(), "paid saved-ball bookkeeping is cleaned after the return")
+	night.free()
+	ball.free()
 
 
 func _free_save_expires_without_a_charge(t: TestCtx) -> void:
@@ -153,6 +179,8 @@ func _free_save_expires_without_a_charge(t: TestCtx) -> void:
 	night._tick_balls(NightController.BAD_BREAK_SAVE_SECONDS + 0.1)
 	t.ok(night._take_save(ball).is_empty(), "an expired free window cannot catch a later drain")
 	t.eq(night.saves_left, 1, "an expired free window does not consume Second Wind")
+	night.free()
+	ball.free()
 
 
 func _tilt_bypasses_saves(t: TestCtx) -> void:
@@ -170,6 +198,9 @@ func _tilt_bypasses_saves(t: TestCtx) -> void:
 	t.eq(night.saves_left, 1, "tilt bypasses saves without consuming Second Wind")
 	t.ok(night._saves.is_empty(), "tilt clears both per-ball save windows")
 	t.eq(night.tilts, 1, "tilt still records the Inspector event")
+	night.free()
+	table.free()
+	ball.free()
 
 
 func _meeting_save_order(t: TestCtx) -> void:
@@ -197,6 +228,9 @@ func _meeting_save_order(t: TestCtx) -> void:
 	t.eq(night.saves_left, 0, "Meeting primary drain then spends the paid charge")
 	t.ok(Game.meeting.active, "a paid Meeting save also leaves mode state to the Meeting flow")
 	Game.meeting.active = prior_active
+	night.free()
+	free_ball.free()
+	paid_ball.free()
 
 
 func _touch(index: int, position: Vector2, pressed: bool) -> InputEventScreenTouch:

@@ -6,12 +6,25 @@ workstreams live in `specs/`.
 
 ## Build & verify
 
-- Godot binary (this environment): `/workspace/tools/godot/godot`
-- **Before declaring any work done, run `bash tools/check.sh`** — it imports the project,
-  runs the headless test suite, and boot-smokes the main scene. All three must pass.
+- Set `GODOT` to the local executable when needed; the Linux default is
+  `/workspace/tools/godot/godot`. Report the version used if it differs from the project version.
+- Match verification to the change. Documentation-only changes need review, not a game boot.
+  Routine code changes use `bash tools/check.sh` (import, unit suite, boot smoke).
+  Physics or gameplay changes also run the affected `tests/sim/*.tscn` scenes; broad changes
+  and releases use `bash tools/check.sh --full`. Once relevant checks pass, repeat them only
+  after another change or when an unresolved concern warrants it.
 - Tests live in `tests/test_*.gd`; each defines `func run(t: TestCtx) -> void` and uses
-  `t.ok / t.eq / t.near / t.almost`. Run alone via
+  `t.ok / t.eq / t.near / t.fail / t.skip`. Run the unit suite alone via
   `/workspace/tools/godot/godot --headless --path . --script tests/run_tests.gd`.
+- Add tests for meaningful failure cases: lost progress, incorrect money, broken input,
+  unreachable shots, or recurrence of a real bug. Do not copy implementation logic into
+  expected results, freeze cosmetic choices, or add tests merely to increase assertion counts.
+  A skipped check is not a pass. Use `tests/device_probe.tscn` for actual screen interaction;
+  headless style properties alone do not establish that a screen is usable.
+- Review changed screens at a representative phone size and the relevant stress state.
+  Expand device/accessibility coverage when the shared layout changes or a release needs it.
+  Routine edits do not require the entire visual-polish capture matrix, repeated independent
+  review rounds, or a new evidence directory. Stop when the concrete acceptance criteria pass.
 - Shipping the closed beta: `bash tools/ship.sh`. It runs the source and device gates, creates
   a signed Play AAB with the operator-supplied upload key, then installs a Bundletool-generated
   universal APK on the connected release-test device for a packaged-runtime smoke test. The

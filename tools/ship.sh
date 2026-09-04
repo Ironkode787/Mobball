@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bash tools/test_release_scripts.sh
-bash tools/check.sh
+bash tools/check.sh --full
 "${GODOT:-/workspace/tools/godot/godot}" --headless --path . --script tests/release_probe.gd
 mkdir -p build/release/device_probe
 SHOT_DIR="$PWD/build/release/device_probe" \

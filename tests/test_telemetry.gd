@@ -48,9 +48,28 @@ func run(t: TestCtx) -> void:
 	t.ok(not sanitized_props.has("player_name") and not sanitized_props.has("night_bucket"),
 			"loaded queues are re-sanitized before report or export")
 	loaded = sanitized
-	for i in TelemetryStore.MAX_EVENTS + 8:
-		loaded.record("ledger_viewed")
+	# Load a nearly full queue once, then exercise the two capacity boundaries through record().
+	var capacity_fixture := loaded.report()
+	var capacity_events: Array = []
+	for i in TelemetryStore.MAX_EVENTS - 1:
+		capacity_events.append({"schema_version": TelemetryStore.SCHEMA_VERSION,
+			"event": "ledger_viewed", "order": i + 1, "elapsed_bucket_s": 0, "props": {}})
+	capacity_fixture["events"] = capacity_events
+	var capacity_file := FileAccess.open(QUEUE, FileAccess.WRITE)
+	capacity_file.store_string(JSON.stringify(capacity_fixture))
+	capacity_file.close()
+	loaded.load()
+	t.eq(loaded.event_count(), TelemetryStore.MAX_EVENTS - 1, "capacity fixture loads")
+	t.ok(loaded.record("ledger_viewed"), "record reaches capacity")
+	t.eq(loaded.event_count(), TelemetryStore.MAX_EVENTS, "queue fills without dropping an event")
+	t.eq(int(loaded.report()["events"][0]["order"]), 1, "oldest event survives at capacity")
+	t.ok(loaded.record("ledger_viewed"), "record over capacity persists")
 	t.eq(loaded.event_count(), TelemetryStore.MAX_EVENTS, "queue is hard-capped")
+	t.eq(int(loaded.report()["events"][0]["order"]), 2, "overflow removes the oldest event")
+	loaded.load()
+	t.eq(loaded.event_count(), TelemetryStore.MAX_EVENTS, "capped queue survives reload")
+	t.eq(int(loaded.report()["events"][-1]["order"]), TelemetryStore.MAX_EVENTS + 1,
+		"newest event survives reload")
 	t.ok(loaded.set_consent(TelemetryStore.CONSENT_DENIED), "opt-out persists")
 	t.ok(not FileAccess.file_exists(QUEUE) and not FileAccess.file_exists(EXPORT),
 			"opt-out clears local beta data")

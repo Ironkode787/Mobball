@@ -15,8 +15,6 @@ func _state_vocabulary(t: TestCtx) -> void:
 		&"idle", &"armed", &"active", &"completed", &"disabled", &"danger",
 	]
 	t.eq(TableVisualState.STATE_NAMES, expected, "C2 exposes exactly six canonical states")
-	var marks: Array[StringName] = []
-	var patterns: Array[StringName] = []
 	for state in expected.size():
 		var token := TableVisualState.state_token(state)
 		t.eq(token["state"], expected[state], "state token keeps its canonical name")
@@ -25,10 +23,6 @@ func _state_vocabulary(t: TestCtx) -> void:
 		t.ok(PresentationTheme.MATERIAL_ROLES.has(token["material"]),
 			"state selects a canonical material role")
 		t.eq(token["grayscale_cue"], token["pattern"], "grayscale cue is explicit")
-		marks.append(token["mark"])
-		patterns.append(token["pattern"])
-	t.eq(marks.size(), marks.duplicate().size(), "each state has a deterministic mark")
-	t.eq(patterns.size(), patterns.duplicate().size(), "each state has a deterministic pattern")
 	t.eq(TableVisualState.state_from("ACTIVE"), TableVisualState.VisualState.ACTIVE,
 		"state lookup is case-insensitive")
 	t.eq(TableVisualState.state_from(&"not-a-state"), TableVisualState.VisualState.IDLE,

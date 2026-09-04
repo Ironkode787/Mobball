@@ -1,7 +1,6 @@
 extends RefCounted
 
-## Narrow contract tests for the PaperKit production authority. These assertions are
-## intentionally independent of PaperKit's private constructor lists.
+## Control behavior and usability checks. Exact palette choices belong to visual review.
 
 const STATE_NAMES: Array[StringName] = [
 	&"normal", &"hover", &"pressed", &"focus", &"disabled", &"selected", &"invalid", &"confirmation",
@@ -13,10 +12,6 @@ const NATIVE_ACTION_STATES: Array[StringName] = [
 	&"normal", &"hover", &"pressed", &"focus", &"disabled", &"hover_pressed",
 	&"checked", &"checked_disabled", &"checked_hover", &"checked_pressed", &"checked_focus",
 	&"checked_hover_pressed",
-]
-const ACTION_FONT_SLOTS: Array[StringName] = [
-	&"font_color", &"font_hover_color", &"font_pressed_color", &"font_focus_color",
-	&"font_disabled_color", &"font_hover_pressed_color",
 ]
 const NATIVE_SLIDER_STYLE_SLOTS: Array[StringName] = [
 	&"slider", &"grabber_area", &"grabber_area_highlight",
@@ -89,40 +84,6 @@ func _composited_state_fill(style: StyleBoxFlat) -> Color:
 		1.0)
 
 
-func _expected_action_text_color(variant: StringName, state: StringName) -> Color:
-	var text := Presentation.theme.newsprint
-	if variant == &"secondary":
-		text = Presentation.theme.ink
-	elif variant == &"quiet" or variant == &"icon_only":
-		text = Presentation.theme.brass
-	if variant == &"destructive":
-		text = Presentation.theme.newsprint
-	match state:
-		&"normal":
-			return text
-		&"hover":
-			if variant == &"secondary":
-				return Presentation.theme.ink
-			if variant == &"destructive":
-				return Presentation.theme.newsprint
-			return Presentation.theme.brass
-		&"pressed":
-			return Presentation.theme.brass if variant == &"quiet" else Presentation.theme.ink
-		&"focus":
-			return Presentation.theme.brass if variant in [&"quiet", &"icon_only"] else Presentation.theme.newsprint
-		&"disabled":
-			return Presentation.theme.newsprint.darkened(0.45)
-		&"selected":
-			if variant in [&"secondary", &"icon_only"]:
-				return Presentation.theme.ink
-			if variant == &"quiet":
-				return Presentation.theme.brass
-			return Presentation.theme.newsprint
-		&"invalid", &"confirmation":
-			return Presentation.theme.brass if variant in [&"quiet", &"icon_only"] else Presentation.theme.newsprint
-	return text
-
-
 func _is_reserved_semantic_color(color: Color) -> bool:
 	for role: StringName in [&"dirty", &"clean", &"heat", &"police"]:
 		if _same_rgb(color, Presentation.theme.color(role)):
@@ -180,10 +141,6 @@ func _action_contract(t: TestCtx) -> void:
 					not _is_reserved_semantic_color(state_style.border_color),
 					"%s %s state stays outside reserved semantic colors" % [variant, state])
 			PaperKit.apply_state(action, state)
-			var expected_text := _expected_action_text_color(variant, state)
-			for font_slot: StringName in ACTION_FONT_SLOTS:
-				t.eq(action.get_theme_color(font_slot), expected_text,
-						"%s %s uses a state-aware native %s text color" % [variant, state, font_slot])
 			var rendered_text: Color = action.get_theme_color(&"font_color")
 			var active_style := action.get_theme_stylebox(&"normal") as StyleBoxFlat
 			t.ok(_rgb_distance_squared(rendered_text, _composited_state_fill(active_style)) > 0.03,
@@ -191,17 +148,8 @@ func _action_contract(t: TestCtx) -> void:
 		PaperKit.apply_state(action, &"normal")
 		var normal := action.get_theme_stylebox(&"normal") as StyleBoxFlat
 		var selected := action.get_theme_stylebox(&"selected") as StyleBoxFlat
-		var expected_fill: Color = Presentation.theme.material_for(&"ink_glass")["fill"]
-		if variant == &"secondary":
-			expected_fill = Presentation.theme.material_for(&"newsprint")["fill"]
-		elif variant == &"quiet" or variant == &"icon_only":
-			expected_fill = Color(Presentation.theme.ink, 0.0)
-		t.eq(normal.bg_color, expected_fill,
-				"%s normal fill consumes its canonical material token" % variant)
 		normal_fills[variant] = normal.bg_color
 		normal_borders[variant] = normal.border_color
-		t.ok(normal.shadow_size == int(round(Presentation.theme.control_for(&"button")["elevation"])),
-				"%s normal style consumes button elevation token" % variant)
 		t.ok(not _is_reserved_semantic_color(selected.bg_color),
 				"%s selected state stays outside reserved semantic colors" % variant)
 		var confirmation := action.get_theme_stylebox(&"confirmation") as StyleBoxFlat

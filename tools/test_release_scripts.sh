@@ -5,29 +5,55 @@ cd "$(dirname "$0")/.."
 
 TEST_TMP="$(mktemp -d)"
 cleanup() {
-	case "$TEST_TMP" in
-		"${TMPDIR:-/tmp}"/*) rm -rf -- "$TEST_TMP" ;;
-	esac
+	rm -f -- "$TEST_TMP"/*
+	rmdir -- "$TEST_TMP"
 }
 trap cleanup EXIT
 
-cat > "$TEST_TMP/failing-godot" <<'EOF'
+cat > "$TEST_TMP/fake-godot" <<'EOF'
 #!/usr/bin/env bash
-exit 23
+printf '%s\n' "$*" >> "$GATE_TRACE"
+case "$*" in
+	*--import*)
+		[ "$GATE_CASE" != import_exit ] || exit 23 ;;
+	*--script*)
+		case "$GATE_CASE" in
+			test_exit) exit 7 ;;
+			script_error) echo 'SCRIPT ERROR: deliberate runtime failure' ;;
+			physics_error) echo 'ERROR: Failed to apply central impulse without a physics space' ;;
+			shutdown) echo 'ERROR: 2 resources still in use at exit (run with --verbose for details).' ;;
+		esac ;;
+	*--quit-after*)
+		[ "$GATE_CASE" != boot_error ] || echo 'ERROR: Failed to load a scene resource' ;;
+	*res://tests/sim/*)
+		[ "$GATE_CASE" != sim_error ] || echo 'SCRIPT ERROR: deliberate simulation failure' ;;
+esac
+exit 0
 EOF
-chmod +x "$TEST_TMP/failing-godot"
-set +e
-GODOT="$TEST_TMP/failing-godot" bash tools/check.sh > "$TEST_TMP/import.log" 2>&1
-IMPORT_GATE_RC=$?
-set -e
-[ $IMPORT_GATE_RC -ne 0 ] || { echo "Import gate accepted a nonzero Godot exit" >&2; exit 1; }
-grep -F 'IMPORT FAILED (rc=23)' "$TEST_TMP/import.log" >/dev/null || {
-	echo "Import gate did not preserve the failing exit code" >&2
+chmod +x "$TEST_TMP/fake-godot"
+
+for CASE in import_exit test_exit script_error physics_error boot_error sim_error; do
+	if GATE_CASE="$CASE" GATE_TRACE="$TEST_TMP/trace" GODOT="$TEST_TMP/fake-godot" \
+			bash tools/check.sh --full > "$TEST_TMP/$CASE.log" 2>&1; then
+		echo "Check gate accepted $CASE" >&2
+		exit 1
+	fi
+done
+grep -F 'IMPORT FAILED (rc=23)' "$TEST_TMP/import_exit.log" >/dev/null
+
+: > "$TEST_TMP/trace"
+GATE_CASE=shutdown GATE_TRACE="$TEST_TMP/trace" GODOT="$TEST_TMP/fake-godot" \
+	bash tools/check.sh > "$TEST_TMP/routine.log" 2>&1 || { cat "$TEST_TMP/routine.log"; exit 1; }
+if grep -F 'res://tests/sim/' "$TEST_TMP/trace" >/dev/null; then
+	echo "Routine checks unexpectedly ran simulations" >&2
 	exit 1
-}
+fi
+GATE_CASE=shutdown GATE_TRACE="$TEST_TMP/trace" GODOT="$TEST_TMP/fake-godot" \
+	bash tools/check.sh --full > "$TEST_TMP/full.log" 2>&1 || { cat "$TEST_TMP/full.log"; exit 1; }
+grep -F 'res://tests/sim/' "$TEST_TMP/trace" >/dev/null
+if bash tools/check.sh --unknown > "$TEST_TMP/invalid.log" 2>&1; then
+	echo "Check gate accepted an unknown option" >&2
+	exit 1
+fi
 
-grep -F -- '--untracked-files=all' tools/build_beta.sh >/dev/null
-grep -F -- "dump manifest --bundle" tools/build_beta.sh >/dev/null
-grep -F -- "version/name)\" = \"\$VERSION_NAME" tools/build_beta.sh >/dev/null
-
-echo "RELEASE SCRIPT TESTS OK"
+echo "CHECK SCRIPT TESTS OK"

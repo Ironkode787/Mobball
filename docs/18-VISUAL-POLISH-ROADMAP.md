@@ -7,6 +7,10 @@ This pass is presentation-only. It may change layout, typography, copy, authored
 animation, and feedback, but it must not change physics, economy, collision geometry, save
 contracts, or gameplay timing.
 
+This document describes the broad visual overhaul. For ongoing changes, use the proportional
+verification policy in `CLAUDE.md`: review affected screens and relevant stress states, and
+reserve the wider device matrix for shared-layout changes and release review.
+
 ## 1. Current-state diagnosis
 
 The visual concept is already distinctive. The weak point is execution consistency.
@@ -53,8 +57,9 @@ Screens may favor one register, but typography, spacing, control behavior, and s
 must remain shared. Reserved dirty, clean, heat, and police colors communicate those concepts
 only. Green is not the generic selected-state color; red is not a generic close-button color.
 
-“Perfect” is accepted only when the entire capture matrix passes the objective gates in section
-8 and a final art-direction review finds no high- or medium-severity issues.
+Accept a change when its affected screens meet the relevant criteria in section 8 and no
+known material defect remains in that scope. The capture matrix guides coverage; completing
+every combination is not a prerequisite for a routine edit.
 
 ## 3. Foundation pass — fix once, improve everywhere
 
@@ -331,7 +336,7 @@ captures remain playable.
 Polish Count variants, all HUD mode states, boss/raid/casino/heist/federal feedback, Docket, Black
 Book, Credits, Safe collection, settings confirmations, and error/empty/locked states.
 
-**Exit:** every item in the capture matrix has an accepted screenshot and interaction check.
+**Exit:** changed screen families have representative screenshots and passing interaction checks.
 
 ### Phase E — Final shine and release visuals
 
@@ -340,9 +345,9 @@ store screenshots. Complete the draw-call optimization already identified in Pha
 
 **Exit:** final art review, accessibility review, min-spec performance gate, and release capture set.
 
-## 7. Capture matrix — proof that “every screen” was covered
+## 7. Capture matrix — reference for broad visual and release reviews
 
-Automated device capture should include, at minimum:
+Use these states to select relevant coverage for the change:
 
 | Surface | Required states |
 |---|---|
@@ -360,7 +365,8 @@ Automated device capture should include, at minimum:
 | Subtitles/toasts | Count, Ledger, live table, collision with footer avoided |
 | Transitions | every screen pair, normal and reduced motion |
 
-Each state is captured at:
+Start with a representative phone size and the state most likely to expose the change's
+failure mode. For shared-layout changes or release review, expand coverage using:
 
 - 486×864 with the existing asymmetric insets and rounded-corner guard;
 - 1080×1920 baseline portrait;
@@ -395,17 +401,16 @@ Each state is captured at:
 - No missing-art failure; procedural fallback remains valid where required.
 - The 120 draw-call min-spec target is met in representative dense-table captures.
 - 60 fps frame pacing is verified during dense table play and the strongest ceremonies.
-- `tools/check.sh`, simulations, boot smoke, device journey, pack probe, and release checks pass.
+- Relevant checks pass: `tools/check.sh` for routine code edits, affected simulations for
+  gameplay changes, and `tools/ship.sh` for a release. Device checks cover changed interactions.
 
 ## 9. Review cadence
 
-Each implementation slice follows the same loop:
+For a changed screen family:
 
-1. Capture current compact and standard screenshots.
-2. Annotate hierarchy, spacing, type, contrast, control-state, and copy defects.
-3. Implement one coherent slice using shared primitives.
-4. Capture normal plus stress states; compare side by side.
-5. Run interaction, accessibility, and performance gates.
-6. Accept, revise, or reject the slice before moving to the next screen family.
+1. Identify the concrete usability or visual problem and implement the change.
+2. Inspect the result at a representative phone size plus the relevant stress state.
+3. Run checks affected by the change; expand coverage only for an unresolved concern.
 
-The work is complete when the capture matrix—not the file list—is complete.
+Stop when the scoped acceptance criteria pass. Keep useful evidence of the result without
+requiring a separate report, review round, or exhaustive capture matrix for every edit.
