@@ -16,6 +16,24 @@ func run(t: TestCtx) -> void:
 	_test_edge_cards_stay_visible(t)
 	_test_pinch_bookkeeping(t)
 	_test_blackbook_page(t)
+	_test_portraits_stay_in_their_slot(t)
+
+
+# --- the hires' photographs ---------------------------------------------------
+
+
+## A hire's mugshot is a small photo in the card's portrait slot. It once came out at the art's
+## own pixel size (409x512) and on its own draw layer, so the photos hung over the header, the
+## docket and every card around them.
+func _test_portraits_stay_in_their_slot(t: TestCtx) -> void:
+	var art := Presentation.art.resolve(&"mugshot.starter_01", null, false) as Texture2D
+	t.ok(art != null and art.get_size().x > 58.0, "the mugshot art is bigger than the slot it is cut to")
+	var photo := Ledger.portrait_photo(art, LedgerCard.W)
+	t.eq(photo.size, Vector2(58.0, 76.0), "a hire's photo keeps the portrait slot's size")
+	t.ok(Rect2(Vector2.ZERO, Vector2(LedgerCard.W, LedgerCard.H)).encloses(Rect2(photo.position, photo.size)),
+			"a hire's photo stays on its card")
+	t.eq(photo.z_index, 0, "a hire's photo draws with its card, not above the screen")
+	photo.free()
 
 
 # --- the tactile window -------------------------------------------------------

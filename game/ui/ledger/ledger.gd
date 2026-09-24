@@ -454,19 +454,27 @@ func _install_portrait_on_card(card: LedgerCard) -> void:
 		return
 	var specialist_id := String(specialist.get("id", ""))
 	var face := int(PORTRAIT_FACES.get(specialist_id, posmod(abs(card.id.hash()), 4) + 1))
-	var portrait := TextureRect.new()
-	portrait.name = "PortraitCard"
-	portrait.texture = Presentation.art.resolve(StringName("mugshot.starter_%02d" % face), null, false)
-	portrait.position = Vector2(card.size.x - 82.0, 48.0)
-	portrait.custom_minimum_size = Vector2(58.0, 76.0)
-	portrait.size = Vector2(58.0, 76.0)
-	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	portrait.modulate = Color(1.0, 1.0, 1.0, 0.94)
-	portrait.z_index = 2
+	var art := Presentation.art.resolve(StringName("mugshot.starter_%02d" % face), null, false)
+	var portrait := portrait_photo(art as Texture2D, card.size.x)
 	card.add_child(portrait)
 	card.set_meta("portrait_face", face)
+
+
+## A hire's mugshot, cut to the card's portrait slot (over the medallion LedgerCard draws).
+static func portrait_photo(art: Texture2D, card_width: float) -> TextureRect:
+	var portrait := TextureRect.new()
+	portrait.name = "PortraitCard"
+	# The expand mode goes before the size: under the default mode the art's own pixel size is
+	# the minimum, a `size` set then is clamped up to it, and nothing shrinks it back after.
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	portrait.texture = art
+	portrait.position = Vector2(card_width - 82.0, 48.0)
+	portrait.custom_minimum_size = Vector2(58.0, 76.0)
+	portrait.size = Vector2(58.0, 76.0)
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait.modulate = Color(1.0, 1.0, 1.0, 0.94)
+	return portrait
 
 
 # --- state --------------------------------------------------------------------
