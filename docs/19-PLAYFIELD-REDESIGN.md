@@ -292,18 +292,22 @@ The same machine at R0, R3, R4 and R7, captured in game at phone size:
 - **Orbit throats** (`LaneMouth`). The lane guides stop at z −0.45, clear of the cross-field
   shot line. A rising ball that reaches the outer wall rides a 1.2 u curve up the lane with its
   speed and spin, where the straight wall used to take a third of it; a ball coming back down
-  never meets the curve, so the lane returns still feed the inlanes. The launch flaps are bent
-  along the rail with their inner face flush with it, so an orbit rides past them without a
-  step.
+  never meets the curve, so the lane returns still feed the inlanes.
 - **The launch merge.** Five flaps span 305°–345° of the rail. Along them the shooter lane's
   outer wall closes at a steady 13° until its face is flush with the rail's inside, and it is
   one piece with the upper rail, so the plunge is handed onto the ring road riding the rail. It
   used to stop at the rail's outer face, leaving the ball overlapping the rail where it resumed:
   the plunge hit the rail's end head on, after clipping a step where the lane's top was
   narrower than the lane. A full pull now crosses the top of the ring at about 19 u/s instead
-  of losing most of its speed at the flaps. The flaps read a ball's side against the whole rail rather than
-  their own chords, open for a ball not yet a full ball inside, and fall shut once no ball is
-  near.
+  of losing most of its speed at the flaps.
+- **One rail, two shapes.** The flaps only swing and decide. They read a ball's side against
+  the whole rail rather than their own chords, open for a ball not yet a full ball inside, and
+  fall shut once no ball is near. The rail through them is solid in one of two seamless shapes:
+  shut, it runs unbroken from the arch to the divider; open (while any flap is), it stops either
+  side of the flaps and the lane's closing wall carries the plunge onto it. Solid blades with a
+  post at each end used to stand in the rail, and an orbit pressed against it caught a post at
+  every joint (a hot Getaway fell from 14 to under 8 u/s crossing them). The arch and the cabinet's sides,
+  and the rail and the shooter lane's divider, are single chains for the same reason.
 - **No pockets.** Each shop's back falls toward the plaza, so a ball behind Fat Tony's or
   Nonna's rolls off the inner end and back down between them; the back door opens on a hair
   for a ball on the shop floor. The Staircase has stringers: its sides run down to the
