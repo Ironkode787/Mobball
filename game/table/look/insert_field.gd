@@ -1,37 +1,49 @@
 class_name InsertField
 extends Node3D
-## The playfield inserts (docs/19 §6): lamps under the clear coat that carry the board's state,
-## one meaning each, with a shape or cadence cue as well as a colour.
+## The playfield inserts (docs/19 §6, docs/20 §6): lamps under the clear coat that carry the
+## board's state, one meaning each, with a shape or cadence cue as well as a colour.
 ##
-##   * shot arrows at every entrance (lit by Jobs, the Commission, the Big Score…)
+##   * shot arrows at every entrance (lit by Jobs, the Commission, the Big Score…), Lucky's
+##     the biggest
 ##   * the Empire Wheel: eight districts round the BIG SCORE centre
 ##   * the fuse: six inserts up the centre line, the Job timer
 ##   * the Take: ×2 ×3 ×4 ×5 ×8
-##   * the can levels at the plaza mouth: TRASH · DUMPSTER · ARMORED · VAULT
+##   * the can levels behind Lucky's: what a can pays, 1× 2× 4× 8×
 ##
-## Modes: OFF (tinted glass), PULSE (available), BLINK (hurry / running), SOLID (done).
+## Words on a lamp are only ever as big as a phone can read (docs/20 §6): a multiplier or two
+## words. The Wheel's districts are told apart by colour and named by the HUD.
 
 enum Mode { OFF, PULSE, BLINK, SOLID }
 
-const SHOTS: Array[StringName] = [&"getaway", &"wire", &"staircase", &"nonnas", &"alley",
-		&"fat_tonys", &"luckys", &"beat_cop", &"truck_route"]
-## Where each arrow sits and which way it points (plan space).
+const SHOTS: Array[StringName] = [&"getaway", &"beat_cop", &"staircase", &"nonnas", &"luckys",
+		&"fat_tonys", &"wire", &"truck_route", &"alley"]
+## Where each arrow sits and which way it points (plan space). The Alley's is on the plaza behind
+## Lucky's: it is fed, not aimed at, and the arrow says where the ball is wanted.
 const ARROWS := {
 	&"getaway": [Vector2(-2.32, 0.08), Vector2(0.0, -1.0)],
-	&"wire": [Vector2(-1.64, -0.42), Vector2(-0.566, -0.824)],
-	&"staircase": [Vector2(-1.18, -0.42), Vector2(-0.26, -0.966)],
-	&"nonnas": [Vector2(-0.90, -1.36), Vector2(-0.225, -0.974)],
-	&"alley": [Vector2(-0.185, -1.40), Vector2(0.0, -1.0)],
-	&"fat_tonys": [Vector2(0.53, -1.36), Vector2(0.225, -0.974)],
-	&"luckys": [Vector2(1.12, -1.02), Vector2(0.10, -0.995)],
-	&"beat_cop": [Vector2(1.42, -0.50), Vector2(0.371, -0.928)],
+	&"beat_cop": [Vector2(-1.70, -0.24), Vector2(-0.346, -0.938)],
+	&"staircase": [Vector2(-1.22, -0.36), Vector2(-0.26, -0.966)],
+	&"nonnas": [Vector2(-0.78, -1.36), Vector2(-0.196, -0.981)],
+	&"luckys": [Vector2(-0.185, -0.453), Vector2(0.0, -1.0)],
+	&"fat_tonys": [Vector2(0.41, -1.36), Vector2(0.196, -0.981)],
+	&"wire": [Vector2(1.10, -0.50), Vector2(0.311, -0.950)],
 	&"truck_route": [Vector2(1.94, 0.08), Vector2(0.0, -1.0)],
+	&"alley": [Vector2(-0.185, -2.80), Vector2(0.0, -1.0)],
 }
 const DISTRICTS: PackedStringArray = ["ALLEY", "CORNER", "NUMBERS", "BLOCK", "CLUB", "DOCKS", "PENTHOUSE", "CITY HALL"]
 const DISTRICT_COLORS: Array[Color] = [Color("D9C9A3"), Color("FF9A3D"), Color("F2D14B"), Color("FF4F7A"),
 		Color("B37BFF"), Color("35D6C8"), Color("C79BFF"), Color("F5C542")]
 const TAKE_LABELS: PackedStringArray = ["×2", "×3", "×4", "×5", "×8"]
-const LEVEL_LABELS: PackedStringArray = ["TRASH", "DUMPSTER", "ARMORED", "VAULT"]
+const LEVEL_LABELS: PackedStringArray = ["1×", "2×", "4×", "8×"]
+## Arrow size (plan units, tip to tail) and the one that owns the middle of the board.
+const ARROW_SCALE := 1.35
+const LUCKY_ARROW_SCALE := 1.9
+const TAKE_RADIUS := 0.15
+## Label sizes (Label3D font px at pixel_size LABEL_PIXEL): about 0.1 u of cap height.
+const LABEL_PIXEL := 0.0016
+const TAKE_FONT := 92
+const LEVEL_FONT := 78
+const CENTRE_FONT := 64
 const Y := 0.003
 const COL_EMBER := Color(1.0, 0.45, 0.15)     ## heat ember: the fuse and the bribe (docs/19 §6)
 const WHEEL_HELD := 0.42
@@ -66,20 +78,35 @@ func _ready() -> void:
 	_build_levels()
 
 
-func _arrow(at: Vector2, dir: Vector2, label: String) -> StandardMaterial3D:
+## The arrow's outline, tip first, `k` times the base size (shared with the printed keyline).
+static func arrow_points(at: Vector2, dir: Vector2, k: float) -> Dictionary:
 	var d := dir.normalized()
 	var side := Vector2(-d.y, d.x)
+	return {
+		"tip": at + d * 0.13 * k, "wing_l": at + side * 0.085 * k, "wing_r": at - side * 0.085 * k,
+		"notch": at + d * 0.03 * k, "tail_l": at - d * 0.09 * k + side * 0.035 * k,
+		"tail_r": at - d * 0.09 * k - side * 0.035 * k, "head_l": at + side * 0.035 * k,
+		"head_r": at - side * 0.035 * k,
+	}
+
+
+static func arrow_scale(shot: StringName) -> float:
+	return LUCKY_ARROW_SCALE if shot == &"luckys" else ARROW_SCALE
+
+
+func _arrow(at: Vector2, dir: Vector2, label: String) -> StandardMaterial3D:
 	var lamp := _lamp(Color.WHITE)
 	var st := MeshLib.begin()
 	st.set_normal(Vector3.UP)
-	var tip := at + d * 0.13
-	var wing_l := at + side * 0.085
-	var wing_r := at - side * 0.085
-	var notch := at + d * 0.03
-	var tail_l := at - d * 0.09 + side * 0.035
-	var tail_r := at - d * 0.09 - side * 0.035
-	var head_l := at + side * 0.035
-	var head_r := at - side * 0.035
+	var a := arrow_points(at, dir, arrow_scale(StringName(label)))
+	var tip: Vector2 = a["tip"]
+	var wing_l: Vector2 = a["wing_l"]
+	var wing_r: Vector2 = a["wing_r"]
+	var notch: Vector2 = a["notch"]
+	var tail_l: Vector2 = a["tail_l"]
+	var tail_r: Vector2 = a["tail_r"]
+	var head_l: Vector2 = a["head_l"]
+	var head_r: Vector2 = a["head_r"]
 	for tri: Array in [[tip, wing_r, notch], [tip, notch, wing_l], [head_l, tail_l, tail_r], [head_l, tail_r, head_r]]:
 		for q: Vector2 in [tri[0], tri[2], tri[1]]:
 			st.add_vertex(Vector3(q.x, Y, q.y))
@@ -100,13 +127,15 @@ func _lamp(color: Color) -> StandardMaterial3D:
 	return m
 
 
-func _label(text: String, at: Vector2, size: int, yaw: float = 0.0, color: Color = Color(0.1, 0.08, 0.06)) -> Label3D:
+## Newsprint with an ink outline, so it reads on a dark insert and a lit one alike.
+func _label(text: String, at: Vector2, size: int, yaw: float = 0.0, color: Color = Color(0.96, 0.92, 0.84)) -> Label3D:
 	var l := Label3D.new()
 	l.text = text
 	l.font_size = size
-	l.pixel_size = 0.0016
+	l.pixel_size = LABEL_PIXEL
 	l.modulate = color
-	l.outline_size = 0
+	l.outline_size = int(round(float(size) * 0.14))
+	l.outline_modulate = Color(0.05, 0.04, 0.03, 0.92)
 	l.position = Vector3(at.x, Y + 0.002, at.y)
 	l.rotation = Vector3(-PI * 0.5, yaw, 0.0)
 	l.double_sided = false
@@ -143,9 +172,6 @@ func _build_wheel() -> void:
 		add_child(mi)
 		_wheel_lamps.append(lamp)
 		_wheel_modes.append(Mode.OFF)
-		var mid := -PI * 0.5 + TAU * float(i) / float(n)
-		var lp := c + Vector2(cos(mid), sin(mid)) * (r_in + r_out) * 0.5
-		_label(DISTRICTS[i], lp, 22, -mid - PI * 0.5)
 	_centre_lamp = _lamp(Color(1.0, 0.82, 0.3))
 	var cst := MeshLib.begin()
 	MeshLib.disc(cst, Vector3(c.x, Y, c.y), r_in - 0.05, 28)
@@ -154,7 +180,7 @@ func _build_wheel() -> void:
 	cm.name = "BigScore"
 	cm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(cm)
-	_label("BIG\nSCORE", c, 40)
+	_label("BIG\nSCORE", c, CENTRE_FONT)
 
 
 func _build_fuse() -> void:
@@ -162,7 +188,7 @@ func _build_fuse() -> void:
 		var p: Vector2 = Layout.FUSE_AT[i]
 		var lamp := _lamp(COL_EMBER)
 		var st := MeshLib.begin()
-		MeshLib.box(st, Vector3(p.x, Y - 0.004, p.y), Vector3(0.16, 0.008, 0.11))
+		MeshLib.box(st, Vector3(p.x, Y - 0.004, p.y), Vector3(0.16, 0.008, 0.10))
 		var mi := MeshInstance3D.new()
 		mi.mesh = MeshLib.finish(st, lamp)
 		mi.name = "Fuse%d" % i
@@ -176,14 +202,14 @@ func _build_take() -> void:
 		var p: Vector2 = Layout.TAKE_AT[i]
 		var lamp := _lamp(Color(1.0, 0.78, 0.35))
 		var st := MeshLib.begin()
-		MeshLib.disc(st, Vector3(p.x, Y, p.y), 0.12, 20)
+		MeshLib.disc(st, Vector3(p.x, Y, p.y), TAKE_RADIUS, 24)
 		var mi := MeshInstance3D.new()
 		mi.mesh = MeshLib.finish(st, lamp)
 		mi.name = "Take%d" % i
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 		_take_lamps.append(lamp)
-		_label(TAKE_LABELS[i], p, 40)
+		_label(TAKE_LABELS[i], p, TAKE_FONT)
 
 
 func _build_levels() -> void:
@@ -191,14 +217,14 @@ func _build_levels() -> void:
 		var p: Vector2 = Layout.CAN_LEVEL_AT[i]
 		var lamp := _lamp(Bumper.LEVEL_COLORS[i])
 		var st := MeshLib.begin()
-		MeshLib.box(st, Vector3(p.x, Y - 0.004, p.y), Vector3(0.26, 0.008, 0.10))
+		MeshLib.box(st, Vector3(p.x, Y - 0.004, p.y), Vector3(0.20, 0.008, 0.15))
 		var mi := MeshInstance3D.new()
 		mi.mesh = MeshLib.finish(st, lamp)
 		mi.name = "CanLevel%d" % i
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 		_level_lamps.append(lamp)
-		_label(LEVEL_LABELS[i], p, 20)
+		_label(LEVEL_LABELS[i], p, LEVEL_FONT)
 
 
 # ------------------------------------------------------------------ state -----

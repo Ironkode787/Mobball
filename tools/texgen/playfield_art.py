@@ -170,12 +170,18 @@ SHOT_NAMES = {
     "wire": "THE WIRE",
     "staircase": "STAIRCASE",
     "nonnas": "NONNA'S",
-    "alley": "THE ALLEY",
     "fat_tonys": "FAT TONY'S",
     "luckys": "LUCKY'S",
     "beat_cop": "BEAT COP",
     "truck_route": "TRUCK ROUTE",
 }
+# Where a name sits relative to the default spot behind its arrow, where two would collide or a
+# name would touch its neighbour's hardware.
+NAME_NUDGE = {"beat_cop": (-0.06, 0.16), "nonnas": (-0.12, 0.03), "fat_tonys": (0.16, 0.03)}
+# Cap heights, plan units (docs/20 §6): nothing printed on the street smaller than a phone reads.
+NAME_H = 0.10
+LANE_H = 0.13
+LABEL_H = 0.085
 
 
 def paint(L):
@@ -202,8 +208,8 @@ def paint(L):
 
     # the two orbit lanes, painted up the lane under their arrows
     for key, name, x in (("getaway", "GETAWAY", L["LANE_L_X"]), ("truck_route", "TRUCK ROUTE", L["LANE_R_X"])):
-        pf.spaced(name, (x, -0.62 if key == "getaway" else -0.80), 0.10, angle=90.0,
-                  fill=NEWSPRINT + (150,), tracking=0.03)
+        pf.spaced(name, (x, -0.66 if key == "getaway" else -0.86), LANE_H, angle=90.0,
+                  fill=NEWSPRINT + (160,), tracking=0.03)
         for k in range(3):
             z = 0.62 + k * 0.16
             c = (x, z)
@@ -213,26 +219,26 @@ def paint(L):
 
     # a black keyline round every insert, so the lamps read as set into the wood
     for shot, (at, d) in L["arrows"].items():
-        pf.poly(arrow_outline(tuple(at), tuple(d), 1.45), INK + (215,))
+        pf.poly(arrow_outline(tuple(at), tuple(d), L["arrow_scale"][shot] * 1.1), INK + (215,))
     for p in L["TAKE_AT"]:
-        pf.circle(tuple(p), 0.145, fill=INK + (215,))
+        pf.circle(tuple(p), L["take_radius"] + 0.025, fill=INK + (215,))
     for p in L["FUSE_AT"]:
         x, z = p
-        pf.poly([(x - 0.10, z - 0.075), (x + 0.10, z - 0.075), (x + 0.10, z + 0.075), (x - 0.10, z + 0.075)],
+        pf.poly([(x - 0.10, z - 0.065), (x + 0.10, z - 0.065), (x + 0.10, z + 0.065), (x - 0.10, z + 0.065)],
                 INK + (215,))
     for p in L["CAN_LEVEL_AT"]:
         x, z = p
-        pf.poly([(x - 0.155, z - 0.07), (x + 0.155, z - 0.07), (x + 0.155, z + 0.07), (x - 0.155, z + 0.07)],
+        pf.poly([(x - 0.12, z - 0.09), (x + 0.12, z - 0.09), (x + 0.12, z + 0.09), (x - 0.12, z + 0.09)],
                 INK + (215,))
 
-    # the shot names, printed under each arrow and turned to it
+    # the shot names, printed level behind each arrow: turned text is the first thing a phone
+    # screen loses
     for shot, (at, d) in L["arrows"].items():
-        if shot in ("getaway", "truck_route"):
+        if shot not in SHOT_NAMES or shot in ("getaway", "truck_route"):
             continue
         d = norm(d)
-        pos = add(tuple(at), d, -0.25)
-        pf.spaced(SHOT_NAMES[shot], pos, 0.062, angle=heading_deg(d), fill=NEWSPRINT + (205,),
-                  tracking=0.012)
+        pos = add(add(tuple(at), d, -(0.09 * L["arrow_scale"][shot] + 0.11)), NAME_NUDGE.get(shot, (0.0, 0.0)))
+        pf.spaced(SHOT_NAMES[shot], pos, NAME_H, fill=NEWSPRINT + (215,), tracking=0.012)
 
     # the Empire dial: a brass bezel with the hour ticks of a clock
     c = tuple(L["WHEEL_CENTER"])
@@ -246,39 +252,40 @@ def paint(L):
         p1 = add(c, (math.cos(a), math.sin(a)), r + (0.16 if long else 0.125))
         pf.line([p0, p1], 0.012 if long else 0.007, BRASS + (190 if long else 120,))
 
-    # the fuse: a brass channel either side of the lamps it burns down
+    # the fuse: a brass channel either side of the lamps it burns down, toward Lucky's door
     fuse = [tuple(p) for p in L["FUSE_AT"]]
     for sx in (-0.125, 0.125):
         pf.line([add(fuse[0], (sx, 0.07)), add(fuse[-1], (sx, -0.07))], 0.010, BRASS + (140,))
-    top = fuse[-1]
-    pf.spaced("FUSE", add(top, (0.0, -0.17)), 0.055, fill=NEWSPRINT + (170,), tracking=0.02)
+    mid_z = (fuse[0][1] + fuse[-1][1]) * 0.5
+    pf.spaced("FUSE", (fuse[0][0] - 0.23, mid_z), LABEL_H, angle=90.0, fill=NEWSPRINT + (175,), tracking=0.02)
 
     # the Take: a brass rail under the row
     take = [tuple(p) for p in L["TAKE_AT"]]
-    pf.line([add(take[0], (-0.12, 0.2)), add(take[-1], (0.12, 0.2))], 0.012, BRASS + (170,))
-    pf.spaced("THE TAKE", add(((take[0][0] + take[-1][0]) * 0.5, take[0][1]), (0.0, 0.30)), 0.07,
-              fill=NEWSPRINT + (190,), tracking=0.03)
+    pf.line([add(take[0], (-0.15, 0.22)), add(take[-1], (0.15, 0.22))], 0.012, BRASS + (170,))
+    pf.spaced("THE TAKE", add(((take[0][0] + take[-1][0]) * 0.5, take[0][1]), (0.0, 0.33)), LABEL_H + 0.015,
+              fill=NEWSPRINT + (195,), tracking=0.03)
 
-    # the can ladder under the nest
+    # the can ladder behind Lucky's: what a can pays
     lv = [tuple(p) for p in L["CAN_LEVEL_AT"]]
-    pf.spaced("CAN LEVEL", add(((lv[0][0] + lv[-1][0]) * 0.5, lv[0][1]), (0.0, 0.15)),
-              0.045, fill=NEWSPRINT + (150,), tracking=0.02)
+    pf.spaced("CANS PAY", add(((lv[0][0] + lv[-1][0]) * 0.5, lv[0][1]), (0.0, 0.19)),
+              LABEL_H * 0.8, fill=NEWSPRINT + (170,), tracking=0.02)
 
     # the outlanes: Big Sal's post on the left, the kickback on the right
     for key, label in (("KICKBACK_AT", "BIG SAL"), ("KICKBACK_R_AT", "KICKBACK")):
         p = tuple(L[key])
-        pf.spaced(label, (p[0], p[1] - 0.62), 0.07, angle=90.0, fill=NEWSPRINT + (120,), tracking=0.02)
+        pf.spaced(label, (p[0], p[1] - 0.66), LABEL_H, angle=90.0, fill=NEWSPRINT + (130,), tracking=0.02)
 
     # the sewer: a stencilled ring round each manhole
     for p in L["MANHOLE_AT"]:
         pf.circle(tuple(p), 0.215, outline=NEWSPRINT + (70,), width=0.012)
-        pf.spaced("SEWER", add(tuple(p), (0.0, 0.29)), 0.04, fill=NEWSPRINT + (110,), tracking=0.015)
+        if p[1] > -3.0:
+            pf.spaced("SEWER", add(tuple(p), (0.0, 0.31)), LABEL_H * 0.8, fill=NEWSPRINT + (120,), tracking=0.015)
 
     # the wordmark between the slings, above the flippers
     wz = 3.55
     pf.spaced("KINGPIN", (mirror, wz), 0.20, fill=BRASS + (185,), tracking=0.04)
     pf.line([(mirror - 0.62, wz + 0.19), (mirror + 0.62, wz + 0.19)], 0.010, BRASS + (140,))
-    pf.spaced("THE  CITY  PAYS  WHO  RUNS  IT", (mirror, wz + 0.29), 0.04, fill=NEWSPRINT + (140,),
+    pf.spaced("THE  CITY  PAYS  WHO  RUNS  IT", (mirror, wz + 0.31), 0.055, fill=NEWSPRINT + (140,),
               tracking=0.01)
 
     return pf

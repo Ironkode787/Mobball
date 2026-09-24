@@ -46,13 +46,20 @@ const FLIPPER_DOWN_TIME := 0.080
 const FLIPPER_UP_EASE := 2.0          # >1 = fast start (ease-out); 1 = linear
 const FLIPPER_DOWN_EASE := 1.8        # >1 = slow start (ease-in) on the return
 const INPUT_BUFFER := 0.05            # seconds of early-press forgiveness
-## The aim (docs/19 §3.1): where along the bat the flip meets the ball sets the heading, the way
-## a player reads a real bat — off the base the ball goes hard across, off the tip it goes up the
-## middle. (t along the bat 0..1, heading in degrees across the field) for the left bat; the
-## right bat mirrors. Speed stays the physics'; the curve owns SHOT_SHAPE of the heading.
+## The aim (docs/20 §3.1): where along the bat the ball lies when the flip starts sets the
+## heading, the way a player reads a real bat — off the base the ball goes hard across, off the
+## tip it goes up the middle. (t along the bat 0..1, heading in degrees across the field) for
+## the left bat; the right bat mirrors. Speed stays the physics'; the curve owns SHOT_SHAPE of
+## the heading. It is laid out as one run per target (left bat / right bat): the far orbit, the
+## Wire / the Beat Cop, the Wire / the Staircase, the shop across the plaza, then Lucky's for
+## the outer sixth, the part of the bat a ball lies on longest before it rolls off. Between runs it steps over the headings that only find a post or a lane
+## guide. The orbits start no nearer the pivot than the pace they need to go round.
 const FLIPPER_SHOT_CURVE: PackedVector2Array = [
-	Vector2(0.0, 36.0), Vector2(0.45, 31.0), Vector2(0.55, 28.0), Vector2(0.65, 22.0),
-	Vector2(0.75, 13.0), Vector2(0.85, 7.0), Vector2(0.95, 2.0), Vector2(1.10, -4.0),
+	Vector2(0.0, 31.0), Vector2(0.44, 30.5), Vector2(0.54, 28.0),
+	Vector2(0.55, 21.5), Vector2(0.63, 16.5),
+	Vector2(0.64, 14.8), Vector2(0.72, 13.2),
+	Vector2(0.73, 9.0), Vector2(0.84, 5.0),
+	Vector2(0.85, 1.0), Vector2(1.00, -2.0), Vector2(1.10, -4.0),
 ]
 const FLIPPER_SHOT_SHAPE := 0.9
 const FLIPPER_SHOT_MIN_SPEED := 5.0   # slower than this off the bat is a dribble, left alone
@@ -87,12 +94,13 @@ const BUMPER_IMPULSE := 22.0
 const BUMPER_COOLDOWN := 0.05
 # A pop fires on real contact with its post and throws the ball out along the contact normal
 # at the solenoid's pace (plus a share of the approach), keeping most of the slide: every hit
-# is lively and consistent, like the slings. The Alley's walls and cans are spaced so that pace
-# makes the ball rattle between them instead of leaving.
-const BUMPER_KICK_SPEED := 17.0       # u/s out along the normal, whatever came in
-const BUMPER_KICK_GAIN := 0.35        # plus this share of the approach speed into the post
-const BUMPER_TANGENT_KEEP := 0.85     # how much of the slide round the can survives
-const BUMPER_OUT_MAX := 30.0
+# is lively and consistent, like the slings. At 17 u/s the cans fired a ball straight back up
+# the lane it came down, or back down the plaza at the bats, inside a third of a second
+# (docs/20 §2); at this pace it rattles among them for about twice as long and comes out slow.
+const BUMPER_KICK_SPEED := 10.0       # u/s out along the normal, whatever came in
+const BUMPER_KICK_GAIN := 0.2         # plus this share of the approach speed into the post
+const BUMPER_TANGENT_KEEP := 0.8      # how much of the slide round the can survives
+const BUMPER_OUT_MAX := 16.0
 ## Alley can levels (Trash Can, Dumpster, Armored Truck, Vault): value doubles per level; a
 ## level decays after this long without the Drop-Off lanes being completed again.
 const CAN_LEVEL_MAX := 3

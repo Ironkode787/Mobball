@@ -271,6 +271,16 @@ func _fire() -> void:
 	_buffered_at = -1000.0
 	_glow = 1.0
 	_launch.clear()
+	# A ball lying on the bat when the button goes down is aimed from where it lies: the spot
+	# the player sees, which moves smoothly with the timing. Read once the bat is swinging, the
+	# spot had already slid a tick or two toward the tip, and by an amount that jumped from one
+	# flip to the next, leaving whole headings no timing could reach. A ball the rising bat
+	# meets later is aimed from where it meets it (_shape_shots).
+	for b: Ball in Balls.live():
+		if not is_instance_valid(b) or BallHold.is_held(b):
+			continue
+		if _touching(_bat_contact(b)):
+			_launch[b.get_instance_id()] = {"t": _bat_contact(b).x, "done": false}
 	var sitter := _pivot_sitter()
 	if sitter != null:
 		sitter.kick(_pivot_pop_direction() * Feel.FLIPPER_PIVOT_POP)
@@ -343,6 +353,11 @@ func _bat_contact(b: Ball) -> Vector2:
 	return Vector2(along / bat_length(), gap)
 
 
+## On the bat's rubber, from pivot to tip (a `_bat_contact` reading).
+static func _touching(c: Vector2) -> bool:
+	return c.x > -0.15 and c.x < 1.2 and c.y > -0.08 and c.y < 0.05
+
+
 static func shot_heading(t: float) -> float:
 	var c := Feel.FLIPPER_SHOT_CURVE
 	if t <= c[0].x:
@@ -363,7 +378,7 @@ func _shape_shots() -> void:
 			continue
 		var id := b.get_instance_id()
 		var c := _bat_contact(b)
-		var touching := c.x > -0.15 and c.x < 1.2 and c.y > -0.08 and c.y < 0.05
+		var touching := _touching(c)
 		if not _launch.has(id):
 			if touching:
 				_launch[id] = {"t": c.x, "done": false}

@@ -63,8 +63,8 @@ const PLUNGER_FIXED_POWER := 0.55
 const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
 const BALL_SEARCH_FLOOR_Z := 3.9        ## below this the flippers are the search
 const SEARCH_BOX_Y := 2.2
-const SHOTS: Array[StringName] = [&"getaway", &"wire", &"staircase", &"nonnas", &"alley",
-		&"fat_tonys", &"luckys", &"beat_cop", &"truck_route"]
+const SHOTS: Array[StringName] = [&"getaway", &"beat_cop", &"staircase", &"nonnas", &"luckys",
+		&"fat_tonys", &"wire", &"truck_route", &"alley"]
 const GETAWAY_DOUBLE_WINDOW := 15.0     ## two Getaways inside this open the Sewer
 const SEWER_OPEN_SECONDS := 30.0
 const SEWER_SECONDS := 0.9              ## underground
@@ -627,14 +627,14 @@ func _build_alley() -> void:
 	alley.level_changed.connect(_on_can_level)
 
 
-## The shot line's islands (docs/19 §3.1): the Wire's payphones on the left, Nonna's and Fat
-## Tony's doorways either side of the Alley, the Beat Cop on the right.
+## The shot line's islands (docs/20 §3.1): the Beat Cop beside the Staircase, Nonna's and Fat
+## Tony's either side of the plaza, the Wire's brownstone on the right.
 func _build_islands() -> void:
 	var plinths := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.wood_dark(), _lib.brass())
 	plinths.name = "Islands"
 	add_child(plinths)
 	# the front face is the targets themselves: a wall there would take the hit off the switch
-	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP]:
+	for poly: PackedVector2Array in [Layout.ISLAND_COP, Layout.ISLAND_WIRE]:
 		var open_front := PackedVector2Array()
 		for i in range(1, poly.size()):
 			open_front.append(poly[i])
@@ -642,19 +642,20 @@ func _build_islands() -> void:
 		plinths.chain(open_front, Layout.GUIDE_THICK)
 	# a backstop just behind the plates, so an island whose targets are not bought yet (dormant,
 	# collision-free) is closed rather than an open box a ball can roll into
-	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP]:
+	for poly: PackedVector2Array in [Layout.ISLAND_COP, Layout.ISLAND_WIRE]:
 		var along := (poly[1] - poly[0]).normalized()
 		var inward := Vector2(along.y, -along.x) * (Layout.TARGET_THICK + Layout.GUIDE_THICK) * 0.5
 		var line := PackedVector2Array([poly[0] + inward - along * 0.3, poly[1] + inward + along * 0.3])
 		for part: PackedVector2Array in Geometry2D.intersect_polyline_with_polygon(line, poly):
 			plinths.chain(part, Layout.GUIDE_THICK)
 	var tops := MeshLib.begin()
-	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP]:
+	for poly: PackedVector2Array in [Layout.ISLAND_COP, Layout.ISLAND_WIRE]:
 		MeshLib.prism(tops, poly, Layout.GUIDE_HEIGHT - 0.02, 0.0)
 	var tm := MeshInstance3D.new()
 	tm.mesh = MeshLib.finish(tops, _lib.wood_dark())
 	tm.name = "IslandTops"
 	add_child(tm)
+	_build_brownstone()
 
 	wire_bank = TargetBank.new()
 	wire_bank.name = "WireBank"
@@ -689,12 +690,49 @@ func _build_islands() -> void:
 	_register([&"bribe_target"], bribe_target)
 
 
+## The Wire's brownstone: the payphones stand out front on the stoop and the building rises
+## behind them, its sign square to the left bat like the phones. Nothing here collides.
+func _build_brownstone() -> void:
+	const STOOP := 0.24
+	const STOREYS := 0.64
+	var poly := Layout.ISLAND_WIRE
+	var inward := -Layout.WIRE_FACE
+	var body := PackedVector2Array([poly[0] + inward * STOOP, poly[1] + inward * STOOP])
+	for i in range(2, poly.size()):
+		if (poly[i] - body[1]).dot(inward) > 0.0:
+			body.append(poly[i])
+	var st := MeshLib.begin()
+	MeshLib.prism(st, body, STOREYS, 0.0)
+	var mi := MeshInstance3D.new()
+	mi.mesh = MeshLib.finish(st, _lib.plastic(Color("5A2E24"), 0.85))
+	mi.name = "Brownstone"
+	add_child(mi)
+	var cornice := MeshLib.begin()
+	var rim := body.duplicate()
+	rim.append(body[0])
+	MeshLib.rail(cornice, rim, 0.022, 0.04, STOREYS)
+	var cm := MeshInstance3D.new()
+	cm.mesh = MeshLib.finish(cornice, _lib.brass_dark())
+	cm.name = "Cornice"
+	add_child(cm)
+	var sign := TextMesh.new()
+	sign.text = "THE WIRE"
+	sign.font = load("res://assets/fonts/Oswald-SemiBold.ttf")
+	sign.font_size = 48
+	sign.pixel_size = 0.0040
+	sign.depth = 0.02
+	sign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var nm := MeshInstance3D.new()
+	nm.mesh = sign
+	nm.material_override = _lib.neon(InsertField.DISTRICT_COLORS[2], 2.4)
+	var front := (body[0] + body[1]) * 0.5 + Layout.WIRE_FACE * 0.012
+	nm.position = Vector3(front.x, STOREYS * 0.70, front.y) + Vector3(Layout.WIRE_FACE.x, 0.0, Layout.WIRE_FACE.y) * 0.02
+	nm.rotation = Vector3(deg_to_rad(-38.0), Layout.yaw_facing(Layout.WIRE_FACE), 0.0)
+	nm.name = "WireSign"
+	add_child(nm)
+
+
 func _build_tower() -> void:
-	var lane := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark(), _lib.brass())
-	lane.name = "LuckysLane"
-	add_child(lane)
-	lane.chain(Layout.LUCKY_LANE_L, Layout.GUIDE_THICK)
-	lane.chain(Layout.LUCKY_LANE_R, Layout.GUIDE_THICK)
 	tower = LuckyTower.new()
 	tower.name = "LuckysTower"
 	add_child(tower)
@@ -1597,9 +1635,10 @@ func _on_goon_struck(target: StandupTarget, _ball_hit: Ball) -> void:
 		boss_down.emit(&"goon")
 
 
+## Manny works a till: a standing bank goes down by itself and the shop pays.
 func auto_collect_one() -> StringName:
 	for s in storefronts:
-		if s.visible and s.bank_enabled and s.is_open():
+		if s.visible and s.state_name() == &"armed":
 			if s.collect_now(ball).is_positive():
 				return s.id
 	return &""
@@ -1627,7 +1666,7 @@ func storefronts_armed_count() -> int:
 func arm_storefronts() -> void:
 	for s in storefronts:
 		if s.visible and s.state_name() == &"cooldown":
-			s.apply_build()
+			s.rearm()
 
 
 func spinner_spins() -> int:

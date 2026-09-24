@@ -1,10 +1,12 @@
 extends SimBase
-## The v4 shot map (docs/19 §3.1): which shot each flipper makes, and across how much of its
-## timing. Two feeds per bat: the aimed shot (a trapped ball released and re-flipped after a
-## delay, 0..0.8 s) and the live feed (a ball rolled down the inlane and flipped after a delay).
-## Each flip records the first `shot_made` the ball reaches within the watch window.
+## The shot map (docs/20 §3): which shot each flipper makes, and across how much of its timing.
+## Three feeds per bat: the aimed shot (a trapped ball released and re-flipped after a delay,
+## 0..0.8 s), the live feed (a ball rolled down the inlane and flipped after a delay) and the
+## flip on the fly. Each flip records the first `shot_made` the ball reaches within the watch
+## window; a shot's window is how many steps landed on it times the step.
 ##   godot --headless --fixed-fps 60 --path . res://tests/probe_shots.tscn
-##   PROBE_FEED=reflip|inlane (default both)   PROBE_SIDE=left|right (default both)
+##   PROBE_FEED=reflip|inlane|fly (default all)   PROBE_SIDE=left|right (default both)
+##   PROBE_STEP=0.01 (seconds between flips, default 0.02)
 
 const WATCH_SECONDS := 3.0
 const MINOR: Array[StringName] = [&"spinner", &"dropoff"]
@@ -12,6 +14,7 @@ const MINOR: Array[StringName] = [&"spinner", &"dropoff"]
 var _first: String = ""
 var _minor: String = ""
 var _hit: String = ""
+var _step: float = 0.02
 
 
 func _ready() -> void:
@@ -46,7 +49,10 @@ func _on_shot(shot: StringName, _b: Ball) -> void:
 
 
 func _run() -> void:
-	print("== KINGPIN v4 shot map ==")
+	print("== KINGPIN shot map ==")
+	var step_env := OS.get_environment("PROBE_STEP")
+	if step_env.is_valid_float():
+		_step = step_env.to_float()
 	var feed := OS.get_environment("PROBE_FEED")
 	var only := OS.get_environment("PROBE_SIDE")
 	for side: StringName in [&"left", &"right"]:
@@ -82,7 +88,7 @@ func _sweep_reflip(side: StringName) -> void:
 		f.release()
 		tally[res] = int(tally.get(res, 0)) + 1
 		rows.append("%.2f:%s" % [d, res])
-		d += 0.02
+		d += _step
 	_print_tally("%s bat, aimed (trap, release, re-flip after d = 0..0.80 s)" % side, tally, rows)
 
 
@@ -111,19 +117,19 @@ func _sweep_inlane(side: StringName) -> void:
 				break
 		if not contact or not is_instance_valid(b):
 			rows.append("%.2f:nofeed" % d)
-			d += 0.02
+			d += _step
 			continue
 		await wait(d)
 		if not is_instance_valid(b):
 			rows.append("%.2f:gone" % d)
-			d += 0.02
+			d += _step
 			continue
 		f.press()
 		var res := await _follow(b)
 		f.release()
 		tally[res] = int(tally.get(res, 0)) + 1
 		rows.append("%.2f:%s" % [d, res])
-		d += 0.02
+		d += _step
 	_print_tally("%s bat, inlane feed, flip after d = 0..0.60 s" % side, tally, rows)
 
 
@@ -146,14 +152,14 @@ func _sweep_fly(side: StringName) -> void:
 		await wait(at)
 		if not is_instance_valid(b):
 			rows.append("%.2f:gone" % at)
-			at += 0.02
+			at += _step
 			continue
 		f.press()
 		var res := await _follow(b)
 		f.release()
 		tally[res] = int(tally.get(res, 0)) + 1
 		rows.append("%.2f:%s" % [at, res])
-		at += 0.02
+		at += _step
 	_print_tally("%s bat, on the fly (inlane feed, flip at T = 0.20..0.66 s after the feed; contact ~0.40)" % side, tally, rows)
 
 
@@ -184,5 +190,6 @@ func _print_tally(title: String, tally: Dictionary, rows: PackedStringArray) -> 
 	for k: Variant in keys:
 		total += int(tally[k])
 	for k: Variant in keys:
-		print("    %-22s %3d  (%d%%)" % [String(k), int(tally[k]), int(round(100.0 * float(tally[k]) / maxf(1.0, float(total))))])
+		print("    %-22s %3d  (%d%%)  %3d ms" % [String(k), int(tally[k]),
+				int(round(100.0 * float(tally[k]) / maxf(1.0, float(total)))), int(round(float(tally[k]) * _step * 1000.0))])
 	print("    sequence: " + " ".join(rows))

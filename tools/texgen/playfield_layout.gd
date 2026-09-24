@@ -18,9 +18,14 @@ func _ready() -> void:
 	# the street mesh's UV rectangle (ProgressionTable._build_cabinet)
 	d["field"] = {"x0": -w * 0.5, "z0": center_z - depth * 0.5, "w": w, "d": depth}
 	var arrows := {}
+	var arrow_scale := {}
 	for shot: StringName in InsertField.ARROWS:
 		arrows[String(shot)] = _plain(InsertField.ARROWS[shot])
+		arrow_scale[String(shot)] = InsertField.arrow_scale(shot)
 	d["arrows"] = arrows
+	d["arrow_scale"] = arrow_scale
+	d["take_radius"] = InsertField.TAKE_RADIUS
+	d["tower"] = _plain(LuckyTower.footprint())
 	var mid := []
 	var a := 150.0
 	while a <= 390.0:

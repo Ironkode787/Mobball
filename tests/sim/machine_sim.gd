@@ -1,7 +1,7 @@
 extends SimBase
-## The v4 machine, proven headless (docs/19 §3): the Drop-Off ladder, the Alley nest and its
+## The machine, proven headless (docs/20 §3): the Drop-Off ladder, the Alley nest and its
 ## development, Lucky's Tower, the Staircase and the Club, both orbits, the Sewer, Pier 9, the
-## Penthouse roof, City Hall's dome, the doorway banks, the kickback, the aim of both bats, and
+## Penthouse roof, City Hall's dome, the shops' banks, the kickback, the aim of both bats, and
 ## the career's dormancy contract.
 
 const BLOCK_SET: Array = [
@@ -71,11 +71,11 @@ func _reset() -> void:
 
 
 func _run() -> void:
-	print("== KINGPIN machine sim (v4) ==")
+	print("== KINGPIN machine sim ==")
 	# SIM_ONLY=aim,dome runs just those scenarios while iterating on one piece
 	var only := OS.get_environment("SIM_ONLY").split(",", false)
 	for s: Callable in [_s_ladder, _s_nest, _s_lanes_build_the_cans, _s_lucky, _s_staircase,
-			_s_orbits, _s_sewer, _s_pier, _s_roof, _s_dome, _s_doorway, _s_kickback, _s_aim,
+			_s_orbits, _s_sewer, _s_pier, _s_roof, _s_dome, _s_shop, _s_kickback, _s_aim,
 			_s_no_pockets, _s_dormancy]:
 		if only.is_empty() or only.has(s.get_method().trim_prefix("_s_")):
 			await s.call()
@@ -160,10 +160,10 @@ func _s_lanes_build_the_cans() -> void:
 	finish()
 
 
-## 4 — Lucky's Tower: the scoop takes the ball, the drum washes it, the lift lets it out into
-## the Alley.
+## 4 — Lucky's Tower: the front door takes the ball, the washer washes it, the lift takes it down
+## to the basement and it comes up out of the Alley's manhole among the cans.
 func _s_lucky() -> void:
-	begin("Lucky's Tower: scoop, wash, lift, and out of the side door into the Alley")
+	begin("Lucky's Tower: front door, wash, lift, and up out of the Alley's manhole")
 	_reset()
 	var b := await drop_at(Layout.SCOOP_AT + Vector2(-0.02, 0.35), Vector3(0.0, 0.0, -6.0))
 	var gone_up := false
@@ -175,16 +175,30 @@ func _s_lucky() -> void:
 			gone_up = true
 		if gone_up and not table.tower.is_busy():
 			break
-	check(_lucky == 1, "the scoop did not take the ball")
-	check(_washed == 1, "the drum did not wash")
+	check(_lucky == 1, "the front door did not take the ball")
+	check(_washed == 1, "the washer did not wash")
 	if is_instance_valid(b):
-		await wait(0.05)
-		var p := b.table_position()
-		check(p.z < Layout.NEST_BOTTOM and absf(p.x - Layout.MIRROR_X) < Layout.NEST_HALF,
-				"the side door did not let the ball into the Alley (%s)" % str(p))
 		var pops := _pops
-		await watch(1.0, b)
-		check(_pops > pops, "the ball let out into the Alley never hit a can")
+		var reached := false
+		for i in range(ticks(1.5)):
+			await step(1)
+			if not is_instance_valid(b):
+				break
+			var p := b.table_position()
+			if p.z < Layout.NEST_BOTTOM and absf(p.x - Layout.MIRROR_X) < Layout.NEST_HALF:
+				reached = true
+		check(reached, "the ball did not come up in the Alley")
+		check(_pops > pops, "the ball that came up in the Alley never hit a can")
+	# a ball off to the side of the front is still the washer's: the door is the whole front
+	_reset()
+	var r := Layout.TOWER_RECT
+	b = await drop_at(Vector2(r.position.x + r.size.x - 0.02, -0.30), Vector3(0.0, 0.0, -8.0))
+	await wait(0.4)
+	check(_lucky == 1, "a ball at the corner of the front was not taken")
+	for i in range(ticks(4.0)):
+		await step(1)
+		if not table.tower.is_busy():
+			break
 	finish()
 
 
@@ -236,13 +250,20 @@ func _s_sewer() -> void:
 	_reset()
 	table.open_sewer()
 	var start: Vector2 = Layout.MANHOLE_AT[0]
+	var came_up: Array[Vector3] = [Vector3.INF]
+	var on_warp := func(_f: int, _t: int) -> void:
+		if table.ball != null:
+			came_up[0] = table.ball.table_position()
+	table.sewer_warped.connect(on_warp)
 	var b := await drop_at(start + Vector2(0.0, -0.4), Vector3(0.0, 0.0, 2.0))
 	await wait(2.0)
+	table.sewer_warped.disconnect(on_warp)
 	check(_warps == 1, "the manhole did not swallow the ball")
 	check(not table.sewer_is_open(), "the sewer stayed open after one trip")
+	check(came_up[0].z < Layout.NEST_BOTTOM and absf(came_up[0].x - Layout.MIRROR_X) < Layout.NEST_HALF,
+			"the ball did not come up in the Alley (%s)" % str(came_up[0]))
 	if is_instance_valid(b):
-		var p := b.table_position()
-		check(p.z < Layout.NEST_BOTTOM + 0.3, "the ball did not come up in the Alley (%s)" % str(p))
+		table.despawn_ball()
 	finish()
 
 
@@ -314,22 +335,32 @@ func _s_dome() -> void:
 	finish()
 
 
-## 11 — the doorway banks: all three drops down opens the shop, rolling through collects.
-func _s_doorway() -> void:
-	begin("Nonna's: three drops open the doorway and a ball through it collects")
+## 11 — the shops: the third drop down pays on the spot, then the bank stands back up.
+func _s_shop() -> void:
+	begin("Nonna's: the third drop down collects on the spot and the bank comes back up")
 	_reset()
 	var s: Storefront = table.storefronts[0]
-	for t in s.targets():
-		t.drop()
+	var targets := s.targets()
+	targets[0].drop()
+	targets[2].drop()
 	await step(2)
-	check(s.is_open(), "the doorway did not open with the bank down")
+	check(_collected == 0, "two drops down should not pay yet")
 	var face := s.facing()
-	var mid := (s.front_from() + s.front_to()) * 0.5 + face * 0.35
-	var b := await drop_at(mid, Vector3(-face.x, 0.0, -face.y) * 7.0)
-	await wait(1.5)
-	check(_collected == 1, "rolling through the open doorway did not collect")
+	var at := Layout.plan(targets[1].position)
+	var b := await drop_at(at + face * 0.45, Vector3(-face.x, 0.0, -face.y) * 7.0)
+	await wait(0.6)
+	check(_collected == 1, "the third drop down did not collect")
+	check(s.state_name() == &"cooldown", "the shop did not rest after paying (%s)" % s.state_name())
+	await wait(s.rearm_seconds + 0.3)
+	check(s.state_name() == &"armed" and s.down_count() == 0, "the bank did not stand back up")
+	# a boarded-up shop is shut: it neither pays nor counts as a bank standing
+	s.bank_enabled = false
+	s.apply_build()
+	check(s.state_name() == &"shut", "a boarded-up shop reads as %s" % s.state_name())
+	s.bank_enabled = true
+	s.apply_build()
 	if is_instance_valid(b):
-		check(b.table_position().z < s.centre().y, "the ball did not come out of the back door (%s)" % str(b.table_position()))
+		table.despawn_ball()
 	finish()
 
 
@@ -346,13 +377,13 @@ func _s_kickback() -> void:
 
 
 ## 13 — the aim: from a trap, each bat reaches its whole fan of shots somewhere in the release
-## window (docs/19 §3.1).
+## window (docs/20 §3.1).
 func _s_aim() -> void:
 	begin("aim: each bat makes its fan of shots from a trap")
 	table.docks.set_lit(false)
 	var want := {
-		&"left": [&"truck_route", &"luckys", &"alley"],
-		&"right": [&"getaway", &"staircase", &"alley"],
+		&"left": [&"truck_route", &"wire", &"fat_tonys", &"luckys"],
+		&"right": [&"getaway", &"beat_cop", &"staircase", &"nonnas", &"luckys"],
 	}
 	for side: StringName in [&"left", &"right"]:
 		var f: Flipper = table.flipper_left if side == &"left" else table.flipper_right
@@ -422,15 +453,18 @@ func _s_no_pockets() -> void:
 	print("        longest still spell %.2f s at %s" % [float(worst) / 240.0, str(at_worst)])
 	check(float(worst) / 240.0 < 2.5, "a ball sat still %.1f s at %s" % [float(worst) / 240.0, str(at_worst)])
 	check(cages.is_empty(), "a ball was caged: %s" % "; ".join(cages))
-	# where balls did lodge: behind Fat Tony's (rattling in the corner against Lucky's lane),
-	# behind Nonna's, and under the Staircase beside it. The shops' backs fall to the plaza, so
-	# a ball back there rolls out between them and on down the table
-	for drop: Array in [[Vector2(0.75, -2.30), Vector3.ZERO], [Vector2(0.55, -2.25), Vector3.ZERO],
-			[Vector2(0.80, -2.60), Vector3.ZERO], [Vector2(-0.95, -2.30), Vector3.ZERO],
-			[Vector2(-1.15, -2.45), Vector3.ZERO], [Vector2(-1.18, -1.58), Vector3(-1.6, 0.0, -1.2)]]:
+	# where a ball could lodge on this board: behind either shop, in the corner between Fat
+	# Tony's and the Wire's brownstone, in the plaza behind Lucky's and beside its ridge. The
+	# shops' backs fall to the plaza and the ridge splits the plaza's spill, so every one of them
+	# rolls on down past the tower
+	for drop: Array in [[Vector2(0.60, -2.60), Vector3.ZERO], [Vector2(0.84, -2.62), Vector3.ZERO],
+			[Vector2(-0.95, -2.62), Vector3.ZERO], [Vector2(-1.20, -2.66), Vector3.ZERO],
+			[Vector2(-0.185, -1.90), Vector3.ZERO], [Vector2(-0.45, -1.55), Vector3.ZERO],
+			[Vector2(0.08, -1.55), Vector3.ZERO], [Vector2(0.74, -1.72), Vector3(0.6, 0.0, -1.0)],
+			[Vector2(-1.18, -1.58), Vector3(-1.6, 0.0, -1.2)]]:
 		var b := await drop_at(drop[0], drop[1], 2)
 		var w := await watch(4.0, b)
-		check(not w["alive"] or float(w["max_z"]) > -1.2,
+		check(not w["alive"] or float(w["max_z"]) > -0.4,
 				"a ball dropped at %s never came back down the table (got to z %.2f)" % [str(drop[0]), float(w["max_z"])])
 		check(not w["caged"], "a ball dropped at %s was caged at %s" % [str(drop[0]), str(w["caged_at"])])
 	finish()
@@ -438,8 +472,8 @@ func _s_no_pockets() -> void:
 
 ## Solid, or a void no ball can reach (a ball placed there proves nothing about play): the
 ## islands, the deck, the tower, the cans; the sealed pocket between the nest's right wall, the
-## ring and the tower; the voids between the nest's shoulders and the ring; and anywhere a ball
-## would be placed through the ring's inner guide.
+## ring and the Wire's brownstone; the voids between the nest's shoulders and the ring; and
+## anywhere a ball would be placed through the ring's inner guide.
 func _inside_solid(p: Vector2) -> bool:
 	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP, Layout.ISLAND_NONNA, Layout.ISLAND_TONY]:
 		if Geometry2D.is_point_in_polygon(p, poly):
@@ -447,8 +481,10 @@ func _inside_solid(p: Vector2) -> bool:
 	var from_ring := p.distance_to(Layout.RING_CENTER)
 	if absf(from_ring - Layout.RING_RADIUS) < Feel.BALL_RADIUS + Layout.GUIDE_THICK:
 		return true
-	var tower_front := Layout.TOWER_RECT.position.y + Layout.TOWER_RECT.size.y
-	if p.x > Layout.MIRROR_X + Layout.NEST_HALF and p.y < tower_front and from_ring < Layout.RING_RADIUS:
+	var roof_from: Vector2 = Layout.ISLAND_WIRE[4]
+	var roof_to: Vector2 = Layout.ISLAND_WIRE[3]
+	if p.x > Layout.MIRROR_X + Layout.NEST_HALF and from_ring < Layout.RING_RADIUS \
+			and p.y < lerpf(roof_from.y, roof_to.y, clampf((p.x - roof_from.x) / (roof_to.x - roof_from.x), 0.0, 1.0)):
 		return true
 	for side: float in [-1.0, 1.0]:
 		var gx: float = Layout.DROPOFF_GUIDE_X[0] if side < 0.0 else Layout.DROPOFF_GUIDE_X[3]
@@ -459,9 +495,9 @@ func _inside_solid(p: Vector2) -> bool:
 			return true
 	if Geometry2D.is_point_in_polygon(p, ClubDeck.outline()):
 		return true
-	var r := Layout.TOWER_RECT
-	if r.grow(0.15).has_point(p):
-		return true
+	for grown: PackedVector2Array in Geometry2D.offset_polygon(LuckyTower.footprint(), 0.15):
+		if Geometry2D.is_point_in_polygon(p, grown):
+			return true
 	for c: Vector2 in Layout.BUMPER_AT:
 		if c.distance_to(p) < Layout.CAN_RADIUS + Feel.BALL_RADIUS:
 			return true

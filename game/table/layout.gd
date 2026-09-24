@@ -1,18 +1,18 @@
 class_name Layout
 extends RefCounted
-## The machine's blueprint (docs/19): every position on the board in table units (1 unit =
+## The machine's blueprint (docs/19, docs/20): every position on the board in table units (1 unit =
 ## 10 cm; x right, z toward the player, y up off the felt; the origin is the playfield's
 ## centre). Hardware reads its place from here, the sims aim at these numbers.
 ##
 ## Bands, bottom to top: the Gutter (bats, slings, lanes), the Street (the insert field),
-## the Block (the shot line), Uptown inside the ring road (the Club, the Alley, Lucky's Tower)
-## and the crown outside the arch (City Hall, Pier 9).
+## the Block (the shot line, with Lucky's Tower in the middle), Uptown inside the ring road (the
+## Club, the Alley) and the crown outside the arch (City Hall, Pier 9).
 ##
-## The shot map follows the bats (measured by tests/probe_shots.tscn): a flip from mid-bat leaves
-## at ~30° cross-field, one off the tip at 11–22°, so each bat's shots fan across the far side:
-##   left bat,  mid → tip:  Truck Route (+30°) · Beat Cop (+22°) · Lucky's (+15°) · Fat Tony's (+11°)
-##   right bat, mid → tip:  Getaway (−30°) · the Wire (−22°) · Staircase (−15°) · Nonna's (−11°)
-## and the Alley, between the two banks, takes what comes up the middle.
+## The shot map is a fan (docs/20 §3): each bat's aim is shared out among a few big targets,
+## the most important one widest, and Lucky's, in the middle, belongs to both bats:
+##   right bat, base → tip:  Getaway · Beat Cop · Staircase · Nonna's · LUCKY'S
+##   left bat,  base → tip:  Truck Route · the Wire · Fat Tony's · LUCKY'S
+## The Alley is not aimed at: the Drop-Off lanes and Lucky's back door feed it.
 
 # ------------------------------------------------------------------ the cabinet -----
 const PLAY_LEFT := -2.6                 ## outer wall centre lines
@@ -101,52 +101,61 @@ const DROPOFF_GUIDE_X: PackedFloat32Array = [-0.785, -0.385, 0.015, 0.415]
 const DROPOFF_ROLLOVER_Z := -4.45
 
 # ------------------------------------------------------------------ the Block (shot line) -----
-## Islands are storefront plinths; the plaza behind Nonna's and Fat Tony's is open so the
-## Alley spills out between them. Each shop's back falls toward the Alley: a ball behind it
-## rolls off the inner end into the plaza, where a back parallel to the raked front sloped
-## the other way, into the dead corner against Lucky's lane (or under the Staircase).
-const ISLAND_WIRE: PackedVector2Array = [Vector2(-2.05, -0.60), Vector2(-1.70, -0.84), Vector2(-1.70, -2.30), Vector2(-2.05, -2.30)]
-const ISLAND_NONNA: PackedVector2Array = [Vector2(-1.25, -1.74), Vector2(-0.73, -1.86), Vector2(-0.73, -2.10), Vector2(-1.25, -2.26)]
-const ISLAND_TONY: PackedVector2Array = [Vector2(0.36, -1.86), Vector2(0.88, -1.74), Vector2(0.88, -2.26), Vector2(0.36, -2.10)]
-## The Beat Cop's island: between Lucky's lane and the Truck Route guide, its face square to a
-## +22° shot off the left bat.
-const ISLAND_COP: PackedVector2Array = [Vector2(1.36, -0.95), Vector2(1.685, -0.82), Vector2(1.685, -2.45),
-		Vector2(1.62, -2.55), Vector2(1.40, -1.40)]
-## THE WIRE: three payphones on the left island's face, one per line of Tonight's Work.
-const WIRE_AT: Array = [Vector2(-1.99, -0.64), Vector2(-1.875, -0.72), Vector2(-1.76, -0.80)]
-const WIRE_FACE := Vector2(0.566, 0.824)
-const WIRE_LENGTHS: PackedFloat32Array = [0.13, 0.13, 0.13]
-## The storefront banks (Storefront: three drops in front of a doorway).
-const STOREFRONT_AT: Array = [Vector2(-0.99, -1.80), Vector2(0.62, -1.80)]
-const STOREFRONT_FACING: Array = [Vector2(0.225, 0.974), Vector2(-0.225, 0.974)]
+## docs/20: the shot line is a fan, one target per slice of each bat's aim. Lucky's stands in
+## the middle of the Street with the Alley behind it; either side of the plaza a shop's drop
+## bank faces the far bat. Each shop's back falls toward the plaza, so a ball behind it rolls
+## off the inner end and back down beside the tower.
+## Outlines run front-left, front-right, back-right, back-left.
+const ISLAND_NONNA: PackedVector2Array = [Vector2(-1.214, -1.942), Vector2(-0.626, -2.058), Vector2(-0.626, -2.30), Vector2(-1.25, -2.42)]
+const ISLAND_TONY: PackedVector2Array = [Vector2(0.256, -2.058), Vector2(0.844, -1.942), Vector2(0.88, -2.42), Vector2(0.256, -2.30)]
+## The Beat Cop's island on the left, beside the Staircase, its face square to the right bat.
+const ISLAND_COP: PackedVector2Array = [Vector2(-2.05, -0.60), Vector2(-1.70, -0.84), Vector2(-1.70, -2.30), Vector2(-2.05, -2.30)]
+## THE WIRE: a brownstone on the right whose front carries the three payphones, square to the
+## left bat. Its back runs up to the nest's wall, closing the corner behind Fat Tony's.
+const ISLAND_WIRE: PackedVector2Array = [Vector2(0.935, -1.237), Vector2(1.590, -0.991), Vector2(1.685, -1.05),
+		Vector2(1.685, -2.60), Vector2(0.93, -2.95)]
+const WIRE_AT: Array = [Vector2(1.044, -1.196), Vector2(1.262, -1.114), Vector2(1.481, -1.032)]
+const WIRE_FACE := Vector2(-0.351, 0.936)
+const WIRE_LENGTHS: PackedFloat32Array = [0.21, 0.21, 0.21]
+## The storefront banks (Storefront: three drops across the shop's front).
+const STOREFRONT_AT: Array = [Vector2(-0.92, -2.00), Vector2(0.55, -2.00)]
+const STOREFRONT_FACING: Array = [Vector2(0.195, 0.981), Vector2(-0.195, 0.981)]
 const STOREFRONT_RAKE_DEG: PackedFloat32Array = [0.0, 0.0]
 const STOREFRONT_ISLANDS: Array[PackedVector2Array] = [ISLAND_NONNA, ISLAND_TONY]
 const STOREFRONT_IDS: Array[StringName] = [&"storefront_pizzeria", &"storefront_pawn"]
 const STOREFRONT_SIGNS: Array[StringName] = [&"NONNA'S", &"FAT TONY'S"]
-## The Beat Cop: the bribe standup on the right island.
-const BRIBE_AT := Vector2(1.52, -0.885)
-const BRIBE_FACE := Vector2(-0.371, 0.928)
-const BRIBE_LENGTH := 0.22
+## The Beat Cop: the bribe standup on the left island's face.
+const BRIBE_AT := Vector2(-1.875, -0.72)
+const BRIBE_FACE := Vector2(0.566, 0.824)
+const BRIBE_LENGTH := 0.30
 const TARGET_LENGTH := 0.34
 const TARGET_THICK := 0.06
 
 # ------------------------------------------------------------------ the Staircase & the Club -----
 ## The left ramp rises from the shot line onto the Club's raised deck (segments/club_deck.gd).
-## Its mouth faces a −15° tip flip off the right bat and the channel bends straight as it
-## climbs; it reaches the deck's height before the deck's front edge, so the ball rolls on flat.
-const STAIR_MOUTH := Vector2(-1.30, -0.85)
+## Its mouth sits between the Beat Cop's island and the line from the right bat to Nonna's,
+## with a flare narrow enough to keep clear of both; the channel climbs almost straight and
+## reaches the deck's height before the deck's front edge, so the ball rolls on flat.
+const STAIR_MOUTH := Vector2(-1.42, -0.85)
 const STAIR_MOUTH_SIZE := Vector2(0.46, 0.30)
+const STAIR_FLARE := 0.56
 const STAIR_PATH: PackedVector3Array = [
-	Vector3(-1.30, 0.0, -0.85), Vector3(-1.42, 0.13, -1.28), Vector3(-1.50, 0.31, -1.70),
+	Vector3(-1.42, 0.0, -0.85), Vector3(-1.46, 0.13, -1.28), Vector3(-1.50, 0.31, -1.70),
 	Vector3(-1.52, 0.47, -2.08), Vector3(-1.50, 0.515, -2.36), Vector3(-1.48, 0.515, -2.72),
 ]
 
 # ------------------------------------------------------------------ Lucky's Tower -----
-## Lucky's lane funnels a +15° tip flip off the left bat into the scoop at the tower's foot.
-const LUCKY_LANE_L: PackedVector2Array = [Vector2(0.92, -1.40), Vector2(1.02, -3.14)]
-const LUCKY_LANE_R: PackedVector2Array = [Vector2(1.40, -1.40), Vector2(1.62, -2.55), Vector2(1.45, -3.14)]
-const SCOOP_AT := Vector2(1.235, -2.96)
-const TOWER_RECT := Rect2(1.02, -3.76, 0.43, 0.62)   ## x, z, width, depth (front at z -3.14)
+## The laundromat stands in the middle of the Street, its front door square to both bats: the
+## shot either bat makes up the middle. Its back rises to a ridge so the Alley's spill splits
+## either side of it, and the lift lets a washed ball out of the back door up into the Alley.
+const TOWER_RECT := Rect2(-0.44, -1.38, 0.51, 0.58)   ## x, z, width, depth (front at z -0.80)
+## Off the centre line on purpose: the bottom can pops balls straight down the plaza, and a ball
+## meeting a ridge point head on sat balanced on it.
+const TOWER_RIDGE := Vector2(-0.245, -1.62)
+## The front door: a band just in front of the tower's face, the face's full width. A ball
+## that comes within a hair of the front is the washer's.
+const SCOOP_AT := Vector2(-0.185, -0.72)
+const SCOOP_SIZE := Vector2(0.51, 0.10)
 
 # ------------------------------------------------------------------ the Sewer -----
 ## Three manholes: the lit one is open; the Alley's is always a destination.
@@ -177,14 +186,17 @@ const MAGNET_AT := Vector2(MIRROR_X, 4.55)
 const DIRECTOR_AT := Vector2(0.2, 2.9)
 
 # ------------------------------------------------------------------ the insert field -----
-const WHEEL_CENTER := Vector2(MIRROR_X, 1.35)
+## Down the Street's centre from Lucky's: its arrow, its printed name, the fuse burning toward
+## the door, the Empire Wheel, the Take.
+const WHEEL_CENTER := Vector2(MIRROR_X, 1.40)
 const WHEEL_RADIUS := 0.62
-const FUSE_AT: Array = [Vector2(MIRROR_X, 0.35), Vector2(MIRROR_X, 0.19), Vector2(MIRROR_X, 0.03),
-		Vector2(MIRROR_X, -0.13), Vector2(MIRROR_X, -0.29), Vector2(MIRROR_X, -0.45)]
+const FUSE_AT: Array = [Vector2(MIRROR_X, 0.555), Vector2(MIRROR_X, 0.44), Vector2(MIRROR_X, 0.325),
+		Vector2(MIRROR_X, 0.21), Vector2(MIRROR_X, 0.095), Vector2(MIRROR_X, -0.02)]
 const TAKE_AT: Array = [Vector2(-0.845, 2.35), Vector2(-0.515, 2.35), Vector2(-0.185, 2.35),
 		Vector2(0.145, 2.35), Vector2(0.475, 2.35)]
-const CAN_LEVEL_AT: Array = [Vector2(-0.635, -2.40), Vector2(-0.335, -2.40), Vector2(-0.035, -2.40),
-		Vector2(0.265, -2.40)]
+## Across the plaza behind Lucky's, inside the shops' inner walls so neither hides one.
+const CAN_LEVEL_AT: Array = [Vector2(-0.515, -2.52), Vector2(-0.295, -2.52), Vector2(-0.075, -2.52),
+		Vector2(0.145, -2.52)]
 
 # ------------------------------------------------------------------ the Commission -----
 ## Sammy's sedan rides a rail across the Street in front of the Block.
@@ -194,7 +206,7 @@ const SEDAN_RAIL_TO_X := 0.80
 const SEDAN_PARK := Vector2(-0.185, -0.35)
 const SEDAN_LENGTH := 0.72
 const SEDAN_THICK := 0.24
-const GOON_AT: Array = [Vector2(-1.30, -0.10), Vector2(0.90, -0.10), Vector2(-0.185, -1.20)]
+const GOON_AT: Array = [Vector2(-1.30, -0.10), Vector2(0.90, -0.10), Vector2(-0.185, -0.58)]
 const GOON_RAKE_DEG: PackedFloat32Array = [18.0, -18.0, 0.0]
 const TRUCK_PARK := Vector2(-0.185, 0.35)
 const TRUCK_LENGTH := 0.64
@@ -208,10 +220,10 @@ const DOOR_RAKE_DEG := 12.0
 # ------------------------------------------------------------------ the raid -----
 ## Cops stand in front of the shots they block.
 const COP_AT: Array = [
-	Vector2(-1.42, -0.55), Vector2(-0.185, -1.55), Vector2(1.08, -1.10), Vector2(-0.80, 0.95),
+	Vector2(-1.30, -0.45), Vector2(-0.185, -0.58), Vector2(1.18, -0.62), Vector2(-0.80, 0.95),
 ]
 const COP_RAKE_DEG: PackedFloat32Array = [0.0, 0.0, 0.0, 15.0]
-const BRIEFCASE_SPOTS: Array = [Vector2(-0.95, 0.35), Vector2(0.60, 0.35), Vector2(-0.185, -0.85)]
+const BRIEFCASE_SPOTS: Array = [Vector2(-0.95, 0.35), Vector2(0.60, 0.35), Vector2(-0.80, -0.60)]
 const BRIEFCASE_CLEAR := 0.5
 const BRIEFCASE_CLEAR_VEHICLE := 0.9
 
