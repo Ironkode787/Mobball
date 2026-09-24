@@ -1,7 +1,7 @@
 extends SimBase
 ## The shot map (docs/20 §3): which shot each flipper makes, and across how much of its timing.
 ## Three feeds per bat: the aimed shot (a trapped ball released and re-flipped after a delay,
-## 0..0.8 s), the live feed (a ball rolled down the inlane and flipped after a delay) and the
+## 0..0.9 s), the live feed (a ball rolled down the inlane and flipped after a delay) and the
 ## flip on the fly. Each flip records the first `shot_made` the ball reaches within the watch
 ## window; a shot's window is how many steps landed on it times the step.
 ##   godot --headless --fixed-fps 60 --path . res://tests/probe_shots.tscn
@@ -72,7 +72,7 @@ func _sweep_reflip(side: StringName) -> void:
 	var tally := {}
 	var rows: PackedStringArray = []
 	var d := 0.0
-	while d <= 0.80:
+	while d <= 0.90:
 		table.despawn_ball()
 		f.release()
 		await step(24)
@@ -89,7 +89,7 @@ func _sweep_reflip(side: StringName) -> void:
 		tally[res] = int(tally.get(res, 0)) + 1
 		rows.append("%.2f:%s" % [d, res])
 		d += _step
-	_print_tally("%s bat, aimed (trap, release, re-flip after d = 0..0.80 s)" % side, tally, rows)
+	_print_tally("%s bat, aimed (trap, release, re-flip after d = 0..0.90 s)" % side, tally, rows)
 
 
 func _sweep_inlane(side: StringName) -> void:

@@ -51,15 +51,17 @@ const INPUT_BUFFER := 0.05            # seconds of early-press forgiveness
 ## tip it goes up the middle. (t along the bat 0..1, heading in degrees across the field) for
 ## the left bat; the right bat mirrors. Speed stays the physics'; the curve owns SHOT_SHAPE of
 ## the heading. It is laid out as one run per target (left bat / right bat): the far orbit, the
-## Wire / the Beat Cop, the Wire / the Staircase, the shop across the plaza, then Lucky's for
-## the outer sixth, the part of the bat a ball lies on longest before it rolls off. Between runs it steps over the headings that only find a post or a lane
-## guide. The orbits start no nearer the pivot than the pace they need to go round.
+## Wire / the Beat Cop, the Wire / the Staircase, the shop across the plaza, then Lucky's off
+## the outer part of the bat. Between runs it steps over the headings that only find a post or
+## a lane guide. The orbits start no nearer the pivot than the pace they need to go round, and
+## the Staircase's run is where the bat gives the ramp its climb (about 34 u/s), spread across
+## the whole mouth the ramp takes from there.
 const FLIPPER_SHOT_CURVE: PackedVector2Array = [
 	Vector2(0.0, 31.0), Vector2(0.44, 30.5), Vector2(0.54, 28.0),
 	Vector2(0.55, 21.5), Vector2(0.63, 16.5),
-	Vector2(0.64, 14.8), Vector2(0.72, 13.2),
-	Vector2(0.73, 9.0), Vector2(0.84, 5.0),
-	Vector2(0.85, 1.0), Vector2(1.00, -2.0), Vector2(1.10, -4.0),
+	Vector2(0.64, 15.0), Vector2(0.76, 12.9),
+	Vector2(0.77, 9.0), Vector2(0.88, 5.0),
+	Vector2(0.89, 1.0), Vector2(1.00, -2.0), Vector2(1.10, -4.0),
 ]
 const FLIPPER_SHOT_SHAPE := 0.9
 const FLIPPER_SHOT_MIN_SPEED := 5.0   # slower than this off the bat is a dribble, left alone

@@ -9,6 +9,9 @@ in [specs/table-3d-flow.md](../specs/table-3d-flow.md) §3 and the passive jobs 
 [05](05-MODES-AND-EVENTS.md) §1. It keeps the physics invariants (Jolt at 240 Hz, 1 u = 10 cm,
 6.5° pitch), the portrait camera, the economy's two currencies and the flow signals.
 Images: `docs/img/19/`.
+[20](20-SHOTS-YOU-CAN-MAKE.md) supersedes the shot table and flow of §3.1, the tower's side-door
+exit in §3.3 and the doorway banks: v5 lays the shots out as a fan round Lucky's, the shops pay
+on their drop banks, and the washed ball comes up in the Alley.
 
 **In one paragraph.** One premium machine, built the way *3D Pinball: Space Cadet* built its
 table: a dense single board whose lights, bumpers and shots *develop during every game*, and

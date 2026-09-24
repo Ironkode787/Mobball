@@ -401,11 +401,17 @@ func _s_aim() -> void:
 			await wait(0.6)
 			f.release()
 			await wait(d)
+			for shop in table.storefronts:
+				shop.rearm()
+				for drop in shop.targets():
+					drop.raise()
+			_shots.clear()
+			_switches.clear()
 			f.press()
 			var first := &""
 			for i in range(ticks(3.0)):
 				await step(1)
-				first = _first_major_shot()
+				first = _first_aimed()
 				if first != &"" or not is_instance_valid(b):
 					break
 			f.release()
@@ -417,6 +423,17 @@ func _s_aim() -> void:
 			check(seen.has(shot), "the %s bat never made %s" % [side, shot])
 	table.docks.set_lit(true)
 	finish()
+
+
+## What a flip reached first: a major shot, or a shop's bank. A drop down is the shot at a
+## shop; only the third one pays, so the bank is stood up again before every flip.
+func _first_aimed() -> StringName:
+	for id: String in _switches:
+		if id.begins_with(String(Layout.STOREFRONT_IDS[0])):
+			return &"nonnas"
+		if id.begins_with(String(Layout.STOREFRONT_IDS[1])):
+			return &"fat_tonys"
+	return _first_major_shot()
 
 
 ## The spinner and the Drop-Off lanes are on the way to other shots; they are not what a
