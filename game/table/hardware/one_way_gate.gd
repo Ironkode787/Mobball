@@ -17,6 +17,12 @@ var to_point: Vector2 = Vector2.ZERO
 var thickness: float = 0.05
 var pass_from: Vector2 = Vector2(0.0, 1.0)
 var base_height: float = 0.0
+## How far off the flap's line the ball has to be before the flap changes its mind. A flap in a
+## lane barely wider than the ball needs a hair trigger.
+var hold_band: float = HOLD_BAND
+## A curved blade (three or more plan points from `from_point` to `to_point`): a run of flaps
+## set in a curved rail then rides as smoothly as the rail does. Empty means a straight blade.
+var arc_points: PackedVector2Array = PackedVector2Array()
 
 var _body: StaticBody3D = null
 var _present: bool = true
@@ -51,7 +57,10 @@ func _ready() -> void:
 	_body = WallBuilder.make_body("Blade", Feel.LAYER_WALLS, Feel.make_material(Feel.WALL_FRICTION, 0.12))
 	add_child(_body)
 	var walls := WallBuilder.new(_body, Layout.GUIDE_HEIGHT, base_height)
-	walls.bar(from_point, to_point, thickness)
+	if arc_points.size() >= 3:
+		walls.chain(arc_points, thickness)
+	else:
+		walls.bar(from_point, to_point, thickness)
 	_build_look()
 	_apply_collision()
 
@@ -111,7 +120,7 @@ func _physics_process(_delta: float) -> void:
 	if absf((p - _centre).dot(_axis)) > _half_span + LATCH_BAND:
 		return
 	var d := side_of(p)
-	if absf(d) < HOLD_BAND:
+	if absf(d) < hold_band:
 		return
 	var want_open := d > 0.0
 	if want_open == _open:

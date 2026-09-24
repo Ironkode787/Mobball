@@ -1,10 +1,15 @@
 class_name Storefront
 extends Node3D
-## A protection racket as pinball hardware: a three-bank of drop targets in front of a shop.
-## Knock the bank down and the shutters open — roll through the doorway to collect minutes of
-## that racket's idle income. Lucky's doorway also washes money (laundromat_loop).
+## A protection racket as pinball hardware (docs/19 §3.1): a shop on its own island with a
+## three-bank of drops across its doorway. Knock the bank down and the doorway is open: roll
+## through the shop and out of the back door into the plaza behind (and on up into the Alley),
+## collecting minutes of that racket's idle income on the way through.
 ##
-## Local frame: targets along +X, the ball approaches along +Z, the shop stands at -Z.
+## Before the racket is bought the shop is boarded up: a shutter across the doorway, a dark
+## sign, and the island still stands as part of the board's shape.
+##
+## Built in table space from the island's outline: front-left, front-right, back-right,
+## back-left.
 
 signal collected(id: StringName, amount: BigMoney)
 signal washed(id: StringName)
@@ -13,15 +18,11 @@ signal door_closed(id: StringName)
 
 enum State { ARMED, OPEN, COOLDOWN }
 
-const TARGET_PITCH := 0.26
-const TARGET_LENGTH := 0.22
-const DOOR_DEPTH := 0.36
+const TARGETS := 3
+const JAMB_THICK := 0.06
+const JAMB_HEIGHT := 0.34
+const LINTEL_Y := 0.42
 const WASH_COOLDOWN := 1.6
-const ART := {
-	&"storefront_laundromat": &"front.laundromat",
-	&"storefront_pizzeria": &"front.pizzeria",
-	&"storefront_pawn": &"front.pawn",
-}
 const NEON := {
 	&"storefront_laundromat": Color("2EE6D6"),
 	&"storefront_pizzeria": Color("FF2E63"),
@@ -30,14 +31,17 @@ const NEON := {
 
 @export var id: StringName = &"storefront"
 
-var open_seconds: float = 6.0
-var rearm_seconds: float = 20.0
+var open_seconds: float = 8.0
+var rearm_seconds: float = 12.0
 var sign_text: StringName = &"SHOP"
 var bank_enabled: bool = true
 var wash_enabled: bool = false
+var outline: PackedVector2Array = PackedVector2Array()
 
 var _targets: Array[DropTarget] = []
 var _door: Area3D = null
+var _shutter: StaticBody3D = null
+var _jambs: WallPiece = null
 var _state: State = State.ARMED
 var _timer: float = 0.0
 var _wash_cool: float = 0.0
@@ -45,30 +49,75 @@ var _present: bool = true
 var _glow: float = 0.0
 var _door_lamp: StandardMaterial3D = null
 var _neon: StandardMaterial3D = null
-var _light: OmniLight3D = null
+var _shutter_mesh: MeshInstance3D = null
+var _inside: Area3D = null
+var _still: float = 0.0
+var _back_gate: OneWayGate = null
 
 
-func configure(p_id: StringName, center: Vector2, facing: Vector2, rake_deg: float,
-		p_sign: StringName) -> void:
+func configure(p_id: StringName, p_outline: PackedVector2Array, p_sign: StringName) -> void:
 	id = p_id
-	position = Layout.p3(center)
+	outline = p_outline
 	sign_text = p_sign
-	rotation.y = Layout.yaw_facing(facing.normalized()) + deg_to_rad(rake_deg)
 
 
-func half_span() -> float:
-	return TARGET_PITCH + TARGET_LENGTH * 0.5
+func front_from() -> Vector2:
+	return outline[0]
+
+
+func front_to() -> Vector2:
+	return outline[1]
+
+
+## Unit vector out of the doorway toward the player.
+func facing() -> Vector2:
+	var along := (outline[1] - outline[0]).normalized()
+	var n := Vector2(-along.y, along.x)
+	var inward := ((outline[2] + outline[3]) * 0.5 - (outline[0] + outline[1]) * 0.5)
+	return -n if n.dot(inward) > 0.0 else n
+
+
+func centre() -> Vector2:
+	return (outline[0] + outline[1] + outline[2] + outline[3]) * 0.25
 
 
 func _ready() -> void:
-	for i in range(3):
+	var lib := MaterialLib.shared()
+	var a := outline[0]
+	var b := outline[1]
+	var along := (b - a).normalized()
+	var span := a.distance_to(b)
+	var face := facing()
+	# the jambs: the island's side walls, from the doorway to the back door
+	_jambs = WallPiece.new(JAMB_HEIGHT, 0.0, lib.brass_dark(), lib.brass())
+	_jambs.name = "Jambs"
+	add_child(_jambs)
+	_jambs.bar(outline[0], outline[3], JAMB_THICK)
+	_jambs.bar(outline[1], outline[2], JAMB_THICK)
+	# the bank across the doorway
+	var inner := span - JAMB_THICK * 2.0
+	var pitch := inner / float(TARGETS)
+	for i in range(TARGETS):
 		var t := DropTarget.new()
 		t.name = "Target%d" % (i + 1)
-		t.configure(StringName("%s_t%d" % [id, i + 1]),
-				Vector2((float(i) - 1.0) * TARGET_PITCH, 0.0), Vector2(0.0, 1.0), TARGET_LENGTH)
+		var c := a + along * (JAMB_THICK + pitch * (float(i) + 0.5))
+		t.configure(StringName("%s_t%d" % [id, i + 1]), c, face, pitch - 0.012)
+		t.thickness = 0.05
 		add_child(t)
 		t.dropped.connect(_on_target_dropped)
 		_targets.append(t)
+	# the shutter while the racket is not ours
+	_shutter = WallBuilder.make_body("Shutter", Feel.LAYER_WALLS)
+	add_child(_shutter)
+	var sw := WallBuilder.new(_shutter, JAMB_HEIGHT)
+	sw.bar(a + along * JAMB_THICK, b - along * JAMB_THICK, 0.05)
+	var mid := (a + b) * 0.5 - face * 0.03
+	_shutter_mesh = MeshInstance3D.new()
+	_shutter_mesh.material_override = lib.chrome_dark()
+	_shutter_mesh.name = "ShutterLook"
+	_shutter.add_child(_shutter_mesh)
+	_orient_box(_shutter_mesh, mid, along, inner, JAMB_HEIGHT, 0.04, JAMB_HEIGHT * 0.5)
+	# the back door: the collection happens on the way out
 	_door = Area3D.new()
 	_door.name = "Door"
 	_door.collision_layer = Feel.LAYER_ZONES
@@ -76,107 +125,110 @@ func _ready() -> void:
 	_door.monitorable = false
 	var cs := CollisionShape3D.new()
 	var box := BoxShape3D.new()
-	box.size = Vector3(half_span() * 2.0, 0.5, DOOR_DEPTH)
+	var back_mid := (outline[2] + outline[3]) * 0.5
+	var back_span := outline[2].distance_to(outline[3])
+	box.size = Vector3(back_span - JAMB_THICK * 2.0, 0.5, 0.10)
 	cs.shape = box
-	cs.position = Vector3(0.0, 0.25, -DOOR_DEPTH * 0.5 - 0.08)
+	cs.position = Vector3(back_mid.x, 0.25, back_mid.y) + Vector3(face.x, 0.0, face.y) * 0.08
+	cs.rotation.y = Layout.yaw_facing(face)
 	_door.add_child(cs)
 	add_child(_door)
 	_door.body_entered.connect(_on_door_entered)
-	_build_look()
+	# the back door swings one way: out into the plaza
+	_back_gate = OneWayGate.new()
+	_back_gate.name = "BackDoor"
+	var inward := -face
+	_back_gate.configure(StringName(String(id) + "_back_door"), outline[3] + along * JAMB_THICK - inward * 0.02,
+			outline[2] - along * JAMB_THICK - inward * 0.02, 0.03, face)
+	add_child(_back_gate)
+	# the shop floor: a ball that stops in here is walked out of the back door
+	_inside = Area3D.new()
+	_inside.name = "Inside"
+	_inside.collision_layer = Feel.LAYER_ZONES
+	_inside.collision_mask = Feel.LAYER_BALL
+	_inside.monitorable = false
+	var ics := CollisionShape3D.new()
+	var ibox := BoxShape3D.new()
+	var depth := ((outline[0] + outline[1]) * 0.5).distance_to((outline[2] + outline[3]) * 0.5)
+	ibox.size = Vector3(span - JAMB_THICK * 2.0, 0.5, depth)
+	ics.shape = ibox
+	var c := centre()
+	ics.position = Vector3(c.x, 0.25, c.y)
+	ics.rotation.y = Layout.yaw_facing(face)
+	_inside.add_child(ics)
+	add_child(_inside)
+	_build_look(a, b, along, face, span)
 	apply_build()
 
 
-func _build_look() -> void:
+## Lay a unit box mesh along `along` centred on `mid`.
+static func _orient_box(mi: MeshInstance3D, mid: Vector2, along: Vector2, length: float, height: float,
+		depth: float, y: float) -> void:
+	var bm := BoxMesh.new()
+	bm.size = Vector3(length, height, depth)
+	mi.mesh = bm
+	mi.position = Vector3(mid.x, y, mid.y)
+	mi.rotation.y = -atan2(along.y, along.x)
+
+
+func _build_look(a: Vector2, b: Vector2, along: Vector2, face: Vector2, span: float) -> void:
 	var lib := MaterialLib.shared()
-	var span := half_span() * 2.0 + 0.2
-	var depth := 0.34
-	var front_z := -(DOOR_DEPTH + 0.08 + 0.14)
-	var height := 0.62
 	var neon_col: Color = NEON.get(id, Color("FF2E63"))
-	# the shop: a block with the storefront art on its face and a lit sign box on the roof
-	var st := MeshLib.begin()
-	MeshLib.box(st, Vector3(0.0, height * 0.5, front_z - depth * 0.5), Vector3(span, height, depth), 0.6)
-	var building := MeshInstance3D.new()
-	building.mesh = MeshLib.finish(st, lib.wood())
-	building.name = "Building"
-	add_child(building)
-	var art_key: StringName = ART.get(id, &"")
-	var tex: Texture2D = null
-	if art_key != &"" and Presentation != null and Presentation.art != null:
-		tex = Presentation.art.resolve(art_key, null, false)
-	if tex != null:
-		var quad := PlaneMesh.new()
-		var w := span * 0.94
-		quad.size = Vector2(w, w * float(tex.get_height()) / float(tex.get_width()))
-		quad.orientation = PlaneMesh.FACE_Z
-		var facade := MeshInstance3D.new()
-		facade.mesh = quad
-		facade.material_override = lib.art(tex, 0.45)
-		facade.position = Vector3(0.0, quad.size.y * 0.5 + 0.02, front_z + 0.012)
-		facade.name = "Facade"
-		add_child(facade)
-	# side pilasters and a roof cornice in brass: the building reads as a building
-	var trim := MeshLib.begin()
-	for sx in [-1.0, 1.0]:
-		MeshLib.box(trim, Vector3(sx * (span * 0.5 + 0.02), height * 0.5, front_z - depth * 0.5),
-				Vector3(0.05, height + 0.02, depth + 0.06))
-	MeshLib.box(trim, Vector3(0.0, height + 0.02, front_z - depth * 0.5), Vector3(span + 0.1, 0.05, depth + 0.08))
-	var trim_mi := MeshInstance3D.new()
-	trim_mi.mesh = MeshLib.finish(trim, lib.brass_dark())
-	trim_mi.name = "Trim"
-	add_child(trim_mi)
-	# doorway threshold lamp
+	# the floor of the shop: a lit threshold that says the door is open
 	_door_lamp = lib.lamp(neon_col.lerp(Color.WHITE, 0.25))
-	var door := BoxMesh.new()
-	door.size = Vector3(span * 0.5, 0.012, DOOR_DEPTH * 0.6)
-	var dm := MeshInstance3D.new()
-	dm.mesh = door
-	dm.material_override = _door_lamp
-	dm.position = Vector3(0.0, 0.006, -(DOOR_DEPTH * 0.5 + 0.08))
-	dm.name = "Threshold"
-	add_child(dm)
-	# neon sign on the roof
+	var floor_mi := MeshInstance3D.new()
+	var c := centre()
+	var depth := ((outline[0] + outline[1]) * 0.5).distance_to((outline[2] + outline[3]) * 0.5)
+	_orient_box(floor_mi, c, along, span - JAMB_THICK * 2.0, 0.006, depth - 0.02, 0.003)
+	floor_mi.material_override = _door_lamp
+	floor_mi.name = "Threshold"
+	floor_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(floor_mi)
+	# the lintel over the doorway and the shop sign on it, facing the flippers
+	var lintel := MeshInstance3D.new()
+	var mid := (a + b) * 0.5 - face * 0.04
+	_orient_box(lintel, mid, along, span + 0.04, 0.10, 0.08, LINTEL_Y + 0.05)
+	lintel.material_override = lib.wood()
+	lintel.name = "Lintel"
+	add_child(lintel)
+	var back_lintel := MeshInstance3D.new()
+	var back_mid := (outline[2] + outline[3]) * 0.5
+	_orient_box(back_lintel, back_mid, along, outline[2].distance_to(outline[3]) + 0.04, 0.10, 0.06, LINTEL_Y + 0.05)
+	back_lintel.material_override = lib.wood()
+	back_lintel.name = "BackLintel"
+	add_child(back_lintel)
+	var roof := MeshInstance3D.new()
+	_orient_box(roof, c, along, span + 0.02, 0.03, depth + 0.02, LINTEL_Y + 0.115)
+	roof.material_override = lib.brass_dark()
+	roof.name = "Roof"
+	add_child(roof)
 	var sign := TextMesh.new()
 	sign.text = String(sign_text)
 	sign.font = load("res://assets/fonts/Oswald-SemiBold.ttf")
-	sign.font_size = 64
-	sign.pixel_size = 0.0055
-	sign.depth = 0.03
+	sign.font_size = 48
+	sign.pixel_size = 0.0036
+	sign.depth = 0.02
 	sign.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_neon = lib.neon(neon_col, 2.6).duplicate() as StandardMaterial3D
 	var sm := MeshInstance3D.new()
 	sm.mesh = sign
 	sm.material_override = _neon
-	sm.position = Vector3(0.0, height + 0.24, front_z - 0.02)
+	var front_mid := (a + b) * 0.5 + face * 0.01
+	sm.position = Vector3(front_mid.x, LINTEL_Y + 0.22, front_mid.y)
+	sm.rotation = Vector3(deg_to_rad(-38.0), Layout.yaw_facing(face), 0.0)
 	sm.name = "Neon"
 	add_child(sm)
-	var backer := BoxMesh.new()
-	backer.size = Vector3(span * 0.92, 0.36, 0.04)
-	var bk := MeshInstance3D.new()
-	bk.mesh = backer
-	bk.material_override = lib.ink()
-	bk.position = Vector3(0.0, height + 0.24, front_z - 0.06)
-	bk.name = "SignBacker"
-	add_child(bk)
-	_light = OmniLight3D.new()
-	_light.light_color = neon_col
-	_light.light_energy = 1.0
-	_light.omni_range = 2.2
-	_light.omni_attenuation = 1.4
-	_light.shadow_enabled = false
-	_light.position = Vector3(0.0, height + 0.5, front_z + 0.3)
-	_light.name = "NeonLight"
-	add_child(_light)
 
 
 func apply_build() -> void:
+	var live := _present and bank_enabled
 	for t in _targets:
-		t.set_hardware_active(_present and bank_enabled)
+		t.set_hardware_active(live)
+	Dormant.set_collision(_shutter, _present and not bank_enabled)
+	_shutter.visible = _present and not bank_enabled
 	if not bank_enabled:
-		_state = State.OPEN
+		_state = State.ARMED
 		_timer = -1.0
-	elif _state == State.OPEN and _timer < 0.0:
-		_close(true)
 	_apply_door()
 
 
@@ -206,16 +258,18 @@ func targets() -> Array[DropTarget]:
 	return _targets
 
 
-func _on_target_dropped(_t: DropTarget) -> void:
-	if not _present or not bank_enabled or _state != State.ARMED:
+func _on_target_dropped(t: DropTarget) -> void:
+	if not _present or not bank_enabled:
 		return
-	if down_count() < _targets.size():
+	TableScore.earn_quiet(TableScore.GROUP_STOREFRONTS, TableScore.WIRE_TARGET * 0.5, t.id)
+	if _state != State.ARMED or down_count() < _targets.size():
 		return
 	_state = State.OPEN
 	_timer = open_seconds
 	_glow = 1.0
 	_apply_door()
 	AudioDirector.play(&"drop_bank_down")
+	TableScore.hit(StringName(String(id) + "_complete"), null)
 	door_opened.emit(id)
 
 
@@ -244,7 +298,6 @@ func collect_now(ball: Node3D = null) -> BigMoney:
 	_timer = rearm_seconds
 	_glow = 1.0
 	_apply_door()
-	_raise_all()
 	return paid
 
 
@@ -267,53 +320,84 @@ func _physics_process(delta: float) -> void:
 	_wash_cool = maxf(_wash_cool - delta, 0.0)
 	if _glow > 0.0:
 		_glow = maxf(_glow - delta * 1.5, 0.0)
+	_walk_out(delta)
 	if _timer < 0.0:
 		return
 	_timer -= delta
 	if _timer > 0.0:
 		return
+	if _ball_inside() != null:
+		_timer = 0.5
+		return
 	_timer = -1.0
 	match _state:
-		State.OPEN:
+		State.OPEN, State.COOLDOWN:
+			# a door left open or a cash-out done: the bank comes back up for another round
 			_close()
-		State.COOLDOWN:
-			_state = State.ARMED
-			_apply_door()
-			AudioDirector.play(&"drop_bank_reset")
+
+
+func _ball_inside() -> Ball:
+	if _inside == null:
+		return null
+	for body in _inside.get_overlapping_bodies():
+		if body is Ball and not BallHold.is_held(body as Ball):
+			return body as Ball
+	return null
+
+
+## A ball asleep on the shop floor goes out of the back door, into the plaza.
+func _walk_out(delta: float) -> void:
+	var b := _ball_inside()
+	if b == null or b.speed() > Feel.HARDWARE_STALL_SPEED:
+		_still = 0.0
+		return
+	_still += delta
+	if _still < 0.4:
+		return
+	_still = 0.0
+	var back := -facing()
+	b.set_velocity(Vector3(back.x, 0.0, back.y) * 4.0)
 
 
 func _process(delta: float) -> void:
 	if _door_lamp != null:
-		var wanted := 0.15
+		var wanted := 0.05
 		if is_open():
-			wanted = 1.5 + _glow
-		elif _state == State.COOLDOWN:
-			wanted = 0.0
+			wanted = 1.6 + _glow + (0.8 if fmod(Time.get_ticks_msec() * 0.004, 1.0) < 0.5 else 0.0)
+		elif bank_enabled and _state == State.ARMED:
+			wanted = 0.12 + 0.25 * float(down_count())
 		_door_lamp.emission_energy_multiplier = lerpf(_door_lamp.emission_energy_multiplier, wanted,
 				1.0 - exp(-10.0 * delta))
-	if _light != null:
-		var flicker := 0.92 + 0.08 * sin(Time.get_ticks_msec() * 0.021 + float(get_instance_id() % 97))
-		_light.light_energy = (0.0 if _state == State.COOLDOWN else 1.1) * flicker
 	if _neon != null:
-		_neon.emission_energy_multiplier = 0.6 if _state == State.COOLDOWN else 2.6
+		var e := 0.12
+		if bank_enabled:
+			e = 0.9 if _state == State.COOLDOWN else 2.4
+			e *= 0.94 + 0.06 * sin(Time.get_ticks_msec() * 0.021 + float(get_instance_id() % 97))
+		_neon.emission_energy_multiplier = e
 
 
 func _apply_door() -> void:
 	if _door == null:
 		return
-	var live := _present and (_state == State.OPEN or wash_enabled)
+	var live := _present and bank_enabled and (_state == State.OPEN or wash_enabled)
 	_door.collision_layer = Feel.LAYER_ZONES if live else 0
 	_door.collision_mask = Feel.LAYER_BALL if live else 0
+
+
+func set_ball(b: Ball) -> void:
+	if _back_gate != null:
+		_back_gate.set_ball(b)
 
 
 func set_hardware_active(active: bool) -> void:
 	_present = active
 	visible = active
-	for t in _targets:
-		t.set_hardware_active(active and bank_enabled)
-	_apply_door()
-	if _light != null:
-		_light.visible = active
+	Dormant.set_collision(_jambs, active)
+	if _back_gate != null:
+		Dormant.apply(_back_gate, active)
+	if _inside != null:
+		_inside.collision_mask = Feel.LAYER_BALL if active else 0
+	apply_build()
 
 
 func is_hardware_active() -> bool:
@@ -321,7 +405,7 @@ func is_hardware_active() -> bool:
 
 
 func visual_state() -> int:
-	if not _present:
+	if not _present or not bank_enabled:
 		return TableVisualState.VisualState.DISABLED
 	match _state:
 		State.OPEN:

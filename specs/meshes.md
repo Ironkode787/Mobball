@@ -51,10 +51,10 @@ Footprints in table units; "driven" is what the GDScript animates.
 | id | For | Notes |
 |---|---|---|
 | `roulette_bowl` | `RouletteWheel` — turned bowl rim, pocket separators, brass hub; the eight pocket lamps stay code-built inside | r 0.32; `Wheel` child must spin |
-| `crane_gantry`, `crane_trolley` | `CraneMagnet` — lattice gantry legs and boom; the trolley stays a separate mesh the code drives along the rail | rail (−2.38, 0.32) → (−1.45, 0.42), h 1.0 |
+| `pier_crane`, `pier_boom` (shipped, v4) | `Docks` (Pier 9) — the lattice mast on the quay and the jib the code swings (`Boom`); the trolley, cable and magnet stay code-built | mast 0.10 square, h 1.05 at `TOWER_AT`; jib 1.40 along the piece's front, counter-jib 0.34 |
 | `saucer_manhole` | `HoldSaucer` — manhole ring and a recessed grate dish the ball visibly settles in | r 0.16–0.18 |
 | `kickback_boys` | `Kickback` — a corner stoop with a lit insert | 0.32 × 0.30 |
-| `city_hall_dome` | `CityHall` — colonnade, drum and dome as one turned mesh | r 0.585, h 2.3 |
+| `city_hall_dome` (shipped, v4) | `CityHall` — podium, a colonnade of twelve, drum and ribbed gilt dome (`LampDome` takes the dome lamp), lantern and flag | r 0.30 at the podium; stays inside r 0.26 above z 0.64 so the dome loop's ball clears it |
 
 ### Tier 3 — street dressing (paint only, dead zones only)
 

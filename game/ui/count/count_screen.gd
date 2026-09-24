@@ -718,6 +718,9 @@ func _build_lines() -> void:
 	for name: Variant in summary.get("jobs", []):
 		_body.add_child(PaperKit.label("   " + String(name), PaperKit.FONT_SMALL,
 				Feel.COL_INK.lightened(0.35)))
+	var wire_jobs: Dictionary = summary.get("table_jobs", {})
+	if int(wire_jobs.get("big_scores", 0)) > 0:
+		_add_int_row("BIG SCORE JACKPOTS", int(wire_jobs.get("jackpots", 0)), Feel.COL_BRASS)
 
 
 ## The Commission's night, when there was one. A win is the loudest line on the page: the

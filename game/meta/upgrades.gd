@@ -36,6 +36,8 @@ const HARDWARE_IDS: PackedStringArray = [
 	"penthouse", "commission_chairs", "sitdown_saucer", "penthouse_stairs",
 	# M3 the crown (docs/02 §2 R7)
 	"city_hall",
+	# v4 the Sewer's manholes (docs/19)
+	"sewer",
 ]
 
 ## Switch groups `Game.earn_switch` pays out to. `all` folds into every other group.
@@ -51,6 +53,8 @@ const FEATURE_FLAGS: PackedStringArray = [
 	# M2 influence/fronts flags (specs/m2-content.md §3) — consumers land with their lanes.
 	"coolers_fired", "inspector_vacation", "police_scanner", "rain_insurance",
 	"wiretap_wire", "insurance_policy", "comps",
+	# v4 board development (docs/19 §5): the Sewer on one Getaway, the Jobs' longer fuse
+	"sewer_one_getaway", "slow_burn",
 ]
 
 ## Milestone marks the reveal engine understands (docs/04 "Milestone reveals").

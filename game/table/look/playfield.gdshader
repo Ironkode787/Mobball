@@ -38,6 +38,10 @@ uniform float mirror_x = -0.185;
 uniform float alley_half = 0.62;
 uniform float border_width = 0.22;
 uniform float cobble_scale = 6.5;
+// the printed art (tools/texgen/playfield.sh): shot names, lane paint, keylines round the
+// inserts, laid over the street in the street's UV; alpha is ink coverage
+uniform bool has_art = false;
+uniform sampler2D art : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
 
 varying vec2 field_pos;
 
@@ -110,6 +114,11 @@ void fragment() {
 	} else {
 		col = procedural_cobbles(p);
 		col = mix(col, alley.rgb * (0.85 + 0.3 * hash21(floor(p * 60.0))), alley_t * 0.85);
+	}
+	if (has_art) {
+		vec4 ink = texture(art, UV);
+		col = mix(col, ink.rgb, ink.a);
+		rough = mix(rough, 0.55, ink.a);
 	}
 	// ornament border along the sides
 	float stripe = 0.5 + 0.5 * sin(p.y * 44.0) * sin(p.x * 44.0);

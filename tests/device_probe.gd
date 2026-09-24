@@ -229,14 +229,14 @@ func _run() -> void:
 	mint.add_level("rackets.trash_2")
 	Events.upgrade_purchased.emit("rackets.trash_2", 1)
 	await _frames(10)
-	var table: Node2D = main.get("table")
+	var table: Node3D = main.get("table")
 	_check(bool(table.call("hardware_present", &"bumper_2")),
 			"bought bumper stands on the field")
 	main.queue_free()
 	await _frames(5)
 	main = _spawn_main()
 	await _frames(40)
-	var table2: Node2D = main.get("table")
+	var table2: Node3D = main.get("table")
 	_check(bool(table2.call("hardware_present", &"bumper_2")),
 			"RESTART: the bought bumper is back on the fresh table")
 	await _shot("6_restart")

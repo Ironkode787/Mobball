@@ -98,9 +98,10 @@ func _bumper_burst(t: TestCtx) -> void:
 
 	var slow := _only("send_a_message")
 	var slow_done := _completions(slow)
+	# the R0 nest has one can, so the window fits an Alley shot every few seconds (docs/19 §8)
 	for i in 10:
 		slow.on_switch(&"bumper_1", &"bumpers")
-		slow.tick(1.5, 0.0)
+		slow.tick(7.0, 0.0)
 	t.eq(slow_done.size(), 0, "six cans spread past the window is not a burst")
 
 

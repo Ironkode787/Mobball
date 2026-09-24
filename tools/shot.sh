@@ -8,6 +8,6 @@ OUT="${1:-/tmp/shot.png}"
 SCENE="${2:-}"
 FRAMES="${3:-90}"
 SHOT_PATH="$OUT" SHOT_SCENE="$SCENE" SHOT_FRAMES="$FRAMES" \
-	xvfb-run -a -s "-screen 0 540x960x24" \
+	xvfb-run -a -s "-screen 0 ${SHOT_W:-540}x${SHOT_H:-960}x24" \
 	"$GODOT" --path . --rendering-driver opengl3 res://tools/shot_capture.tscn 2>&1 \
 	| grep -E "shot:|ERROR" | tail -5

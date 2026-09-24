@@ -1,9 +1,10 @@
 class_name Docks
 extends Node3D
-## THE DOCKS (R5): a walled yard low on the left behind a one-way gate off the left orbit
-## lane. Three container stacks on a raked deck, a gantry crane that swings the ball toward
-## the harbour, the pier you can fall off, and the cargo scoop: a kicker at the yard's foot
-## that fires the ball up a wireform over the yard's roof and back into the left lane.
+## PIER 9 (R5, docs/19 §3.4): the container yard in the top-right corner, outside the arch.
+## While the pier is lit, the crane's magnet takes a ball off the top of the Truck Route, swings
+## it over the wall and loads its cargo into the next container, then drops it back onto the
+## ring road to finish the lap. Three loaded containers are a shipment (SmugglingRun); the flow
+## empties the yard when the run ships or lapses (`reset_pier`).
 
 signal docks_entered()
 signal stack_cleared(stack: int)
@@ -18,154 +19,76 @@ const ID_CONTAINERS := &"containers"
 const ID_CRANE := &"crane"
 const ID_CARGO_RAMP := &"cargo_ramp"
 
-const WALL_THICK := 0.07
-const ROOF_FROM := Vector2(-2.15, 0.0)
-const ROOF_TO := Vector2(-1.35, 0.15)
-const RIGHT_FROM := Vector2(-1.35, 0.15)
-const RIGHT_TO := Vector2(-1.35, 1.95)
-## The bed of the yard is a beam that falls away to the right, so whatever rolls down the yard
-## ends in the cargo scoop at its low end.
-const BED_FROM := Vector2(-1.35, 2.07)
-const BED_TO := Vector2(-2.16, 1.93)
-## The quay is a one-way flap: the kickback throws an outlane ball up into the yard through
-## it, and nothing in the yard rolls back down onto the flippers that way.
-const QUAY_FROM := Vector2(-2.52, 1.86)
-const QUAY_TO := Vector2(-2.16, 1.93)
-const BLADE_FROM := Vector2(-2.52, -0.02)
-const BLADE_TO := Vector2(-2.2, 0.0)
-const CRATES_ORIGIN := Vector2(-2.28, 0.55)
-## Off the end of the pier: a hole in the yard floor by the water, and the ball is gone.
-const WATER_AT := Vector2(-2.40, 1.62)
-const WATER_SIZE := Vector2(0.22, 0.28)
-const GANTRY_FROM := Vector2(-2.38, 0.32)
-const GANTRY_TO := Vector2(-1.45, 0.42)
-const SCOOP_AT := Vector2(-1.52, 1.76)
-const SCOOP_R := 0.16
-const CARGO_KICK := 19.0
-## The wireform starts a ball's height above the yard floor so the bed runs under its mouth;
-## the scoop lifts the ball into it. It soars over the crane's gantry (and over the Club's
-## return wireform, which crosses the yard low) before dropping into the left lane.
-const CARGO_PATH: PackedVector3Array = [
-	Vector3(-1.52, 0.34, 1.76), Vector3(-1.46, 0.50, 1.35), Vector3(-1.42, 0.78, 0.90),
-	Vector3(-1.50, 1.08, 0.45), Vector3(-1.75, 1.16, 0.00), Vector3(-2.08, 1.08, -0.50),
-	Vector3(-2.32, 0.86, -1.00), Vector3(-2.38, 0.60, -1.30), Vector3(-2.36, 0.46, -1.48),
-]
-const COL_RUST := Color("A9552E")
-const COL_WATER := Color("173A4A")
+const STACKS := 3
+const CATCH_DEG := 318.0
+const DROP_DEG := 296.0
+const CATCH_R := 0.20
+const HOOK_H := 0.82
+const LOAD_SECONDS := 0.55
+const RIDE_SPEED := 3.4
+const DROP_SPEED := 8.0
+const COOLDOWN := 1.2
+const TOWER_AT := Vector2(2.45, -5.26)
+const TOWER_H := 1.05
+const CONTAINER_AT: Array = [Vector2(2.02, -5.19), Vector2(2.31, -5.19), Vector2(2.34, -4.92)]
+const CONTAINER_SIZE := Vector3(0.25, 0.13, 0.13)
+const CONTAINER_COLORS: Array[Color] = [Color("A9552E"), Color("2E6F74"), Color("8A7A2E")]
+## The flow's socket for the cargo it releases (the Smuggling multiball): the drop point.
+const CRATES_ORIGIN := Vector2(0.81, -4.85)
 
-var containers: ContainerStacks = null
-var crane: CraneMagnet = null
-var cargo_ramp: RampLane = null
-var gate: OneWayGate = null
-var quay_gate: OneWayGate = null
-var scoop: Area3D = null
+enum Phase { IDLE, LIFT, SWING, LOAD, BACK, LOWER }
+
+var containers: Docks = null
+var crane: Node3D = null
+var lit: bool = true
+var truck_route: OrbitLane = null         ## the table binds the right orbit: only its balls are caught
 
 var _present: bool = false
-var _shell: WallPiece = null
 var _ball: Ball = null
-var _was_outside: bool = true
-var _scoop_ball: Ball = null
-var _scoop_t: float = -1.0
-var _scoop_cooldown: float = 0.0
+var _loaded: Array[int] = []
+var _phase: Phase = Phase.IDLE
+var _ride: PathRide = null
+var _t: float = 0.0
+var _cool: float = 0.0
+var _sensor: Area3D = null
+var _boom: Node3D = null
+var _trolley: Node3D = null
+var _magnet_lamp: StandardMaterial3D = null
+var _container_lamps: Array[StandardMaterial3D] = []
+var _arrow_lamp: StandardMaterial3D = null
 var _look: Node3D = null
+var _hook: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
-	_build_shell()
-	_build_gate()
-	_build_containers()
-	_build_crane()
-	_build_cargo()
+	containers = self
+	_build_sensor()
 	_build_look()
 
 
-func _build_shell() -> void:
-	_shell = WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, MaterialLib.shared().plastic(Color("5A4636"), 0.6))
-	_shell.name = "DocksShell"
-	add_child(_shell)
-	_shell.bar(ROOF_FROM, ROOF_TO, WALL_THICK)
-	_shell.bar(RIGHT_FROM, RIGHT_TO, WALL_THICK)
-	_shell.bar(BED_FROM, BED_TO, WALL_THICK)
-	# a gangway just inside the gate slides an arriving ball off the left wall toward the scoop;
-	# the table's own left lane-return rail fences the water from anything rolling down the
-	# wall, so only the crane puts a ball in the harbour
-	_shell.bar(Vector2(-2.51, 0.14), Vector2(-2.20, 0.60), Layout.GUIDE_THICK)
+static func catch_point() -> Vector2:
+	return Layout.channel_mid(CATCH_DEG)
 
 
-func _build_gate() -> void:
-	gate = OneWayGate.new()
-	gate.name = "DockGate"
-	gate.configure(&"dock_gate", BLADE_FROM, BLADE_TO, 0.04, Vector2(0.0, -1.0))
-	add_child(gate)
-	quay_gate = OneWayGate.new()
-	quay_gate.name = "QuayGate"
-	quay_gate.configure(&"quay_gate", QUAY_FROM, QUAY_TO, 0.04, Vector2(0.0, 1.0))
-	add_child(quay_gate)
+static func drop_point() -> Vector2:
+	return Layout.channel_mid(DROP_DEG)
 
 
-func _build_containers() -> void:
-	containers = ContainerStacks.new()
-	containers.name = "Containers"
-	containers.configure(ID_CONTAINERS, CRATES_ORIGIN)
-	add_child(containers)
-	containers.stack_cleared.connect(func(s: int) -> void: stack_cleared.emit(s))
-	containers.state_changed.connect(func(cleared: Array) -> void: containers_state.emit(cleared))
-
-
-func _build_crane() -> void:
-	crane = CraneMagnet.new()
-	crane.name = "Crane"
-	crane.configure(ID_CRANE, GANTRY_FROM, GANTRY_TO, yard_rect(), WATER_AT)
-	add_child(crane)
-	crane.telegraph_started.connect(func() -> void: crane_telegraph.emit())
-	crane.pulled.connect(func(_b: Ball) -> void: crane_pulled.emit())
-
-
-func _build_cargo() -> void:
-	cargo_ramp = RampLane.new()
-	cargo_ramp.name = "CargoRamp"
-	cargo_ramp.entry_speed = 0.0
-	cargo_ramp.entry_size = Vector2(0.4, 0.3)
-	cargo_ramp.flare_width = 0.40
-	cargo_ramp.color = COL_RUST.lightened(0.2)
-	cargo_ramp.configure(ID_CARGO_RAMP, CARGO_PATH)
-	add_child(cargo_ramp)
-	cargo_ramp.crested.connect(_on_cargo_crested)
-	scoop = Area3D.new()
-	scoop.name = "CargoScoop"
-	scoop.collision_layer = Feel.LAYER_ZONES
-	scoop.collision_mask = Feel.LAYER_BALL
-	scoop.monitorable = false
+func _build_sensor() -> void:
+	_sensor = Area3D.new()
+	_sensor.name = "CraneSensor"
+	_sensor.collision_layer = Feel.LAYER_ZONES
+	_sensor.collision_mask = Feel.LAYER_BALL
+	_sensor.monitorable = false
 	var cs := CollisionShape3D.new()
 	var cyl := CylinderShape3D.new()
-	cyl.radius = SCOOP_R
-	cyl.height = 0.2                 # stays under the wireform floor: a fired ball never re-trips it
+	cyl.radius = CATCH_R
+	cyl.height = 0.4
 	cs.shape = cyl
-	scoop.position = Layout.p3(SCOOP_AT, 0.1)
-	scoop.add_child(cs)
-	add_child(scoop)
-	scoop.body_entered.connect(_on_scoop_entered)
-
-
-## The water is a hole in the yard floor; a ball drops in when its centre crosses the edge, so
-## the test is on the ball's centre, not on its rim brushing the hole (an Area3D would fire on
-## the rim). A ball the kickback throws up through the quay crosses the hole in a few
-## milliseconds and clears it; a ball rolling or dragged down onto the pier drops in.
-const PIER_CLEAR_SPEED := 8.0
-
-
-func _pier_rect() -> Rect2:
-	var size := WATER_SIZE - Vector2(0.06, 0.06)
-	return Rect2(WATER_AT - size * 0.5, size)
-
-
-func _check_pier(b: Ball) -> void:
-	var p := b.table_position()
-	if p.y > 0.5 or not _pier_rect().has_point(Vector2(p.x, p.z)):
-		return
-	if b.local_velocity().z < -PIER_CLEAR_SPEED:
-		return
-	pier_fall.emit(b)
+	cs.position = Layout.p3(catch_point(), 0.2)
+	_sensor.add_child(cs)
+	add_child(_sensor)
+	_sensor.body_entered.connect(_on_sensor)
 
 
 func _build_look() -> void:
@@ -173,157 +96,282 @@ func _build_look() -> void:
 	_look = Node3D.new()
 	_look.name = "Look"
 	add_child(_look)
-	var water := PlaneMesh.new()
-	water.size = WATER_SIZE * 1.1
-	var wm := MeshInstance3D.new()
-	wm.mesh = water
-	wm.material_override = lib.water()
-	wm.position = Layout.p3(WATER_AT, 0.003)
-	_look.add_child(wm)
-	var pier_edge := MeshLib.begin()
-	MeshLib.prism(pier_edge, PackedVector2Array([
-		WATER_AT + Vector2(WATER_SIZE.x * 0.5, -WATER_SIZE.y * 0.5), WATER_AT + Vector2(WATER_SIZE.x * 0.5 + 0.06, -WATER_SIZE.y * 0.5),
-		WATER_AT + Vector2(WATER_SIZE.x * 0.5 + 0.06, WATER_SIZE.y * 0.5), WATER_AT + Vector2(WATER_SIZE.x * 0.5, WATER_SIZE.y * 0.5),
-	]), 0.03, 0.0)
-	var pe := MeshInstance3D.new()
-	pe.mesh = MeshLib.finish(pier_edge, lib.wood())
-	_look.add_child(pe)
-	# quay boards
-	var st := MeshLib.begin()
-	var n := 6
-	for i in range(n):
-		var a := QUAY_FROM.lerp(QUAY_TO, float(i) / float(n))
-		var b := QUAY_FROM.lerp(QUAY_TO, float(i + 1) / float(n) - 0.02)
-		MeshLib.prism(st, PackedVector2Array([a + Vector2(0, -0.14), b + Vector2(0, -0.14), b, a]), 0.015, 0.0)
+	# the quay: a concrete slab in the corner behind the arch
+	var quay := MeshLib.begin()
+	var poly := PackedVector2Array([Vector2(1.78, -5.40), Vector2(2.60, -5.40), Vector2(2.60, -3.80)])
+	for i in range(9):
+		var x := lerpf(2.60, 1.78, float(i) / 8.0)
+		poly.append(Vector2(x, Layout.ARCH_CENTER.y - sqrt(maxf(Layout.ARCH_RADIUS * Layout.ARCH_RADIUS - x * x, 0.0)) - 0.07))
+	MeshLib.prism(quay, poly, 0.04, 0.0)
 	var qm := MeshInstance3D.new()
-	qm.mesh = MeshLib.finish(st, lib.wood())
+	qm.mesh = MeshLib.finish(quay, lib.plastic(Color("3B3A36"), 0.9))
+	qm.name = "Quay"
 	_look.add_child(qm)
-	# a scoop hood over the cargo kicker
-	var hood := BoxMesh.new()
-	hood.size = Vector3(0.36, 0.22, 0.2)
-	var hm := MeshInstance3D.new()
-	hm.mesh = hood
-	hm.material_override = lib.plastic(COL_RUST, 0.6)
-	hm.position = Layout.p3(SCOOP_AT + Vector2(0.0, 0.14), 0.30)
-	_look.add_child(hm)
-	var sign := TextMesh.new()
-	sign.text = "THE DOCKS"
-	sign.font = load("res://assets/fonts/Oswald-SemiBold.ttf")
-	sign.font_size = 44
-	sign.pixel_size = 0.0055
-	sign.depth = 0.02
-	var sm := MeshInstance3D.new()
-	sm.mesh = sign
-	sm.material_override = lib.neon(Feel.COL_NEON_TEAL, 2.4)
-	sm.position = Layout.p3(GANTRY_FROM.lerp(GANTRY_TO, 0.5), 1.15)
-	_look.add_child(sm)
+	for i in range(STACKS):
+		var c: Vector2 = CONTAINER_AT[i]
+		var box := BoxMesh.new()
+		box.size = CONTAINER_SIZE
+		var mi := MeshInstance3D.new()
+		mi.mesh = box
+		mi.material_override = lib.plastic(CONTAINER_COLORS[i], 0.7)
+		mi.position = Layout.p3(c, 0.04 + CONTAINER_SIZE.y * 0.5)
+		mi.rotation.y = deg_to_rad(8.0 * float(i - 1))
+		mi.name = "Container%d" % (i + 1)
+		_look.add_child(mi)
+		var lamp := lib.lamp(Feel.COL_DIRTY)
+		var door := BoxMesh.new()
+		door.size = Vector3(0.012, CONTAINER_SIZE.y * 0.8, CONTAINER_SIZE.z * 0.8)
+		var dm := MeshInstance3D.new()
+		dm.mesh = door
+		dm.material_override = lamp
+		dm.position = Vector3(-CONTAINER_SIZE.x * 0.5 - 0.004, 0.0, 0.0)
+		mi.add_child(dm)
+		_container_lamps.append(lamp)
+	# the crane: a lattice tower with a boom that swings and a trolley that runs out along it
+	# the lattice mast and jib (tools/meshgen: pier_crane, pier_boom); a post and a bar are the
+	# fallback
+	var mast := ToyLib.instance(&"pier_crane")
+	if mast != null:
+		mast.position = Layout.p3(TOWER_AT, 0.0)
+		_look.add_child(mast)
+	else:
+		var tower := MeshLib.begin()
+		MeshLib.post(tower, TOWER_AT, 0.05, TOWER_H, 0.0, 8)
+		var tm := MeshInstance3D.new()
+		tm.mesh = MeshLib.finish(tower, lib.plastic(Color("C9A227"), 0.5))
+		tm.name = "Tower"
+		_look.add_child(tm)
+	crane = Node3D.new()
+	crane.name = "Crane"
+	crane.position = Layout.p3(TOWER_AT, TOWER_H)
+	_look.add_child(crane)
+	_boom = Node3D.new()
+	_boom.name = "Boom"
+	crane.add_child(_boom)
+	var jib := ToyLib.instance(&"pier_boom")
+	if jib != null:
+		_boom.add_child(jib)
+	else:
+		var boom_mesh := BoxMesh.new()
+		boom_mesh.size = Vector3(0.05, 0.05, 1.55)
+		var bm := MeshInstance3D.new()
+		bm.mesh = boom_mesh
+		bm.material_override = lib.plastic(Color("C9A227"), 0.5)
+		bm.position = Vector3(0.0, 0.0, 0.62)
+		_boom.add_child(bm)
+	_trolley = Node3D.new()
+	_trolley.name = "Trolley"
+	_boom.add_child(_trolley)
+	var cable := CylinderMesh.new()
+	cable.top_radius = 0.006
+	cable.bottom_radius = 0.006
+	cable.height = 0.2
+	var cm := MeshInstance3D.new()
+	cm.mesh = cable
+	cm.material_override = lib.steel()
+	cm.position.y = -0.1
+	cm.name = "Cable"
+	_trolley.add_child(cm)
+	_magnet_lamp = lib.lamp(Feel.COL_DIRTY)
+	var mag := CylinderMesh.new()
+	mag.top_radius = 0.09
+	mag.bottom_radius = 0.09
+	mag.height = 0.04
+	var mm := MeshInstance3D.new()
+	mm.mesh = mag
+	mm.material_override = _magnet_lamp
+	mm.position.y = -0.2
+	mm.name = "Magnet"
+	_trolley.add_child(mm)
+	_hook = Layout.p3(catch_point(), HOOK_H)
+	_aim_crane(_hook, 0.0)
+	# the arrow on the ring road that says the pier is taking loads
+	_arrow_lamp = lib.lamp(Color(1.0, 0.45, 0.2))
+	var st := MeshLib.begin()
+	var p := catch_point()
+	var dir := (Layout.channel_mid(CATCH_DEG - 6.0) - p).normalized()
+	var side := Vector2(-dir.y, dir.x)
+	var tip := p + dir * 0.12
+	var a := p - dir * 0.06 + side * 0.07
+	var b := p - dir * 0.06 - side * 0.07
+	st.set_normal(Vector3.UP)
+	st.add_vertex(Vector3(tip.x, 0.004, tip.y))
+	st.add_vertex(Vector3(b.x, 0.004, b.y))
+	st.add_vertex(Vector3(a.x, 0.004, a.y))
+	var am := MeshInstance3D.new()
+	am.mesh = MeshLib.finish(st, _arrow_lamp)
+	am.name = "PierArrow"
+	am.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_look.add_child(am)
+	var sign := Label3D.new()
+	sign.text = "PIER 9"
+	sign.font_size = 56
+	sign.pixel_size = 0.0022
+	sign.modulate = Color(0.45, 0.95, 0.9)
+	sign.position = Vector3(2.16, 0.36, -4.72)
+	sign.rotation.x = deg_to_rad(-60.0)
+	sign.rotation.y = deg_to_rad(28.0)
+	sign.name = "Sign"
+	_look.add_child(sign)
+
+
+## Point the boom at a table-space hook position (the magnet hangs `drop` below the boom).
+func _aim_crane(hook: Vector3, drop: float) -> void:
+	if crane == null:
+		return
+	var local := hook - crane.position
+	var flat := Vector2(local.x, local.z)
+	_boom.rotation.y = atan2(flat.x, flat.y)
+	_trolley.position = Vector3(0.0, 0.0, flat.length())
+	var cable := _trolley.get_node_or_null("Cable") as MeshInstance3D
+	var magnet := _trolley.get_node_or_null("Magnet") as MeshInstance3D
+	var hang := maxf(-local.y + drop, 0.08)
+	if cable != null:
+		(cable.mesh as CylinderMesh).height = hang
+		cable.position.y = -hang * 0.5
+	if magnet != null:
+		magnet.position.y = -hang
 
 
 func set_ball(b: Ball) -> void:
 	_ball = b
-	if b == null or not is_instance_valid(b):
-		_was_outside = true
-	if _scoop_ball != b:
-		_scoop_ball = null
-		_scoop_t = -1.0
-	for holder: Node in [cargo_ramp, crane, gate, quay_gate]:
-		if holder != null:
-			holder.call(&"set_ball", b)
 
 
 func pieces() -> Array[Dictionary]:
-	return [
-		{"ids": [ID_CONTAINERS], "node": containers},
-		{"ids": [ID_CRANE], "node": crane},
-		{"ids": [ID_CARGO_RAMP], "node": cargo_ramp},
-	]
+	return []
 
 
 func bounds() -> AABB:
-	return AABB(Vector3(-2.6, -0.1, -0.1), Vector3(1.3, 1.2, 2.3))
+	return AABB(Vector3(1.7, 0.0, -5.4), Vector3(0.9, TOWER_H, 1.6))
 
 
 func yard_rect() -> Rect2:
-	return Rect2(Vector2(-2.52, ROOF_FROM.y), Vector2(RIGHT_TO.x + 2.52, BED_TO.y - ROOF_FROM.y))
+	return Rect2(Vector2(1.78, -5.4), Vector2(0.82, 1.6))
 
 
 func holds_ball() -> bool:
-	return (cargo_ramp != null and cargo_ramp.riding()) or _scoop_ball != null
+	return _phase != Phase.IDLE
 
 
-func search_exempt(ball: Ball) -> bool:
-	if ball == null or not is_instance_valid(ball) or not _present:
-		return false
-	return BallHold.is_held(ball) and holds_ball()
+func search_exempt(b: Ball) -> bool:
+	return _phase != Phase.IDLE and _ride != null and b == _ride.ball
 
 
-func _physics_process(delta: float) -> void:
-	if not _present:
-		return
-	_scoop_cooldown = maxf(0.0, _scoop_cooldown - delta)
-	if _scoop_ball != null:
-		if not is_instance_valid(_scoop_ball):
-			_scoop_ball = null
-		else:
-			_scoop_t += delta
-			BallHold.steer(_scoop_ball, Layout.p3(SCOOP_AT, Feel.BALL_RADIUS - 0.02), delta)
-			if _scoop_t >= 0.55:
-				_fire_scoop()
-	if _ball == null or not is_instance_valid(_ball):
-		return
-	var p := _ball.table_position()
-	var inside := p.y < 0.5 and yard_rect().has_point(Vector2(p.x, p.z))
-	if inside and _was_outside:
-		AudioDirector.play(&"wall_tap")
-		docks_entered.emit()
-	_was_outside = not inside
-	if inside:
-		_check_pier(_ball)
+func cleared_stacks() -> Array:
+	return _loaded.duplicate()
 
 
-func _on_scoop_entered(body: Node3D) -> void:
-	if not (body is Ball) or not _present or _scoop_ball != null or _scoop_cooldown > 0.0:
-		return
-	var b := body as Ball
-	if BallHold.is_held(b):
-		return
-	_scoop_ball = b
-	_scoop_t = 0.0
-	BallHold.take(b)
-	AudioDirector.play(&"safe_open")
-	TableScore.hit(&"cargo_scoop", b)
+func loaded_count() -> int:
+	return _loaded.size()
 
 
-func _fire_scoop() -> void:
-	var b := _scoop_ball
-	_scoop_ball = null
-	_scoop_t = -1.0
-	if b == null or not is_instance_valid(b):
-		return
-	var dir := (CARGO_PATH[1] - CARGO_PATH[0]).normalized()
-	_scoop_cooldown = 1.0
-	BallHold.release(b, CARGO_PATH[0] + Vector3(0.0, Feel.BALL_RADIUS + 0.01, 0.0), dir * CARGO_KICK)
-	AudioDirector.play(&"kickback")
+func set_lit(on: bool) -> void:
+	lit = on
 
 
-func _on_cargo_crested(speed: float) -> void:
-	AudioDirector.play(&"orbit_whoosh")
-	TableScore.earn(TableScore.GROUP_RAMPS, TableScore.RAMP_CLIMB, ID_CARGO_RAMP, _ball, speed)
+## The run shipped or lapsed: the crane empties the yard.
+func reset_pier() -> void:
+	_loaded.clear()
+	containers_state.emit(cleared_stacks())
+
+
+## Getting the load to the truck: the flow reports a Getaway during a live run through here so
+## the yard owns every one of its own signals.
+func ship_to_truck(speed: float) -> void:
 	cargo_shipped.emit(speed)
 
 
+func _on_sensor(body: Node3D) -> void:
+	if not _present or not lit or _phase != Phase.IDLE or _cool > 0.0 or not (body is Ball):
+		return
+	var b := body as Ball
+	if BallHold.is_held(b) or _loaded.size() >= STACKS:
+		return
+	if truck_route != null and not truck_route.armed():
+		return
+	crane_telegraph.emit()
+	AudioDirector.play(&"crane_telegraph")
+	var catch3 := Layout.p3(catch_point(), Feel.BALL_RADIUS)
+	_ride = PathRide.start(b, PackedVector3Array([b.table_position(), catch3 + Vector3(0.0, HOOK_H - 0.2, 0.0)]), RIDE_SPEED)
+	_phase = Phase.LIFT
+	_t = 0.0
+	docks_entered.emit()
+
+
+func _physics_process(delta: float) -> void:
+	_cool = maxf(_cool - delta, 0.0)
+	if _phase == Phase.IDLE or _ride == null:
+		return
+	if _ride.ball == null or not is_instance_valid(_ride.ball):
+		_phase = Phase.IDLE
+		_ride = null
+		return
+	_t += delta
+	_ride.step(delta)
+	_hook = _ride.ball.table_position() + Vector3(0.0, Feel.BALL_RADIUS + 0.02, 0.0)
+	if not _ride.done():
+		return
+	var b := _ride.ball
+	match _phase:
+		Phase.LIFT:
+			crane_pulled.emit()
+			var slot: Vector2 = CONTAINER_AT[_loaded.size()]
+			var over := Layout.p3(slot, HOOK_H - 0.2)
+			_ride = PathRide.start(b, PackedVector3Array([b.table_position(), over,
+					Layout.p3(slot, 0.04 + CONTAINER_SIZE.y + Feel.BALL_RADIUS)]), RIDE_SPEED)
+			_phase = Phase.SWING
+		Phase.SWING:
+			_phase = Phase.LOAD
+			_t = 0.0
+			var stack := _loaded.size()
+			_loaded.append(stack)
+			AudioDirector.play(&"container_break")
+			TableScore.earn(TableScore.GROUP_SMUGGLING, TableScore.SMUGGLING_CONTAINER, StringName("containers_%d" % (stack + 1)), b)
+			stack_cleared.emit(stack)
+			containers_state.emit(cleared_stacks())
+			_ride = PathRide.start(b, PackedVector3Array([b.table_position(), b.table_position()]), 1.0)
+		Phase.LOAD:
+			if _t < LOAD_SECONDS:
+				return
+			var drop := Layout.p3(drop_point(), 0.0)
+			_ride = PathRide.start(b, PackedVector3Array([b.table_position(),
+					b.table_position() + Vector3(0.0, 0.18, 0.0), Vector3(drop.x, HOOK_H - 0.2, drop.z),
+					Vector3(drop.x, Feel.BALL_RADIUS + 0.03, drop.z)]), RIDE_SPEED * 1.2)
+			_phase = Phase.BACK
+		Phase.BACK:
+			var a := deg_to_rad(DROP_DEG)
+			var tangent := Vector3(sin(a), 0.0, -cos(a))
+			_ride.release(tangent * DROP_SPEED)
+			_ride = null
+			_phase = Phase.IDLE
+			_cool = COOLDOWN
+			AudioDirector.play(&"kickback")
+
+
+func _process(delta: float) -> void:
+	if not _present:
+		return
+	var t := Time.get_ticks_msec() * 0.001
+	for i in range(_container_lamps.size()):
+		var on := _loaded.has(i)
+		_container_lamps[i].emission_energy_multiplier = 2.2 if on else 0.08
+	if _arrow_lamp != null:
+		var avail := lit and _loaded.size() < STACKS and _cool <= 0.0
+		_arrow_lamp.emission_energy_multiplier = (1.8 if fmod(t * 2.0, 1.0) < 0.5 else 0.3) if avail else 0.0
+	if _magnet_lamp != null:
+		_magnet_lamp.emission_energy_multiplier = lerpf(_magnet_lamp.emission_energy_multiplier,
+				2.5 if _phase != Phase.IDLE else 0.1, 1.0 - exp(-10.0 * delta))
+	if _phase == Phase.IDLE:
+		_hook = _hook.lerp(Layout.p3(catch_point(), HOOK_H), 1.0 - exp(-3.0 * delta))
+	_aim_crane(_hook, 0.0)
 
 
 func set_hardware_active(active: bool) -> void:
 	_present = active
 	visible = active
-	_was_outside = true
-	for piece: Node in [_shell, gate, quay_gate]:
-		if piece != null:
-			Dormant.apply(piece, active)
-	if scoop != null:
-		scoop.collision_layer = Feel.LAYER_ZONES if active else 0
-		scoop.collision_mask = Feel.LAYER_BALL if active else 0
+	if _sensor != null:
+		_sensor.collision_layer = Feel.LAYER_ZONES if active else 0
+		_sensor.collision_mask = Feel.LAYER_BALL if active else 0
 	if not active:
 		_release_everything()
 
@@ -333,11 +381,8 @@ func is_hardware_active() -> bool:
 
 
 func _release_everything() -> void:
-	if _scoop_ball != null and is_instance_valid(_scoop_ball):
-		BallHold.release(_scoop_ball, Layout.p3(SCOOP_AT, Feel.BALL_RADIUS), Vector3.ZERO)
-	_scoop_ball = null
-	_scoop_t = -1.0
-	if cargo_ramp != null:
-		cargo_ramp.set_hardware_active(false)
-	if crane != null:
-		crane.set_active(false)
+	if _ride != null and _ride.ball != null and is_instance_valid(_ride.ball):
+		var drop := Layout.p3(drop_point(), Feel.BALL_RADIUS + 0.03)
+		BallHold.release(_ride.ball, drop, Vector3.ZERO)
+	_ride = null
+	_phase = Phase.IDLE

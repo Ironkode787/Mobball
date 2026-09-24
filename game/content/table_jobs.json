@@ -1,0 +1,23 @@
+{
+	"schema": 1,
+	"about": "THE WIRE's Jobs (docs/19 §4): picked at a payphone, taken at Lucky's, made against the fuse. shots: the table's shot ids and how many of each; district: the Empire Wheel insert (0 Alley .. 7 City Hall); minutes: pay, in minutes of the empire's idle rate (floored by rank); fuse: seconds.",
+	"jobs": [
+		{"id": "shakedown", "name": "The Shakedown", "district": 0, "min_rank": 0, "shots": {"alley": 8}, "minutes": 2.0, "respect": 3, "fuse": 70, "line": "Rattle every can in the Alley."},
+		{"id": "the_drop", "name": "The Drop", "district": 0, "min_rank": 0, "shots": {"dropoff": 3}, "minutes": 2.0, "respect": 3, "fuse": 80, "line": "Three lanes, three bags, no questions."},
+		{"id": "phone_tree", "name": "Phone Tree", "district": 1, "min_rank": 0, "shots": {"wire": 3}, "minutes": 2.0, "respect": 3, "fuse": 60, "line": "Every book on the block gets a call."},
+		{"id": "spin_cycle", "name": "Spin the Numbers", "district": 2, "min_rank": 0, "shots": {"spinner": 20}, "minutes": 2.5, "respect": 3, "fuse": 70, "line": "The wheel has to turn before the draw."},
+		{"id": "wash_day", "name": "Wash Day", "district": 2, "min_rank": 0, "shots": {"luckys": 2}, "minutes": 3.0, "respect": 4, "fuse": 75, "line": "Two loads through Lucky's before the Feds count."},
+		{"id": "pay_the_beat", "name": "Pay the Beat", "district": 1, "min_rank": 0, "shots": {"beat_cop": 2, "alley": 4}, "minutes": 3.0, "respect": 4, "fuse": 75, "line": "Officer Kowalski's envelope, twice."},
+		{"id": "the_long_way", "name": "The Long Way Round", "district": 2, "min_rank": 0, "shots": {"getaway": 2}, "minutes": 3.0, "respect": 4, "fuse": 75, "line": "Lose the tail. Twice round the block."},
+		{"id": "protection", "name": "Protection Money", "district": 3, "min_rank": 0, "shots": {"nonnas": 1, "fat_tonys": 1}, "minutes": 4.0, "respect": 5, "fuse": 80, "line": "Nonna pays in pizza. Tony pays in cash."},
+		{"id": "pizza_run", "name": "The Pizza Run", "district": 3, "min_rank": 0, "shots": {"nonnas": 2}, "minutes": 3.5, "respect": 4, "fuse": 75, "line": "Extra cheese, extra envelope."},
+		{"id": "hot_goods", "name": "Hot Merchandise", "district": 3, "min_rank": 0, "shots": {"fat_tonys": 2}, "minutes": 3.5, "respect": 4, "fuse": 75, "line": "Tony's got watches. Nobody asks whose."},
+		{"id": "the_getaway", "name": "The Getaway", "district": 3, "min_rank": 0, "shots": {"getaway": 1, "truck_route": 1}, "minutes": 4.0, "respect": 5, "fuse": 70, "line": "Out the left, back round the right."},
+		{"id": "night_at_the_club", "name": "A Night at the Club", "district": 4, "min_rank": 0, "shots": {"staircase": 2}, "minutes": 4.5, "respect": 5, "fuse": 80, "line": "Two trips up the Staircase. Tip the doorman."},
+		{"id": "high_stakes", "name": "High Stakes", "district": 4, "min_rank": 0, "shots": {"staircase": 1, "alley": 6}, "minutes": 5.0, "respect": 6, "fuse": 85, "line": "Win upstairs, collect downstairs."},
+		{"id": "midnight_shipment", "name": "Midnight Shipment", "district": 5, "min_rank": 0, "shots": {"truck_route": 2}, "minutes": 5.0, "respect": 6, "fuse": 75, "line": "The truck leaves Pier 9 at midnight. Twice."},
+		{"id": "dockside", "name": "Dockside", "district": 5, "min_rank": 0, "shots": {"truck_route": 1, "luckys": 1, "wire": 1}, "minutes": 5.5, "respect": 6, "fuse": 85, "line": "Load it, wash it, phone it in."},
+		{"id": "the_sitdown", "name": "The Sit-Down", "district": 6, "min_rank": 6, "shots": {"getaway": 1, "staircase": 1, "truck_route": 1}, "minutes": 7.0, "respect": 8, "fuse": 90, "line": "The Five Families want to see you move."},
+		{"id": "grand_tour", "name": "The Grand Tour", "district": 7, "min_rank": 7, "shots": {"getaway": 1, "staircase": 1, "luckys": 1, "truck_route": 1}, "minutes": 9.0, "respect": 10, "fuse": 100, "line": "Show the mayor the whole city."}
+	]
+}

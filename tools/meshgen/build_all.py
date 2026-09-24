@@ -12,7 +12,7 @@ if HERE not in sys.path:
 import common  # noqa: E402
 import toys  # noqa: E402
 
-BUDGET = {"default": 1500, "slot_machine": 3000, "washing_machine": 2000}
+BUDGET = {"default": 1500, "slot_machine": 3000, "washing_machine": 2000, "city_hall_dome": 3000}
 
 
 def main():

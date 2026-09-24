@@ -1,8 +1,9 @@
 extends Node3D
 ## Dev probe (not a gate): exercises the 3D machine headless and prints what the ball does.
 ##   godot --headless --path . res://tests/probe_machine.tscn
-## Plunger sweep → which top lane / orbit; a shot up the Staircase; both orbits; a ball
-## dropped at the flippers → does it drain; a soak of random flips → stuck anywhere?
+## Plunger sweep → which Drop-Off lane / orbit; a shot up the Staircase; a Truck Route ball
+## into Pier 9's crane; the left orbit; a ball dropped at the flippers → does it drain; a
+## soak of random flips → stuck anywhere?
 
 const TABLE_SCENE := preload("res://game/table/table_main.tscn")
 const POWERS: PackedFloat32Array = [0.55, 0.58, 0.60, 0.62, 0.65, 0.68, 0.72, 0.76, 0.80, 0.85, 0.90, 0.95]
@@ -158,49 +159,24 @@ func _run() -> void:
 		print("stair %.0f u/s -> climbed=%s drained=%s max_y=%.2f end=%s stuck=%d@%s events=%s"
 				% [speed, str(_climbed), str(_drained), w["max_y"], str(w["end"]), w["still_max"], str(w["still_at"]),
 				",".join(_events.slice(0, 8))])
-	print("-- penthouse stairs from the deck mouth")
-	for speed in [21.0, 32.0]:
-		_reset()
-		table.despawn_ball()
-		var b := table.spawn_ball()
-		var start := ClubDeck.PENTHOUSE_MOUTH + Vector2(0.30, 0.30)
-		b.place(Layout.p3(start, ClubDeck.DECK_H + Feel.BALL_RADIUS + 0.01))
-		await get_tree().physics_frame
-		var dir := Penthouse.STAIR_PATH[1] - Penthouse.STAIR_PATH[0]
-		dir.y = 0.0
-		b.set_velocity(dir.normalized() * speed)
-		var trace := PackedStringArray()
-		for k in range(30):
-			for j in range(8):
-				await get_tree().physics_frame
-			if b == null or not is_instance_valid(b):
-				break
-			var tp := b.table_position()
-			trace.append("(%.2f,%.2f,%.2f|%.0f)" % [tp.x, tp.y, tp.z, b.speed()])
-		print("stairs %.0f -> events=%s" % [speed, ",".join(_events.slice(0, 8))])
-		print("   trace: %s" % " ".join(trace.slice(0, 20)))
-		if b != null and is_instance_valid(b) and b.speed() < 0.5:
-			_colliders_near(b.table_position(), 0.2)
-	print("-- docks: a lane ball rolling down into the yard")
-	for speed in [4.0, 9.0]:
+	print("-- Pier 9: a Truck Route ball up the right lane, the crane lit")
+	for speed in [16.0, 21.0]:
 		_reset()
 		table.despawn_ball()
 		var db := table.spawn_ball()
-		db.place(Layout.p3(Vector2(-2.36, -0.9), Feel.BALL_RADIUS + 0.01))
+		db.place(Layout.p3(Layout.ORBIT_R_ENTRY + Vector2(0.0, 0.6), Feel.BALL_RADIUS + 0.01))
 		await get_tree().physics_frame
-		db.set_velocity(Vector3(0.0, 0.0, speed))
+		db.set_velocity(Vector3(0.0, 0.0, -speed))
 		var dtrace := PackedStringArray()
-		for k in range(40):
-			for j in range(30):
+		for k in range(24):
+			for j in range(20):
 				await get_tree().physics_frame
 			if db == null or not is_instance_valid(db):
 				break
 			var tp := db.table_position()
 			dtrace.append("(%.2f,%.2f,%.2f|%.0f)" % [tp.x, tp.y, tp.z, db.speed()])
-		print("docks %.0f -> events=%s" % [speed, ",".join(_events.slice(0, 8))])
-		print("   trace: %s" % " ".join(dtrace.slice(0, 40)))
-		if db != null and is_instance_valid(db) and db.speed() < 0.5:
-			_colliders_near(db.table_position(), 0.1)
+		print("pier %.0f -> events=%s" % [speed, ",".join(_events.slice(0, 8))])
+		print("   trace: %s" % " ".join(dtrace.slice(0, 24)))
 	print("-- left orbit from the entry")
 	for speed in [10.0, 18.0, 26.0]:
 		_reset()

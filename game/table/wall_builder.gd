@@ -24,11 +24,61 @@ func chain(points: PackedVector2Array, thickness: float, height: float = -1.0) -
 		return
 	var t := maxf(thickness, MIN_THICKNESS)
 	var h := default_height if height <= 0.0 else height
-	for i in range(points.size() - 1):
-		_segment(points[i], points[i + 1], t, h)
-	for p in points:
-		_post(p, t * 0.5, h)
+	if points.size() >= 3:
+		# one mitred trimesh, not a box per chord: Jolt treats its inner edges as inactive, so a
+		# fast ball riding a curve is not caught on the joins between segments
+		_smooth(points, t, h)
+		_post(points[0], t * 0.5, h)
+		_post(points[points.size() - 1], t * 0.5, h)
+	else:
+		for i in range(points.size() - 1):
+			_segment(points[i], points[i + 1], t, h)
+		for p in points:
+			_post(p, t * 0.5, h)
 	chains.append({"points": points, "thickness": t, "height": h, "base": base})
+
+
+func _smooth(points: PackedVector2Array, t: float, h: float) -> void:
+	var n := points.size()
+	var left := PackedVector2Array()
+	var right := PackedVector2Array()
+	for i in range(n):
+		var d_prev := (points[i] - points[i - 1]).normalized() if i > 0 else (points[1] - points[0]).normalized()
+		var d_next := (points[i + 1] - points[i]).normalized() if i < n - 1 else d_prev
+		var tangent := (d_prev + d_next).normalized()
+		if tangent.length() < 0.001:
+			tangent = d_next
+		var normal := Vector2(-tangent.y, tangent.x)
+		var seg_normal := Vector2(-d_next.y, d_next.x)
+		var miter := t * 0.5 / maxf(normal.dot(seg_normal), 0.35)
+		left.append(points[i] + normal * miter)
+		right.append(points[i] - normal * miter)
+	var faces := PackedVector3Array()
+	var y0 := base
+	var y1 := base + h
+	for i in range(n - 1):
+		for side: PackedVector2Array in [left, right]:
+			var a := side[i]
+			var b := side[i + 1]
+			faces.append_array([Vector3(a.x, y0, a.y), Vector3(b.x, y0, b.y), Vector3(b.x, y1, b.y),
+					Vector3(a.x, y0, a.y), Vector3(b.x, y1, b.y), Vector3(a.x, y1, a.y)])
+		var la := left[i]
+		var lb := left[i + 1]
+		var ra := right[i]
+		var rb := right[i + 1]
+		faces.append_array([Vector3(la.x, y1, la.y), Vector3(lb.x, y1, lb.y), Vector3(rb.x, y1, rb.y),
+				Vector3(la.x, y1, la.y), Vector3(rb.x, y1, rb.y), Vector3(ra.x, y1, ra.y)])
+	for i: int in [0, n - 1]:
+		var l := left[i]
+		var r := right[i]
+		faces.append_array([Vector3(l.x, y0, l.y), Vector3(r.x, y0, r.y), Vector3(r.x, y1, r.y),
+				Vector3(l.x, y0, l.y), Vector3(r.x, y1, r.y), Vector3(l.x, y1, l.y)])
+	var shape := CollisionShape3D.new()
+	var mesh := ConcavePolygonShape3D.new()
+	mesh.backface_collision = true
+	mesh.set_faces(faces)
+	shape.shape = mesh
+	body.add_child(shape)
 
 
 func bar(from: Vector2, to: Vector2, thickness: float, height: float = -1.0) -> void:

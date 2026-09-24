@@ -226,6 +226,126 @@ def build_safe():
 	return [body, dial, handle]
 
 
+# ---------------------------------------------------------------- city_hall_dome ---------
+def build_city_hall_dome():
+	"""CityHall's corner rotunda (v4): stepped podium, a colonnade of twelve, the drum and a
+	gilt dome under the Getaway's dome loop. The loop's wireform runs at r 0.40 from z 0.78,
+	so the building stays inside r 0.26 above z 0.64; only the lantern and the flag rise
+	through the middle, where the ball never goes."""
+	stone = mat("hall_stone", ENAMEL, 0.0, 0.7)
+	shade = mat("hall_shade", (0.62, 0.60, 0.55), 0.0, 0.8)
+	parts = [
+		lathe("podium", [(0.0, 0.0), (0.30, 0.0), (0.30, 0.025), (0.285, 0.025), (0.285, 0.05),
+				(0.27, 0.05), (0.27, 0.075), (0.0, 0.075)], stone, segments=24),
+		cyl("core", 0.19, 0.225, (0.0, 0.0, 0.1875), shade, segments=16),
+	]
+	for k in range(12):
+		a = k * math.tau / 12.0
+		x, y = math.cos(a) * 0.235, math.sin(a) * 0.235
+		parts.append(cyl("col%d" % k, 0.017, 0.215, (x, y, 0.1825), stone, segments=8))
+		parts.append(box("cap%d" % k, (0.042, 0.042, 0.012), (x, y, 0.294), stone))
+	parts.append(lathe("entablature", [(0.0, 0.30), (0.262, 0.30), (0.262, 0.335), (0.272, 0.345),
+			(0.272, 0.355), (0.0, 0.355)], stone, segments=24))
+	parts.append(lathe("drum", [(0.0, 0.355), (0.225, 0.355), (0.225, 0.425), (0.238, 0.432),
+			(0.238, 0.44), (0.0, 0.44)], stone, segments=24))
+	body = join("Body", parts)
+	dome = lathe("LampDome", [(0.222, 0.44)] + [
+			(0.222 * math.cos(t), 0.44 + 0.195 * math.sin(t))
+			for t in [math.radians(a) for a in (12, 24, 36, 48, 60, 72, 84)]] + [(0.0, 0.635)],
+			m_lamp(), segments=24)
+	ribs = []
+	for k in range(8):
+		a = k * math.tau / 8.0
+		pts = []
+		for t in (4, 26, 48, 70, 86):
+			tr = math.radians(t)
+			r = 0.227 * math.cos(tr)
+			pts.append((math.cos(a) * r, math.sin(a) * r, 0.44 + 0.2 * math.sin(tr)))
+		for j in range(len(pts) - 1):
+			ribs.append(_strut("rib%d_%d" % (k, j), pts[j], pts[j + 1], 0.011, m_brass()))
+	lantern = [
+		cyl("lantern", 0.04, 0.07, (0.0, 0.0, 0.665), stone, segments=10),
+		cyl("lantern_cap", 0.05, 0.02, (0.0, 0.0, 0.71), m_brass(), segments=10, radius_top=0.018),
+		cyl("pole", 0.005, 0.22, (0.0, 0.0, 0.83), m_steel(), segments=6),
+		box("flag", (0.001, 0.09, 0.05), (0.0, -0.047, 0.91), mat("hall_flag", CREAM, 0.0, 0.9)),
+	]
+	trim = join("Trim", lantern + ribs)
+	return [body, dome, trim]
+
+
+# ------------------------------------------------------------------ pier_crane -----------
+def _strut(name, a, b, t, material):
+	"""A square strut from `a` to `b` (Blender space): built on the origin, turned, then
+	moved, so `join` bakes it where it belongs."""
+	from mathutils import Vector
+	va, vb = Vector(a), Vector(b)
+	d = vb - va
+	ob = box(name, (t, t, d.length), (0.0, 0.0, 0.0), material)
+	ob.rotation_mode = "QUATERNION"
+	ob.rotation_quaternion = Vector((0.0, 0.0, 1.0)).rotation_difference(d.normalized())
+	ob.location = (va + vb) * 0.5
+	return ob
+
+
+def build_pier_crane():
+	"""Pier 9's tower (v4): a lattice mast 1.05 tall on a concrete foot, the slewing ring on
+	top. The boom is its own mesh (`pier_boom`) so the code can swing it."""
+	paint = mat("crane_paint", (0.74, 0.58, 0.16), 0.2, 0.55)
+	h = 1.05
+	w = 0.05
+	parts = [box("foot", (0.15, 0.15, 0.04), (0.0, 0.0, 0.02), mat("crane_foot", (0.42, 0.41, 0.38), 0.0, 0.9))]
+	corners = [(-w, -w), (w, -w), (w, w), (-w, w)]
+	for i, (x, y) in enumerate(corners):
+		parts.append(_strut("leg%d" % i, (x, y, 0.04), (x, y, h - 0.04), 0.014, paint))
+	levels = 8
+	for k in range(levels):
+		z0 = 0.04 + (h - 0.08) * k / levels
+		z1 = 0.04 + (h - 0.08) * (k + 1) / levels
+		for i in range(4):
+			a = corners[i]
+			b = corners[(i + 1) % 4]
+			parts.append(_strut("h%d_%d" % (k, i), (a[0], a[1], z1), (b[0], b[1], z1), 0.008, paint))
+			if k % 2 == 0:
+				parts.append(_strut("d%d_%d" % (k, i), (a[0], a[1], z0), (b[0], b[1], z1), 0.007, paint))
+			else:
+				parts.append(_strut("d%d_%d" % (k, i), (b[0], b[1], z0), (a[0], a[1], z1), 0.007, paint))
+	parts.append(cyl("ring", 0.075, 0.03, (0.0, 0.0, h - 0.015), m_steel(), segments=16))
+	return [join("Body", parts)]
+
+
+def build_pier_boom():
+	"""Pier 9's boom: a triangular lattice jib reaching 1.40 out over the ring road (Blender -Y,
+	the table's +Z), the operator's cab under the pivot, the counter-jib and its weight behind.
+	The origin is the slewing pivot; the trolley and its cable stay code-built."""
+	paint = mat("crane_paint", (0.74, 0.58, 0.16), 0.2, 0.55)
+	length = 1.40
+	hw = 0.03
+	lo = -0.025
+	hi = 0.03
+	parts = []
+	chords = [(-hw, lo), (hw, lo), (0.0, hi)]
+	for i, (x, z) in enumerate(chords):
+		parts.append(_strut("chord%d" % i, (x, 0.02, z), (x, -length, z), 0.010, paint))
+	bays = 14
+	for k in range(bays):
+		y0 = -length * k / bays
+		y1 = -length * (k + 1) / bays
+		ya, yb = (y0, y1) if k % 2 == 0 else (y1, y0)
+		parts.append(_strut("s%da" % k, (-hw, ya, lo), (0.0, yb, hi), 0.006, paint))
+		parts.append(_strut("s%db" % k, (hw, ya, lo), (0.0, yb, hi), 0.006, paint))
+		parts.append(_strut("s%dc" % k, (-hw, y1, lo), (hw, y1, lo), 0.006, paint))
+	# the counter-jib, its weight, and the cab
+	parts.append(_strut("cj0", (-hw, 0.0, lo), (-hw, 0.34, lo), 0.012, paint))
+	parts.append(_strut("cj1", (hw, 0.0, lo), (hw, 0.34, lo), 0.012, paint))
+	parts.append(box("weight", (0.11, 0.08, 0.07), (0.0, 0.30, lo - 0.02), mat("crane_weight", (0.36, 0.35, 0.33), 0.1, 0.9)))
+	parts.append(_strut("tie0", (0.0, -0.60, hi), (0.0, 0.0, 0.16), 0.005, m_steel()))
+	parts.append(_strut("tie1", (0.0, 0.30, hi), (0.0, 0.0, 0.16), 0.005, m_steel()))
+	parts.append(_strut("apex", (0.0, 0.0, lo), (0.0, 0.0, 0.16), 0.014, paint))
+	cab = box("cab", (0.075, 0.07, 0.06), (0.0, -0.05, lo - 0.045), paint)
+	glass = box("cab_glass", (0.07, 0.004, 0.035), (0.0, -0.086, lo - 0.04), m_glass())
+	return [join("Body", [cab, glass] + parts)]
+
+
 BUILDERS = {
 	"bumper_can": build_bumper_can,
 	"container": build_container,
@@ -237,4 +357,7 @@ BUILDERS = {
 	"pizza_sign": build_pizza_sign,
 	"washing_machine": build_washing_machine,
 	"safe": build_safe,
+	"city_hall_dome": build_city_hall_dome,
+	"pier_crane": build_pier_crane,
+	"pier_boom": build_pier_boom,
 }

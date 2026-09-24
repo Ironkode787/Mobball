@@ -48,6 +48,10 @@ workstreams live in `specs/`.
   playfield shader (`game/table/look/playfield.gdshader`) and `MaterialLib.pbr()` use them
   when present and fall back to the procedural look when not; new sets go in `SET` in the
   fetch script and get a row in `assets/ASSETS.md`.
+- The printed playfield (`assets/textures/playfield/playfield.png`: shot names, lane paint,
+  insert keylines) is painted from the table's evaluated geometry by
+  `bash tools/texgen/playfield.sh`. Re-run it after moving anything in `layout.gd` or the
+  insert positions; never hand-edit the PNG.
 
 ## Code style
 

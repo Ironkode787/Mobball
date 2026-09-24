@@ -718,6 +718,9 @@ func _fit_objective() -> void:
 
 
 func _job_objective() -> String:
+	var board := Game.table_jobs.headline() if Game.table_jobs != null else ""
+	if not board.is_empty():
+		return board
 	var active := Game.jobs.active_jobs()
 	if active.is_empty():
 		return "KEEP THE BALL IN PLAY"

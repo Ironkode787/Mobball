@@ -4,10 +4,10 @@
     {
       "id": "send_a_message",
       "name": "Send a Message",
-      "desc": "Hit 6 bumpers inside 5 seconds.",
+      "desc": "Hit the cans 6 times inside 30 seconds.",
       "respect": 5,
       "check": "bumper_burst",
-      "params": {"count": 6, "window": 5.0},
+      "params": {"count": 6, "window": 30.0},
       "min_rank": 0
     },
     {

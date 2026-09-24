@@ -16,7 +16,7 @@ under **Tonight's Work** shows its exact objective text, its **RESPECT +N** rewa
 label:
 
 - **ANY GUY** — progress may come from any guy in the Night (for example, *Send a Message*:
-  “Hit 6 bumpers inside 5 seconds.” — Respect +5).
+  “Hit the cans 6 times inside 30 seconds.” — Respect +5).
 - **ONE GUY** — the objective must be completed by one guy's run (for example, *The Milk Run*:
   “Make 3 spinner passes with one guy.” — Respect +8; *Shake the Block* is Respect +20).
 - **FIRST GUY** — the objective is tied specifically to the first guy served (for example,

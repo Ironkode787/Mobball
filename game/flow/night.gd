@@ -63,9 +63,9 @@ const DECK_LINE := 0.5
 ## Where the Family Meeting's second guy comes in, as an offset from the deck's own socket:
 ## on the deck, below the back room, above the mini bats. Derived from the table's geometry
 ## rather than restated, so the deck can move without this following it.
-const MEETING_SPAWN_OFFSET := Vector2(270.0, -260.0)
+const MEETING_SPAWN_OFFSET := Vector2(0.0, 0.0)
 ## Reunion joiners are dealt along the deck from that socket, alternating sides.
-const MEETING_SPREAD := Vector2(-90.0, -36.0)
+const MEETING_SPREAD := Vector2(0.28, -0.14)
 ## Outer band of the playfield width, each side, that counts as an outlane for the Slippery
 ## trait. Read against the table's own bounds so flow never hard-codes this table's posts.
 const OUTLANE_BAND := 0.25
@@ -79,6 +79,17 @@ const SPARE_JAM_SCALE := 1.0 / 3.0
 const BOSS_CEREMONY := 2.4
 ## Gap between the tote board's three chimes.
 const WIRE_ARPEGGIO_GAP := 0.09
+## The Big Score's crew comes in through Lucky's back door, into the Alley.
+const BIG_SCORE_CREW := 1
+const BIG_SCORE_SAVE_SECONDS := 12.0
+const BOARD_COLORS := {
+	&"job": Color(1.0, 0.72, 0.26),
+	&"accept": Color(0.2, 0.92, 0.84),
+	&"phone": Color(1.0, 0.9, 0.7),
+	&"big_score": Color(1.0, 0.84, 0.3),
+	&"jackpot": Color(1.0, 0.84, 0.3),
+	&"vault": Color(1.0, 0.96, 0.8),
+}
 
 var table: Node3D = null
 var nudge: NudgeController = null
@@ -141,6 +152,7 @@ var _skill_open: bool = false
 var _skill_timer: float = 0.0
 var _skill_cycle: float = 0.0
 var _skill_lane: int = 0
+var _skill_steering: bool = false
 var _lanes_zero_based: bool = false
 var _bridge_scored: bool = false
 ## The table reports wash passes / lit-lane rolls itself, so flow stops guessing from ids.
@@ -167,6 +179,7 @@ var _ending: bool = false
 var _collect_in: float = 0.0
 ## The fight's result, folded into the Night summary The Count reads.
 var _boss_result: Dictionary = {}
+var _big_score_age: float = 0.0
 
 
 func _ready() -> void:
@@ -279,6 +292,14 @@ func start() -> void:
 	# itself; a table with no dome overhead simply has no crown to light, which is correct —
 	# City Hall is a purchase (`city_hall`), not a default.
 	_connect_table(&"dome_loop_completed", _on_dome_loop)
+	# THE WIRE's Jobs (docs/19 §4): the table reports shots, TableJobs owns the lines, `Game`
+	# owns the pay.
+	_connect_table(&"shot_made", _on_table_shot)
+	_connect_table(&"payphone_rang", _on_payphone_rang)
+	_connect_table(&"lucky_entered", _on_lucky_entered)
+	_wire_table_jobs()
+	_big_score_age = 0.0
+	_light_board()
 
 	_start_boss()
 	_start_heist()
@@ -386,6 +407,7 @@ func _physics_process(delta: float) -> void:
 	_tick_arpeggio(delta)
 	_tick_skill(delta)
 	_tick_plunger(delta)
+	_tick_table_jobs(delta)
 
 	if _serve_in > 0.0:
 		_serve_in -= delta
@@ -479,6 +501,10 @@ func _tick_skill(delta: float) -> void:
 	_skill_timer -= delta
 	if _skill_timer <= 0.0:
 		_close_skill_window()
+		return
+	# once the ball is in flight the lit lane is the player's to steer (the flipper buttons move
+	# it, Space Cadet's skill shot); before the plunge it walks along the lanes on its own
+	if _skill_steering:
 		return
 	_skill_cycle -= delta
 	if _skill_cycle <= 0.0:
@@ -688,6 +714,7 @@ func _lose_guy(guy: Dictionary, age: float = 0.0) -> void:
 		return
 
 	Game.combo.reset()
+	Game.table_jobs.reset_take()
 	Game.set_fielded([])
 	Game.casino.close_visit()
 	Game.smuggling.abort()
@@ -975,6 +1002,7 @@ func _on_storefront_collected(id: StringName) -> void:
 		return
 	AudioDirector.play(&"storefront_collect")
 	Game.jobs.on_storefront(id)
+	Game.table_jobs.advance_take()
 	Game.rat_clue(TheRat.CLUE_COLLECTION)
 	# Lucky's door doubles as the wash pass — unless the table says so itself.
 	if not _wash_from_signal and String(id).findn("laundromat") >= 0:
@@ -1008,6 +1036,7 @@ func _open_skill_window() -> void:
 	if not Game.stats.hardware_unlocked(&"rollovers"):
 		return
 	_skill_open = true
+	_skill_steering = false
 	_skill_timer = SKILL_WINDOW + AUTO_LAUNCH_SECONDS
 	_skill_cycle = SKILL_CYCLE
 	_skill_lane = 0
@@ -1027,6 +1056,7 @@ func _on_ball_launched(ball_node: Node3D, _power: float) -> void:
 	_lane_idle = 0.0
 	if _skill_open:
 		_skill_timer = minf(_skill_timer, SKILL_WINDOW)
+		_skill_steering = true
 
 
 ## The table reports the lane and whether it was the lit one — no id parsing needed.
@@ -1044,6 +1074,8 @@ func _on_rollover_rolled(index: int, was_lit: bool) -> void:
 	_close_skill_window()
 	if was_lit:
 		Game.award_skill_shot()
+		# the Drop-Off's prize on the board: the cans go up a level (docs/19 §3.1)
+		TableAPI.call_if(table, "raise_can_level", [1])
 
 
 ## Fallback for a table that only emits `switch_hit`: work the lane out of the switch id.
@@ -1239,6 +1271,165 @@ func _on_deck_returned() -> void:
 		_tick_deck()
 
 
+# ============================================================ the Wire's Jobs =====
+
+
+func _wire_table_jobs() -> void:
+	var tj := Game.table_jobs
+	var pairs: Array = [
+		[tj.job_done, _on_table_job_done], [tj.job_blown, _on_table_job_blown],
+		[tj.job_started, _on_table_job_started], [tj.job_selected, _on_table_job_selected],
+		[tj.big_score_ready, _on_big_score_ready], [tj.big_score_started, _on_big_score_started],
+		[tj.big_score_jackpot, _on_big_score_jackpot], [tj.big_score_vault, _on_big_score_vault],
+		[tj.changed, _light_board],
+	]
+	for pair: Array in pairs:
+		var sig: Signal = pair[0]
+		var to: Callable = pair[1]
+		if not sig.is_connected(to):
+			sig.connect(to)
+
+
+## A payphone rang: that line is the Job on the board (a finished line passes the call on).
+func _on_payphone_rang(index: int) -> void:
+	if not running or not Game.table_jobs.live():
+		return
+	var tj := Game.table_jobs
+	var line := index % tj.lines.size()
+	if tj.line_state(line) == TableJobs.LineState.DONE:
+		line = tj.next_open_line(line)
+	tj.select(line)
+
+
+func _on_table_shot(shot: StringName, _ball_node: Ball) -> void:
+	if running:
+		Game.table_jobs.on_shot(shot)
+
+
+func _on_lucky_entered(_ball_node: Ball) -> void:
+	if running:
+		Game.table_jobs.on_lucky()
+
+
+func _on_table_job_selected(_line: int) -> void:
+	if running:
+		AudioDirector.play(&"radio_squelch")
+
+
+func _on_table_job_started(_line: int) -> void:
+	if running:
+		AudioDirector.play(&"knocker")
+		_arpeggio([&"chime_a", &"chime_c"], 0.08)
+
+
+func _on_table_job_done(_line: int, job: Dictionary) -> void:
+	if not running:
+		return
+	Game.table_job_done(job)
+	# a finished Job lights the roof: the Commission wants to hear about it
+	TableAPI.call_if(table, "light_penthouse")
+	_arpeggio([&"chime_a", &"chime_b", &"chime_c", &"knocker"], 0.1)
+
+
+func _on_table_job_blown(_line: int, _job: Dictionary) -> void:
+	if running:
+		AudioDirector.play(&"drop_bank_reset")
+
+
+func _on_big_score_ready() -> void:
+	if running:
+		AudioDirector.play(&"headline_sting")
+
+
+## THE BIG SCORE (docs/19 §4): a man comes out of Lucky's back door into the Alley and every
+## shot on the board is a jackpot.
+func _on_big_score_started() -> void:
+	if not running:
+		return
+	_big_score_age = 0.0
+	var at: Variant = TableAPI.call_if(table, "socket", [&"alley"], null)
+	var spawn: Vector2 = at if at is Vector2 else Vector2.ZERO
+	var joined := _call_in_crew(BIG_SCORE_CREW, spawn, BIG_SCORE_SAVE_SECONDS)
+	_arm_save(_ball(), BIG_SCORE_SAVE_SECONDS, true)
+	if joined == 0:
+		# nobody to send: the jackpots still light on the one ball
+		pass
+	AudioDirector.play(&"meeting_start")
+	_arpeggio([&"drop_bank_down", &"chime_a", &"chime_b", &"chime_c", &"knocker"], 0.09)
+
+
+func _on_big_score_jackpot(_shot: StringName) -> void:
+	if not running:
+		return
+	Game.big_score_jackpot(false)
+	AudioDirector.play(&"coin_drop")
+	AudioDirector.play(&"chime_c")
+
+
+func _on_big_score_vault() -> void:
+	if not running:
+		return
+	Game.big_score_jackpot(true)
+	_arpeggio([&"drop_bank_down", &"coin_drop", &"chime_a", &"chime_c", &"headline_sting"], 0.1)
+
+
+## Extra named crew onto the table at a plan point, each with a grace. Returns how many came.
+func _call_in_crew(count: int, at: Vector2, save_seconds: float) -> int:
+	var joined: Array[Dictionary] = []
+	for i in range(count):
+		var spare := _spare_guy(joined)
+		if spare.is_empty():
+			break
+		var offset := Vector2(float(i) * 0.22, 0.0)
+		var extra: Variant = TableAPI.call_if(table, "spawn_extra_ball", [at + offset], null)
+		if not (extra is Ball):
+			break
+		joined.append(spare)
+		extras.append(spare)
+		_bind_guy(extra as Ball, spare)
+		_arm_save(extra as Ball, save_seconds + float(i) * FamilyMeeting.REUNION_SAVE_STAGGER, true)
+	if not joined.is_empty():
+		Game.set_fielded(_live_guys())
+	return joined.size()
+
+
+func _tick_table_jobs(delta: float) -> void:
+	var tj := Game.table_jobs
+	tj.tick(delta)
+	if tj.big_score_active:
+		_big_score_age += delta
+		if _big_score_age > 2.0 and Balls.count() <= 1:
+			tj.end_big_score()
+	TableAPI.call_if(table, "set_fuse", [tj.fuse_fraction(), tj.running >= 0])
+
+
+## The board's lamps from the Jobs' state: arrows, the Take, the Wheel and the Big Score.
+func _light_board() -> void:
+	if table == null or not is_instance_valid(table):
+		return
+	var tj := Game.table_jobs
+	TableAPI.call_if(table, "clear_shot_source", [&"jobs"])
+	var states: Dictionary = tj.arrow_states()
+	for shot: StringName in states:
+		var st: Array = states[shot]
+		var color: Color = BOARD_COLORS.get(StringName(st[1]), Color(1.0, 0.72, 0.26))
+		TableAPI.call_if(table, "light_shot", [shot, &"jobs", int(st[0]), color, 3])
+	TableAPI.call_if(table, "set_take", [tj.take_level])
+	var centre := InsertField.Mode.OFF
+	if tj.big_score_active:
+		centre = InsertField.Mode.BLINK if tj.vault_lit else InsertField.Mode.PULSE
+	elif tj.big_score_lit:
+		centre = InsertField.Mode.BLINK
+	TableAPI.call_if(table, "set_big_score", [centre])
+	for i in range(8):
+		TableAPI.call_if(table, "set_wheel", [i, -1])
+	var line := tj.running if tj.running >= 0 else tj.selected
+	if line >= 0:
+		var district := int(tj.line_job(line).get("district", -1))
+		if district >= 0:
+			TableAPI.call_if(table, "set_wheel", [district, InsertField.Mode.BLINK])
+
+
 # ============================================== the Docks / the Penthouse =====
 
 
@@ -1248,8 +1439,10 @@ func _tick_docks(delta: float) -> void:
 	# and a cooldown that only counts down while a run is live never counts down at all.
 	var was_running := Game.smuggling.active
 	Game.smuggling.tick(delta)
+	TableAPI.call_if(table, "set_pier_run", [Game.smuggling.active])
 	if Game.smuggling.active or not was_running:
 		return
+	TableAPI.call_if(table, "reset_pier")
 	# It ran out with cargo still standing. Nothing is lost but the window.
 	Game.smuggling_changed.emit(_smuggling_state(false, false))
 	AudioDirector.play(&"drop_bank_reset")
@@ -1307,6 +1500,7 @@ func _settle_shipment(shipped: bool) -> void:
 		return
 	var hot := Game.smuggling.hot
 	Game.smuggling_shipment(hot)
+	TableAPI.call_if(table, "reset_pier")
 	Game.election_note(&"docks")
 	AudioDirector.play(&"shipment_out")
 	_arpeggio([&"drop_bank_down", &"chime_a", &"chime_c", &"knocker"], 0.1)

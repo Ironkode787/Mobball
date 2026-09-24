@@ -93,7 +93,12 @@ func _build_plastics() -> void:
 		var st := MeshLib.begin()
 		MeshLib.prism(st, poly, 0.02, 0.44, true, 1.0)
 		var mi := MeshInstance3D.new()
-		mi.mesh = MeshLib.finish(st, _plastic(Feel.COL_NEON_ROSE if s < 0.0 else Feel.COL_NEON_TEAL, 0.42))
+		# smoked plastic with the sign's tint: matter stays unsaturated, the glow is the lamp's
+		var tint: Color = Feel.COL_NEON_ROSE if s < 0.0 else Feel.COL_NEON_TEAL
+		var smoke := _plastic(tint.lerp(Color(0.07, 0.06, 0.06), 0.62), 0.34)
+		smoke.emission = tint
+		smoke.emission_energy_multiplier = 0.12
+		mi.mesh = MeshLib.finish(st, smoke)
 		mi.name = "SlingPlastic"
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
@@ -130,82 +135,62 @@ func _build_plastics() -> void:
 		mi.name = "PayphonePlastic"
 		add_child(mi)
 		_tie(mi, _hardware("wire_bank"))
-	# pop nest plastic: a translucent rose ring plate over the three cans
-	var nest := Vector2.ZERO
-	for p in Layout.BUMPER_AT:
-		nest += p
-	nest /= float(Layout.BUMPER_AT.size())
-	var ring := MeshLib.begin()
-	MeshLib.ring(ring, Layout.p3(nest, 0.62), 0.55, 0.95, 0.0, 0.0, 32)
-	var rm := MeshInstance3D.new()
-	rm.mesh = MeshLib.finish(ring, _plastic(Feel.COL_BRASS, 0.35))
-	rm.name = "PopPlastic"
-	rm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(rm)
-	var nest_owner: Variant = _root.get("_bumpers") if _root != null else null
-	if nest_owner is Array and (nest_owner as Array).size() > 1:
-		_tie(rm, (nest_owner as Array)[1])
 
 
 # ------------------------------------------------------------------- toys -----
 
 
 func _build_toys() -> void:
-	if ToyLib.has(&"pizza_sign") and ToyLib.has(&"washing_machine") and ToyLib.has(&"safe"):
+	if ToyLib.has(&"pizza_sign") and ToyLib.has(&"safe"):
 		_build_toy_meshes()
 		return
 	_build_toy_primitives()
 
 
-## The generated toys (specs/meshes.md): each stands where its primitive stood.
+## The generated toys (specs/meshes.md): each stands where its primitive stood, on the roof
+## of its shop.
 func _build_toy_meshes() -> void:
 	var pizza := ToyLib.instance(&"pizza_sign")
-	var nonna: Vector2 = Layout.STOREFRONT_AT[1]
-	pizza.position = Layout.p3(nonna + Vector2(0.0, -0.75), 0.60)
+	pizza.position = Layout.p3(_shop_roof(0), 0.62)
+	pizza.scale = Vector3.ONE * 0.8
 	add_child(pizza)
 	var spin := ToyLib.find(pizza, "Spin")
 	if spin != null:
 		_toys.append(spin)
-	_tie(pizza, _hardware("storefronts", 1))
-
-	var washer := ToyLib.instance(&"washing_machine")
-	var lucky: Vector2 = Layout.STOREFRONT_AT[0]
-	washer.position = Layout.p3(lucky + Vector2(-0.35, -0.85), 0.66)
-	washer.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[0])
-	add_child(washer)
-	var door := ToyLib.find(washer, "Door")
-	if door != null:
-		_drums.append(door)
-	_tie(washer, _hardware("storefronts", 0))
+	_tie(pizza, _hardware("storefronts", 0))
 
 	var safe := ToyLib.instance(&"safe")
-	var tony: Vector2 = Layout.STOREFRONT_AT[2]
-	safe.position = Layout.p3(tony + Vector2(0.3, -0.85), 0.62)
-	safe.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[2])
+	safe.position = Layout.p3(_shop_roof(1), 0.56)
+	safe.scale = Vector3.ONE * 0.7
+	safe.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[1])
 	add_child(safe)
-	_tie(safe, _hardware("storefronts", 2))
+	_tie(safe, _hardware("storefronts", 1))
+
+
+func _shop_roof(i: int) -> Vector2:
+	var poly: PackedVector2Array = Layout.STOREFRONT_ISLANDS[i]
+	return (poly[0] + poly[1] + poly[2] + poly[3]) * 0.25
 
 
 func _build_toy_primitives() -> void:
 	# Nonna's: a slowly turning pizza on a pole over the pizzeria
 	var pizza := Node3D.new()
 	pizza.name = "PizzaSign"
-	var nonna: Vector2 = Layout.STOREFRONT_AT[1]
-	pizza.position = Layout.p3(nonna + Vector2(0.0, -0.75), 1.15)
+	pizza.position = Layout.p3(_shop_roof(0), 0.86)
 	add_child(pizza)
 	var pole := CylinderMesh.new()
-	pole.top_radius = 0.02
-	pole.bottom_radius = 0.02
-	pole.height = 0.55
+	pole.top_radius = 0.015
+	pole.bottom_radius = 0.015
+	pole.height = 0.30
 	var pm := MeshInstance3D.new()
 	pm.mesh = pole
 	pm.material_override = _lib.brass_dark()
-	pm.position.y = -0.27
+	pm.position.y = -0.15
 	pizza.add_child(pm)
 	var pie := CylinderMesh.new()
-	pie.top_radius = 0.26
-	pie.bottom_radius = 0.26
-	pie.height = 0.05
+	pie.top_radius = 0.17
+	pie.bottom_radius = 0.17
+	pie.height = 0.04
 	pie.radial_segments = 24
 	var pie_mi := MeshInstance3D.new()
 	pie_mi.mesh = pie
@@ -217,81 +202,36 @@ func _build_toy_primitives() -> void:
 	var slices := MeshLib.begin()
 	for i in range(8):
 		var a := TAU * float(i) / 8.0
-		MeshLib.post(slices, Vector2(cos(a) * 0.14, sin(a) * 0.14), 0.035, 0.02, 0.025, 8)
+		MeshLib.post(slices, Vector2(cos(a) * 0.09, sin(a) * 0.09), 0.025, 0.02, 0.02, 8)
 	var sm := MeshInstance3D.new()
 	sm.mesh = MeshLib.finish(slices, _lib.plastic(Color("8A1E1E"), 0.5))
 	pizza.add_child(sm)
 	_toys.append(pizza)
-	_tie(pizza, _hardware("storefronts", 1))
-
-	# Lucky's: a washing-machine drum on the roof, chrome door, turning
-	var drum := Node3D.new()
-	drum.name = "WashDrum"
-	var lucky: Vector2 = Layout.STOREFRONT_AT[0]
-	drum.position = Layout.p3(lucky + Vector2(-0.35, -0.85), 0.86)
-	drum.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[0])
-	add_child(drum)
-	var box := BoxMesh.new()
-	box.size = Vector3(0.4, 0.4, 0.34)
-	var bm := MeshInstance3D.new()
-	bm.mesh = box
-	bm.material_override = _lib.paper()
-	drum.add_child(bm)
-	var door := Node3D.new()
-	door.position = Vector3(0.0, 0.0, 0.17)
-	drum.add_child(door)
-	var porthole := CylinderMesh.new()
-	porthole.top_radius = 0.14
-	porthole.bottom_radius = 0.14
-	porthole.height = 0.03
-	var ph := MeshInstance3D.new()
-	ph.mesh = porthole
-	ph.material_override = _lib.chrome_dark()
-	ph.rotation.x = PI * 0.5
-	door.add_child(ph)
-	var inner := MeshLib.begin()
-	for i in range(3):
-		var a := TAU * float(i) / 3.0
-		MeshLib.post(inner, Vector2(cos(a) * 0.07, sin(a) * 0.07), 0.025, 0.02, 0.0, 6)
-	var im := MeshInstance3D.new()
-	im.mesh = MeshLib.finish(inner, _plastic(Feel.COL_NEON_TEAL, 0.9))
-	im.rotation.x = PI * 0.5
-	im.position.z = 0.02
-	door.add_child(im)
-	_toys.append(door)
-	_tie(drum, _hardware("storefronts", 0))
+	_tie(pizza, _hardware("storefronts", 0))
 
 	# Fat Tony's: a brass safe with a dial on the roof
 	var safe := Node3D.new()
 	safe.name = "PawnSafe"
-	var tony: Vector2 = Layout.STOREFRONT_AT[2]
-	safe.position = Layout.p3(tony + Vector2(0.3, -0.85), 0.82)
-	safe.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[2])
+	safe.position = Layout.p3(_shop_roof(1), 0.68)
+	safe.rotation.y = Layout.yaw_facing(Layout.STOREFRONT_FACING[1])
 	add_child(safe)
 	var sbox := BoxMesh.new()
-	sbox.size = Vector3(0.36, 0.4, 0.3)
+	sbox.size = Vector3(0.24, 0.24, 0.18)
 	var sbm := MeshInstance3D.new()
 	sbm.mesh = sbox
 	sbm.material_override = _lib.plastic(Color("2A2E36"), 0.35)
 	safe.add_child(sbm)
 	var dial := CylinderMesh.new()
-	dial.top_radius = 0.07
-	dial.bottom_radius = 0.07
-	dial.height = 0.03
+	dial.top_radius = 0.05
+	dial.bottom_radius = 0.05
+	dial.height = 0.02
 	var dm := MeshInstance3D.new()
 	dm.mesh = dial
 	dm.material_override = _lib.brass()
 	dm.rotation.x = PI * 0.5
-	dm.position = Vector3(0.0, 0.04, 0.165)
+	dm.position = Vector3(0.0, 0.03, 0.10)
 	safe.add_child(dm)
-	var handle := BoxMesh.new()
-	handle.size = Vector3(0.14, 0.03, 0.03)
-	var hm := MeshInstance3D.new()
-	hm.mesh = handle
-	hm.material_override = _lib.brass()
-	hm.position = Vector3(0.0, -0.08, 0.165)
-	safe.add_child(hm)
-	_tie(safe, _hardware("storefronts", 2))
+	_tie(safe, _hardware("storefronts", 1))
 
 
 # ------------------------------------------------------------------- apron -----
@@ -300,8 +240,8 @@ func _build_toy_primitives() -> void:
 func _build_apron() -> void:
 	var font: Font = load("res://assets/fonts/Oswald-SemiBold.ttf")
 	var cards := [
-		[Layout.MIRROR_X - 1.55, "HOW TO PLAY", ["HIT BANKS TO OPEN THE SHOPS", "SHOOT THE STAIRCASE FOR THE CLUB", "LEAN, BUT MIND THE INSPECTOR"]],
-		[Layout.MIRROR_X + 1.55, "KINGPIN", ["3 GUYS PER NIGHT", "POINTS ARE MONEY", "THE FAMILY RUNS THIS TOWN"]],
+		[Layout.MIRROR_X - 1.55, "HOW TO PLAY", ["ROLL THE 3 LANES: THE CANS GROW", "PHONE A JOB, TAKE IT AT LUCKY'S", "3 JOBS LIGHT THE BIG SCORE"]],
+		[Layout.MIRROR_X + 1.55, "KINGPIN", ["3 GUYS PER NIGHT", "POINTS ARE DIRTY MONEY", "WASH IT AT LUCKY'S"]],
 	]
 	for card: Array in cards:
 		var x: float = card[0]

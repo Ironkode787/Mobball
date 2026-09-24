@@ -192,6 +192,15 @@
       "table_change": "the tote board sprouts lightbulbs"
     },
     {
+      "id": "rackets.slow_burn",
+      "branch": "rackets", "tier": 2,
+      "name": "Slow Burn",
+      "flavor": "Longer fuses. Wetter matches. Same Jobs.",
+      "cost": "30K", "repeat": null, "requires": ["rackets.the_wire"],
+      "effects": [{"kind": "feature_flag", "target": "slow_burn"}],
+      "table_change": "every Job's fuse burns a third longer"
+    },
+    {
       "id": "rackets.street_tax",
       "branch": "rackets", "tier": 2,
       "name": "Street Tax",
@@ -251,9 +260,10 @@
       "reveal": {"rank": 3},
       "effects": [
         {"kind": "unlock_hardware", "target": "storefront_laundromat"},
+        {"kind": "unlock_hardware", "target": "sewer"},
         {"kind": "idle_rate_add", "target": "protection", "value": "60"}
       ],
-      "table_change": "Lucky's becomes a drop-target storefront you collect from"
+      "table_change": "Lucky's basement opens on the Sewer: a lit manhole takes the ball under the street"
     },
     {
       "id": "rackets.protection_pizzeria",
@@ -287,6 +297,15 @@
       "cost": "180K", "repeat": {"max": 15, "growth": 1.15}, "requires": ["rackets.protection_laundromat"],
       "effects": [{"kind": "collect_minutes_mult", "value": 1.12, "per_level": true}],
       "table_change": "the storefronts visibly add floors"
+    },
+    {
+      "id": "rackets.know_the_tunnels",
+      "branch": "rackets", "tier": 3,
+      "name": "Know the Tunnels",
+      "flavor": "Every manhole on the block, and where it comes up.",
+      "cost": "220K", "repeat": null, "requires": ["rackets.protection_laundromat"],
+      "effects": [{"kind": "feature_flag", "target": "sewer_one_getaway"}],
+      "table_change": "one Getaway opens the Sewer, not two"
     },
     {
       "id": "rackets.getaway_loop",
@@ -358,11 +377,11 @@
     {
       "id": "muscle.second_set",
       "branch": "muscle", "tier": 4,
-      "name": "The Second Set",
-      "flavor": "Smaller bats. Bigger stakes.",
+      "name": "Full Load",
+      "flavor": "Every can on the block, filled to the lid and left that way.",
       "cost": "8M", "repeat": null, "requires": ["rackets.club_license"],
       "effects": [{"kind": "unlock_hardware", "target": "club_flippers"}],
-      "table_change": "mini flippers bolt onto the Club deck, riding your same thumbs"
+      "table_change": "a lit can level holds twice as long before it fades"
     },
 
     {

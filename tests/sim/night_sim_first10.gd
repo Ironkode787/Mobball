@@ -17,8 +17,8 @@ const FIRST_BUYS: PackedStringArray = ["muscle.real_plunger", "rackets.trash_2"]
 const DRAIN_POINT := Vector3(Layout.MIRROR_X, Feel.BALL_RADIUS + 0.01, Layout.CENTRE_DRAIN_AT.y + 0.05)
 ## Where the coach puts the ball back (see `_coach`): just above the one trash can the bare
 ## alley owns, a shoulder's width off its crown so it careens rather than pogos.
-const COACH_POINT := Vector3(Layout.BUMPER_AT[0].x + 0.12, Feel.BALL_RADIUS + 0.01, Layout.BUMPER_AT[0].y - 1.45)
-const COACH_BELOW_Z := 3.2
+const COACH_POINT := Vector3(Layout.BUMPER_AT[0].x + 0.12, Feel.BALL_RADIUS + 0.01, Layout.BUMPER_AT[0].y - 0.60)
+const COACH_BELOW_Z := Layout.NEST_BOTTOM + 0.5
 ## Seconds of coached play per Night — enough for the alley to bank a Night's takings.
 const COACH_SECONDS := 20.0
 ## A launch has this long to put the ball on the playfield before the sim calls the feed

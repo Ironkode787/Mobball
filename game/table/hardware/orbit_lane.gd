@@ -8,6 +8,11 @@ signal orbit_completed()
 const WINDOW := 3.0
 
 @export var id: StringName = &"orbit_left"
+## Plan directions the ball has to be travelling for a pass to count towards a lap (zero =
+## either way): a ball coming back down the lane it went up is not one. The switches score
+## either way.
+var entry_dir: Vector2 = Vector2.ZERO
+var exit_dir: Vector2 = Vector2.ZERO
 
 var _entry: Area3D = null
 var _exit: Area3D = null
@@ -81,15 +86,23 @@ func _process(delta: float) -> void:
 				(1.5 if armed() else 0.35) + _flash * 2.5, 1.0 - exp(-10.0 * delta))
 
 
+static func _heading_ok(b: Ball, want: Vector2) -> bool:
+	if want == Vector2.ZERO:
+		return true
+	var v := b.local_velocity()
+	return Vector2(v.x, v.z).dot(want) > 0.0
+
+
 func _on_entry(body: Node3D) -> void:
 	if not (body is Ball) or not _present:
 		return
-	_entered_at = _clock
 	TableScore.hit(StringName(String(id) + "_entry"), body as Ball)
+	if _heading_ok(body as Ball, entry_dir):
+		_entered_at = _clock
 
 
 func _on_exit(body: Node3D) -> void:
-	if not (body is Ball) or not _present:
+	if not (body is Ball) or not _present or not _heading_ok(body as Ball, exit_dir):
 		return
 	if _clock - _entered_at > WINDOW:
 		return

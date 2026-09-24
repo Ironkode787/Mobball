@@ -56,6 +56,13 @@ const RESPECT_RAID_SURVIVED := 25
 const RAID_CLEAN_PAYOUT := 0.25
 ## Skill shot cash at R0; scales with rank_scale like every other payout (docs/03 §7).
 const SKILL_SHOT_MANTISSA := 2.0
+## Table Jobs (docs/19 §4): the floor under a Job's pay per minute, scaled by (rank+1)²; a Big
+## Score jackpot is this many minutes, the vault five of them.
+const TABLE_JOB_FLOOR := 150.0
+const BIG_SCORE_JACKPOT_MINUTES := 1.0
+const BIG_SCORE_VAULT_MULT := 5.0
+const BIG_SCORE_HEAT := 8.0
+const BIG_SCORE_VAULT_RESPECT := 10
 const SKILL_SHOT_EXP := 2
 ## Cold Storage (Commission spoil, specs/m2-content.md §5): armored hardware banks this much
 ## of what it refuses to pay, and hands it over when the armor comes off.
@@ -88,6 +95,8 @@ var state: StringName = &"attract":
 
 var save := SaveGame.new()
 var jobs := Jobs.new()
+## THE WIRE's Jobs on the table (docs/19 §4): the three lines, the fuse, the Take, the Big Score.
+var table_jobs := TableJobs.new()
 var combo := Combo.new()
 ## M2 modes (specs/m2-content.md). All four are pure logic on a fed clock; the
 ## NightController feeds them table events and this file pays what they decide.
@@ -1409,6 +1418,7 @@ func new_game(seed_value: int = 0) -> void:
 	bench = Bench.new(seed_value, stats.bench_slots())
 	jobs = Jobs.new()
 	_wire(jobs.completed, _on_job_completed)
+	table_jobs = TableJobs.new()
 	_reveal_from_dict({})
 	combo.reset()
 	casino = Casino.new()
@@ -1503,6 +1513,8 @@ func _prepare_night() -> void:
 	bench.night_tick(stats.bench_slots(), rank)
 	jobs.roll(rank, stats, stats.job_slots(), _rng)
 	jobs.begin_night()
+	table_jobs.fuse_scale = TableJobs.SLOW_BURN_SCALE if stats.flag(&"slow_burn") else 1.0
+	table_jobs.begin_night(rank, TableJobs.shots_owned(owns_hardware), _rng)
 	night_rerolls = maxi(stats.job_rerolls(), 0)
 	combo.reset_night()
 	casino.begin_night(Casino.comps_for(stats))
@@ -1567,6 +1579,7 @@ func end_night(summary: Dictionary) -> Dictionary:
 	s["clean_earned"] = night_clean
 	s["casino"] = casino.night_summary()
 	s["wire"] = wire.night_summary()
+	s["table_jobs"] = table_jobs.night_summary()
 	s["meeting"] = meeting.night_summary()
 	s["collection"] = collection.night_summary()
 	s["smuggling"] = smuggling.night_summary()
@@ -1721,6 +1734,47 @@ func collect_safe() -> BigMoney:
 	return got
 
 
+## True if the Ledger has built this piece of the table (the Beat Cop also stands on a bribe).
+func owns_hardware(id: StringName) -> bool:
+	if id == &"bribe_target":
+		return stats.hardware_unlocked(id) or stats.bribe_unlocked()
+	return stats.hardware_unlocked(id)
+
+
+## What a Job line pays: minutes of the whole empire's idle rate, floored so an early career's
+## Job is never a shrug, times the Take. It arrives priced, like a shipment or a Wire ticket.
+func table_job_value(job: Dictionary) -> BigMoney:
+	var minutes := float(job.get("minutes", 2.0))
+	var floor_value := BigMoney.from_float(TABLE_JOB_FLOOR * float((rank + 1) * (rank + 1)) * minutes)
+	var rate := stats.idle_rate_total()
+	var value := floor_value
+	if rate != null and rate.is_positive():
+		value = BigMoney.max_of(rate.mul(minutes * 60.0), floor_value)
+	return value.mul(table_jobs.take_multiplier())
+
+
+func table_job_done(job: Dictionary) -> BigMoney:
+	var paid := earn_flat_dirty(table_job_value(job), &"jobs")
+	night_jobs.append(String(job.get("name", job.get("id", "job"))))
+	var stars := GuyTraits.job_respect(int(job.get("respect", 3)), fielded)
+	add_respect(stars, &"table_job")
+	AudioDirector.play(&"job_done")
+	Events.job_completed.emit(String(job.get("id", "")), stars)
+	Events.jackpot.emit(&"job", paid, false)
+	return paid
+
+
+## A Big Score jackpot (and the vault, which is five of them) through the Take.
+func big_score_jackpot(vault: bool = false) -> BigMoney:
+	var one := {"minutes": BIG_SCORE_JACKPOT_MINUTES * (BIG_SCORE_VAULT_MULT if vault else 1.0)}
+	var paid := earn_flat_dirty(table_job_value(one), &"jobs")
+	heat_add_flat(BIG_SCORE_HEAT if vault else 0.0)
+	Events.jackpot.emit(&"big_score_vault" if vault else &"big_score", paid, false)
+	if vault:
+		add_respect(BIG_SCORE_VAULT_RESPECT, &"big_score")
+	return paid
+
+
 ## Respect + cash for a clean Drop-Off (docs/01 §6). The cash rides the normal money path
 ## (so it is hot money like any other shot) but must not open a combo — the chain starts
 ## with the player's first real decision, not with the launch.
@@ -1765,6 +1819,7 @@ func to_dict() -> Dictionary:
 		"owned": owned.duplicate(),
 		"bench": bench.to_dict() if bench != null else {},
 		"jobs": jobs.to_dict(),
+		"table_jobs": table_jobs.to_dict(),
 		"reveal": _reveal_to_dict(),
 		"casino": casino.to_dict(),
 		"meeting": meeting.to_dict(),
@@ -1829,6 +1884,9 @@ func from_dict(d: Dictionary) -> void:
 	jobs = Jobs.new()
 	_wire(jobs.completed, _on_job_completed)
 	jobs.from_dict(d.get("jobs", {}))
+	table_jobs = TableJobs.new()
+	var tj: Variant = d.get("table_jobs", {})
+	table_jobs.from_dict(tj if tj is Dictionary else {})
 	_reveal_from_dict(d.get("reveal", {}))
 	casino = Casino.new()
 	casino.from_dict(d.get("casino", {}))

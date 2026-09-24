@@ -32,7 +32,7 @@ const RUBBER_BOUNCE := 0.58
 const STEEL_FRICTION := 0.08
 const STEEL_BOUNCE := 0.15
 const FLIPPER_FRICTION := 0.70
-const FLIPPER_BOUNCE := 0.12
+const FLIPPER_BOUNCE := 0.30
 
 # --- flippers ---
 const FLIPPER_LENGTH := 0.78
@@ -41,11 +41,29 @@ const FLIPPER_TIP_RADIUS := 0.07
 const FLIPPER_HEIGHT := 0.26
 const FLIPPER_REST_DEG := 30.0        # below horizontal, resting
 const FLIPPER_UP_DEG := -24.0         # above horizontal, fully flipped
-const FLIPPER_UP_TIME := 0.045        # seconds to full extension
+const FLIPPER_UP_TIME := 0.034        # seconds to full extension
 const FLIPPER_DOWN_TIME := 0.080
-const FLIPPER_UP_EASE := 1.45         # >1 = fast start (ease-out); 1 = linear
+const FLIPPER_UP_EASE := 2.0          # >1 = fast start (ease-out); 1 = linear
 const FLIPPER_DOWN_EASE := 1.8        # >1 = slow start (ease-in) on the return
 const INPUT_BUFFER := 0.05            # seconds of early-press forgiveness
+## The aim (docs/19 §3.1): where along the bat the flip meets the ball sets the heading, the way
+## a player reads a real bat — off the base the ball goes hard across, off the tip it goes up the
+## middle. (t along the bat 0..1, heading in degrees across the field) for the left bat; the
+## right bat mirrors. Speed stays the physics'; the curve owns SHOT_SHAPE of the heading.
+const FLIPPER_SHOT_CURVE: PackedVector2Array = [
+	Vector2(0.0, 36.0), Vector2(0.45, 31.0), Vector2(0.55, 28.0), Vector2(0.65, 22.0),
+	Vector2(0.75, 13.0), Vector2(0.85, 7.0), Vector2(0.95, 2.0), Vector2(1.10, -4.0),
+]
+const FLIPPER_SHOT_SHAPE := 0.9
+const FLIPPER_SHOT_MIN_SPEED := 5.0   # slower than this off the bat is a dribble, left alone
+## A held bat's rubber takes the roll out of a ball coming down onto it, so an inlane feed
+## settles into the cradle instead of rolling up and over the tip.
+const FLIPPER_GRIP := 9.0             # 1/s damping of the roll toward the tip
+const FLIPPER_GRIP_SPEED := 8.0       # a ball arriving faster than this rolls on
+# The orbit lanes' throats (LaneMouth): the curve a rising ball rides up the lane.
+const LANE_MOUTH_RADIUS := 1.2        # u, of the ball centre's path
+const LANE_MOUTH_MIN_SPEED := 5.0     # slower than this, the ball just rolls into the wall
+const LANE_MOUTH_GLANCE := 0.44       # rad (25°): a meet this shallow rides the curve
 
 # --- plunger ---
 const PLUNGER_MAX_IMPULSE := 34.0     # u/s straight up the shooter lane at full pull
@@ -64,9 +82,21 @@ const TILT_MAX_WARNINGS := 3
 const TILT_DECAY_SECONDS := 7.0
 
 # --- hardware ---
-const BUMPER_RADIUS := 0.29
+const BUMPER_RADIUS := 0.25
 const BUMPER_IMPULSE := 22.0
-const BUMPER_COOLDOWN := 0.10
+const BUMPER_COOLDOWN := 0.05
+# A pop fires on real contact with its post and throws the ball out along the contact normal
+# at the solenoid's pace (plus a share of the approach), keeping most of the slide: every hit
+# is lively and consistent, like the slings. The Alley's walls and cans are spaced so that pace
+# makes the ball rattle between them instead of leaving.
+const BUMPER_KICK_SPEED := 17.0       # u/s out along the normal, whatever came in
+const BUMPER_KICK_GAIN := 0.35        # plus this share of the approach speed into the post
+const BUMPER_TANGENT_KEEP := 0.85     # how much of the slide round the can survives
+const BUMPER_OUT_MAX := 30.0
+## Alley can levels (Trash Can, Dumpster, Armored Truck, Vault): value doubles per level; a
+## level decays after this long without the Drop-Off lanes being completed again.
+const CAN_LEVEL_MAX := 3
+const CAN_LEVEL_DECAY := 60.0
 const HARDWARE_STALL_SPEED := 0.8     # a ball asleep on live hardware gets popped loose
 const FLIPPER_PIVOT_POP := 5.0
 const FLIPPER_PIVOT_STALL_SECONDS := 2.0

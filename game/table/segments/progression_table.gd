@@ -1,10 +1,15 @@
 class_name ProgressionTable
 extends TableSegment
-## The machine. One inclined cabinet at real pinball scale (Layout), simulated in 3D by Jolt
-## and dressed as the career it belongs to: the bare alley of Rank 0 grows the Block, the
-## Club deck, the Docks, the Penthouse and City Hall as they are bought — every piece is
-## registered under the Ledger id that owns it and stands up or goes dormant with
-## `refresh_hardware()`.
+## The machine (docs/19): one inclined cabinet at real pinball scale (Layout), simulated in 3D
+## by Jolt, built the way Space Cadet built its table: a dense single board whose lanes, cans
+## and shots develop during every game, and which physically grows with the career. The bare
+## Alley of Rank 0 grows the Corner, the Numbers, the Block, the Club, Pier 9, the Penthouse and
+## City Hall as they are bought: every piece is registered under the Ledger id that owns it and
+## stands up or goes dormant with `refresh_hardware()`.
+##
+## The table owns the board's own state: the can levels and their decay, the lane lights and
+## lane change, the Sewer, Pier 9's containers and the inserts. The flow owns the money, the
+## Jobs and the modes, and drives the inserts through the "flow API" below.
 ##
 ## Contract with the flow lane (see TableAPI): properties `flipper_left/right`, `plunger`,
 ## `ball`, `auto_respawn`, `balls_served`, `pays_through_game`, `storefronts`, `docks`,
@@ -42,6 +47,14 @@ signal penthouse_returned()
 signal dome_loop_completed(speed: float)
 signal briefcase_collected()
 signal briefcase_expired()
+## v4 board events (docs/19 §3): every major shot, the Alley's development, the Sewer.
+signal shot_made(shot: StringName, ball: Ball)
+signal lanes_completed()
+signal can_level_changed(level: int)
+signal sewer_warped(from_index: int, to_index: int)
+signal lucky_entered(ball: Ball)
+signal commission_session(active: bool)
+signal payphone_rang(index: int)
 
 const BALL_SCENE := preload("res://game/core/ball.tscn")
 const PLUNGER_STARTER_POWERS := [0.55, 0.58, 0.80]
@@ -50,6 +63,14 @@ const PLUNGER_FIXED_POWER := 0.55
 const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
 const BALL_SEARCH_FLOOR_Z := 3.9        ## below this the flippers are the search
 const SEARCH_BOX_Y := 2.2
+const SHOTS: Array[StringName] = [&"getaway", &"wire", &"staircase", &"nonnas", &"alley",
+		&"fat_tonys", &"luckys", &"beat_cop", &"truck_route"]
+const GETAWAY_DOUBLE_WINDOW := 15.0     ## two Getaways inside this open the Sewer
+const SEWER_OPEN_SECONDS := 30.0
+const SEWER_SECONDS := 0.9              ## underground
+const SEWER_POP_SPEED := 4.5
+const ALLEY_SHOT_COOLDOWN := 0.7        ## a rattle in the nest is one Alley hit per beat
+const PENTHOUSE_LEVEL := 2              ## the cans at Armored Truck light the roof
 
 var pays_through_game: bool = true
 var debug_all_hardware: bool = false
@@ -61,17 +82,22 @@ var ball: Ball = null
 var auto_respawn: bool = true
 var balls_served: int = 0
 
+var alley: Alley = null
+var tower: LuckyTower = null
+var inserts: InsertField = null
 var spinner: Spinner = null
 var wire_bank: TargetBank = null
 var orbit: OrbitLane = null
 var orbit_right: OrbitLane = null
 var kickback: Kickback = null
+var kickback_right: Kickback = null
 var magnet: DrainMagnet = null
 var director: DrainMagnet = null
 var vans: FederalVans = null
 var bribe_target: StandupTarget = null
 var storefronts: Array[Storefront] = []
 var rollovers: Array[Rollover] = []
+var manholes: Array[Manhole] = []
 var cop_targets: Array[StandupTarget] = []
 var raid_active: bool = false
 var federal_phase: int = 0
@@ -87,12 +113,12 @@ var penthouse: Penthouse = null
 var city_hall: CityHall = null
 var construction: BuildIn = null
 var gate: OneWayGate = null
+var sewer_open: bool = false
 
 var _bumpers: Array[Bumper] = []
 var _slings: Array[Slingshot] = []
 var _pieces: Array[Dictionary] = []
 var _forced: Dictionary = {}
-var _lit_lane: int = -1
 var _respawn_in: float = -1.0
 var _still_for: float = 0.0
 var _search_rng := RandomNumberGenerator.new()
@@ -103,6 +129,15 @@ var _built_once: Dictionary = {}
 var _first_refresh: bool = true
 var _lib: MaterialLib = null
 var _lamps: Array[OmniLight3D] = []
+var _clock: float = 0.0
+var _last_getaway: float = -1000.0
+var _sewer_left: float = 0.0
+var _sewer_rides: Array[Dictionary] = []     ## {ride: PathRide, t, from, to}
+var _alley_cool: float = 0.0
+var _pier_live_run: bool = false
+var _wheel_override: Dictionary = {}
+var _lane_returns: Array[OneWayGate] = []
+var _launch_flaps: Array[OneWayGate] = []
 
 
 func segment_id() -> StringName:
@@ -126,15 +161,15 @@ func lane_box() -> AABB:
 func socket(id: StringName) -> Vector2:
 	match id:
 		&"arch_top":
-			return Vector2(0.0, Layout.PLAY_TOP + 0.4)
+			return Vector2(Layout.MIRROR_X, Layout.PLAY_TOP + 0.4)
 		&"left_channel":
 			return Layout.ORBIT_L_ENTRY
 		&"midfield":
-			return Vector2(0.0, 0.6)
+			return Vector2(Layout.MIRROR_X, 0.6)
 		&"drain":
 			return Layout.CENTRE_DRAIN_AT
 		&"club_deck":
-			return Vector2((ClubDeck.DECK_LEFT + ClubDeck.DECK_RIGHT) * 0.5, ClubDeck.DECK_BOTTOM - 0.3)
+			return ClubDeck.MEETING_AT
 		&"stair_mouth":
 			return Layout.STAIR_MOUTH
 		&"docks":
@@ -143,17 +178,17 @@ func socket(id: StringName) -> Vector2:
 			return Penthouse.TABLE_AT
 		&"city_hall":
 			return CityHall.DOME_AT
+		&"alley":
+			return Layout.MANHOLE_AT[2]
+		&"luckys":
+			return Layout.SCOOP_AT
 	return Vector2.ZERO
 
 
-## Height of the floor a plan point stands on: the deck/room slabs or the felt.
+## Height of the floor a plan point stands on: the deck slab or the felt.
 func floor_height_at(p: Vector2) -> float:
-	if club != null and club.is_hardware_active() and club.deck_rect().has_point(p):
+	if club != null and club.is_hardware_active() and Geometry2D.is_point_in_polygon(p, ClubDeck.outline()):
 		return ClubDeck.DECK_H
-	if penthouse != null and penthouse.is_hardware_active() \
-			and Rect2(Vector2(Penthouse.ROOM_LEFT, Penthouse.ROOM_TOP),
-			Vector2(Penthouse.ROOM_RIGHT - Penthouse.ROOM_LEFT, Penthouse.ROOM_BOTTOM - Penthouse.ROOM_TOP)).has_point(p):
-		return Penthouse.ROOM_H
 	return 0.0
 
 
@@ -170,16 +205,17 @@ func _ready() -> void:
 	_build_cabinet()
 	_build_walls()
 	_build_gate()
-	_build_lanes()
-	_build_top_lanes()
-	_build_bumpers()
+	_build_ring_road()
+	_build_alley()
+	_build_islands()
+	_build_tower()
 	_build_slings()
-	_build_wire()
-	_build_storefronts()
 	_build_extras()
 	_build_flippers()
 	_build_bosses()
 	_build_segments()
+	_build_sewer()
+	_build_inserts()
 	_build_drain()
 	_build_plunger()
 	_build_construction()
@@ -257,8 +293,8 @@ func _build_environment() -> void:
 	fill.rotation_degrees = Vector3(-40.0, -140.0, 0.0)
 	add_child(fill)
 	if RenderProfile.fill_lights():
-		_lamp(Vector3(0.0, 2.4, 3.6), Color(1.0, 0.9, 0.75), 1.3, 6.5, "FlipperGI")
-		_lamp(Vector3(0.0, 2.6, -2.6), Color(1.0, 0.88, 0.7), 0.9, 6.5, "UpperGI")
+		_lamp(Vector3(Layout.MIRROR_X, 2.4, 3.6), Color(1.0, 0.9, 0.75), 1.3, 6.5, "FlipperGI")
+		_lamp(Vector3(Layout.MIRROR_X, 2.6, -2.6), Color(1.0, 0.88, 0.7), 0.9, 6.5, "UpperGI")
 
 
 func _lamp(at: Vector3, color: Color, energy: float, range_m: float, p_name: String) -> OmniLight3D:
@@ -279,7 +315,6 @@ func _build_cabinet() -> void:
 	var w := Layout.PLAY_RIGHT - Layout.PLAY_LEFT + Layout.OUTER_THICK
 	var d := Layout.PLAY_BOTTOM - Layout.PLAY_TOP + Layout.OUTER_THICK
 	var center_z := (Layout.PLAY_TOP + Layout.PLAY_BOTTOM) * 0.5
-	# the felt
 	var floor_body := WallBuilder.make_body("Floor", Feel.LAYER_WALLS,
 			Feel.make_material(Feel.FELT_FRICTION, Feel.FELT_BOUNCE))
 	add_child(floor_body)
@@ -298,6 +333,10 @@ func _build_cabinet() -> void:
 	street.shader = load("res://game/table/look/playfield.gdshader")
 	street.set_shader_parameter("field_size", Vector2(w, d))
 	street.set_shader_parameter("mirror_x", Layout.MIRROR_X)
+	var art := _playfield_art()
+	if art != null:
+		street.set_shader_parameter("art", art)
+		street.set_shader_parameter("has_art", true)
 	if _lib.has_set("brick_pavement_02") and _lib.has_set("asphalt_02") and not RenderProfile.off("street_textures"):
 		street.set_shader_parameter("textured", true)
 		street.set_shader_parameter("stone_albedo", _lib.tex("brick_pavement_02", "diffuse", "2k"))
@@ -325,7 +364,7 @@ func _build_cabinet() -> void:
 	glass.shape = gb
 	glass.position = Vector3(0.0, Layout.GLASS_HEIGHT + 0.05, center_z)
 	floor_body.add_child(glass)
-	# cabinet sides, front board, lockdown bar, backboard
+	# cabinet sides, front board, backboard
 	var st := MeshLib.begin()
 	var side_h := Layout.CABINET_HEIGHT
 	for sx in [Layout.PLAY_LEFT - Layout.OUTER_THICK - 0.06, Layout.PLAY_RIGHT + Layout.OUTER_THICK + 0.06]:
@@ -344,7 +383,6 @@ func _build_cabinet() -> void:
 	bm.mesh = MeshLib.finish(bar, _lib.brass())
 	bm.name = "Rails"
 	add_child(bm)
-	# backglass
 	var tex: Texture2D = null
 	if Presentation != null and Presentation.art != null:
 		tex = Presentation.art.resolve(&"table.backglass.eastport", null, false)
@@ -362,14 +400,6 @@ func _build_cabinet() -> void:
 		gmi.position = Vector3(0.0, 1.4 + quad.size.y * 0.5, Layout.PLAY_TOP - 0.12)
 		gmi.name = "Backglass"
 		add_child(gmi)
-	# apron cards over the drain
-	var apron := MeshLib.begin()
-	for sx in [Layout.MIRROR_X - 1.6, Layout.MIRROR_X + 1.6]:
-		MeshLib.box(apron, Vector3(sx, 0.05, 4.95), Vector3(0.8, 0.08, 0.6))
-	var am := MeshInstance3D.new()
-	am.mesh = MeshLib.finish(apron, _lib.paper())
-	am.name = "ApronCards"
-	add_child(am)
 	# the storm grate under the flippers
 	var grate := PlaneMesh.new()
 	grate.size = Vector2(Layout.CENTRE_DRAIN_SIZE.x, Layout.CENTRE_DRAIN_SIZE.y)
@@ -378,13 +408,21 @@ func _build_cabinet() -> void:
 	grate_mat.emission_enabled = true
 	grate_mat.emission_texture = _lib.grate_texture()
 	grate_mat.emission = Color.WHITE
-	grate_mat.emission_energy_multiplier = 0.8
+	grate_mat.emission_energy_multiplier = 0.5
 	var gr := MeshInstance3D.new()
 	gr.mesh = grate
 	gr.material_override = grate_mat
 	gr.position = Layout.p3(Layout.CENTRE_DRAIN_AT + Vector2(0.0, 0.1), 0.005)
 	gr.name = "StormGrate"
 	add_child(gr)
+
+
+## The printed playfield (tools/texgen/playfield_art.py → assets/textures/playfield/).
+func _playfield_art() -> Texture2D:
+	var path := "res://assets/textures/playfield/playfield.png"
+	if RenderProfile.off("playfield_art") or not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
 
 
 func _build_walls() -> void:
@@ -394,21 +432,33 @@ func _build_walls() -> void:
 	var t := Layout.OUTER_THICK
 	# outer boundary: left side, the arch, right side, bottom
 	walls.bar(Vector2(Layout.PLAY_LEFT, Layout.PLAY_BOTTOM), Vector2(Layout.PLAY_LEFT, Layout.ARCH_CENTER.y), t)
-	walls.arc(Layout.ARCH_CENTER, Layout.ARCH_RADIUS, 180.0, 360.0, 48, t)
+	walls.arc(Layout.ARCH_CENTER, Layout.ARCH_RADIUS, 180.0, 360.0, 64, t)
 	walls.bar(Vector2(Layout.PLAY_RIGHT, Layout.ARCH_CENTER.y), Vector2(Layout.PLAY_RIGHT, Layout.PLAY_BOTTOM), t)
 	walls.bar(Vector2(Layout.PLAY_LEFT, Layout.PLAY_BOTTOM), Vector2(Layout.PLAY_RIGHT, Layout.PLAY_BOTTOM), t)
 	# shooter lane divider and floor stop
 	walls.bar(Vector2(Layout.DIVIDER_X, Layout.DIVIDER_TOP), Vector2(Layout.DIVIDER_X, Layout.DIVIDER_BOTTOM),
 			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
+	# the Truck Route's rail, in two runs either side of the launch flap
+	walls.chain(Layout.rail_points(Layout.RAIL_TOP_DEG + 1.0, Layout.RAIL_GATE_FROM_DEG, 24), Layout.DIVIDER_THICK,
+			Layout.WALL_HEIGHT)
+	walls.chain(Layout.rail_points(Layout.RAIL_GATE_TO_DEG, 360.0, 8), Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
+	walls.chain(Layout.launch_wall_points(20), Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
 	walls.bar(Vector2(Layout.DIVIDER_X, Layout.LANE_FLOOR_Z), Vector2(Layout.PLAY_RIGHT, Layout.LANE_FLOOR_Z),
 			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
 	# the inlane return sweeps and the lane-return deflectors: starter furniture
 	for s: float in [1.0, -1.0]:
 		walls.bar(Vector2(Layout.inlane_guide_x(s), Layout.INLANE_GUIDE_BOTTOM),
 				Layout.mx(Layout.INLANE_END, s), Layout.GUIDE_THICK, Layout.GUIDE_HEIGHT)
-	walls.bar(Layout.LANE_RETURN_R[0], Layout.LANE_RETURN_R[1], Layout.GUIDE_THICK, Layout.GUIDE_HEIGHT)
-	walls.bar(Layout.LANE_RETURN_L[0], Layout.LANE_RETURN_L[1], Layout.GUIDE_THICK, Layout.GUIDE_HEIGHT)
 	walls.build_mesh(_lib.wood(), _lib.brass())
+	# the lane returns: a ball coming down an orbit is turned into the inlane; a kickback from
+	# the outlane below swings the flap open on its way back up the table
+	for pair: Array in [[Layout.LANE_RETURN_L, &"lane_return_l"], [Layout.LANE_RETURN_R, &"lane_return_r"]]:
+		var pts: Array = pair[0]
+		var g := OneWayGate.new()
+		g.name = String(pair[1]).capitalize().replace(" ", "")
+		g.configure(pair[1], pts[0], pts[1], Layout.GUIDE_THICK, Vector2(0.0, 1.0))
+		add_child(g)
+		_lane_returns.append(g)
 
 	# Guard Rails: the vertical outlane guards are an upgrade (docs/02 §2 R0)
 	var guides := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
@@ -422,91 +472,183 @@ func _build_walls() -> void:
 
 func _build_gate() -> void:
 	gate = OneWayGate.new()
-	gate.name = "ShooterGate"
-	gate.configure(&"shooter_gate", Vector2(Layout.DIVIDER_X, Layout.GATE_TOP),
-			Vector2(Layout.DIVIDER_X, Layout.GATE_BOTTOM), 0.04, Vector2(1.0, 0.0))
-	add_child(gate)
+	# the launch flaps: in the rail, swinging in from the shooter lane outside it. Each blade is
+	# bent along the rail with its inner face flush with the rail's, so an orbit riding round
+	# the inside meets no step where the flaps begin or end
+	const FLAP_THICK := 0.04
+	var inset := FLAP_THICK * 0.5 - Layout.DIVIDER_THICK * 0.5
+	var span := (Layout.RAIL_GATE_TO_DEG - Layout.RAIL_GATE_FROM_DEG) / float(Layout.RAIL_GATE_FLAPS)
+	for i in range(Layout.RAIL_GATE_FLAPS):
+		var d0 := Layout.RAIL_GATE_FROM_DEG + span * float(i)
+		var d1 := d0 + span
+		var mid := deg_to_rad((d0 + d1) * 0.5)
+		var flap := gate if i == 0 else OneWayGate.new()
+		flap.name = "ShooterGate%d" % (i + 1)
+		var arc := PackedVector2Array()
+		for k in range(5):
+			var d := lerpf(d0, d1, float(k) / 4.0)
+			arc.append(Layout.ring_point(d, Layout.rail_radius(d) + inset))
+		flap.configure(&"shooter_gate", arc[0], arc[arc.size() - 1], FLAP_THICK, Vector2(cos(mid), sin(mid)))
+		flap.arc_points = arc
+		flap.hold_band = 0.02
+		add_child(flap)
+		if i > 0:
+			_launch_flaps.append(flap)
 
 
-func _build_lanes() -> void:
-	var guide := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
-	guide.name = "NumbersLaneGuide"
-	add_child(guide)
-	guide.bar(Vector2(Layout.LANE_GUIDE_L_X, Layout.RING_CENTER.y), Vector2(Layout.LANE_GUIDE_L_X, Layout.LANE_GUIDE_L_BOTTOM), Layout.GUIDE_THICK)
-	_register([&"spinner_numbers", &"orbit_left"], guide)
-
-	var arc := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
-	arc.name = "GetawayArc"
-	add_child(arc)
-	arc.arc(Layout.RING_CENTER, Layout.RING_RADIUS, Layout.RING_LEFT_FROM_DEG, Layout.RING_LEFT_TO_DEG, 16, Layout.GUIDE_THICK)
-	_register([&"orbit_left"], arc)
+## THE RING ROAD (docs/19 §3.1): the orbit channel between the ring guide and the arch, the two
+## orbit lanes it ends in, and the Drop-Off lanes hanging off its top. Base furniture.
+func _build_ring_road() -> void:
+	var ring := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark(), _lib.brass())
+	ring.name = "RingRoad"
+	add_child(ring)
+	ring.bar(Vector2(Layout.LANE_GUIDE_L_X, Layout.RING_CENTER.y), Vector2(Layout.LANE_GUIDE_L_X, Layout.LANE_GUIDE_L_BOTTOM), Layout.GUIDE_THICK)
+	ring.bar(Vector2(Layout.LANE_GUIDE_R_X, Layout.RING_CENTER.y), Vector2(Layout.LANE_GUIDE_R_X, Layout.LANE_GUIDE_R_BOTTOM), Layout.GUIDE_THICK)
+	ring.post(Vector2(Layout.LANE_GUIDE_L_X, Layout.LANE_GUIDE_L_BOTTOM), Layout.POST_RADIUS * 1.6)
+	ring.post(Vector2(Layout.LANE_GUIDE_R_X, Layout.LANE_GUIDE_R_BOTTOM), Layout.POST_RADIUS * 1.6)
+	var left_to := Layout.ring_deg_at_x(Layout.DROPOFF_GUIDE_X[0])
+	var right_from := Layout.ring_deg_at_x(Layout.DROPOFF_GUIDE_X[3])
+	ring.arc(Layout.RING_CENTER, Layout.RING_RADIUS, 180.0, left_to, 24, Layout.GUIDE_THICK)
+	ring.arc(Layout.RING_CENTER, Layout.RING_RADIUS, right_from, 360.0, 24, Layout.GUIDE_THICK)
+	# the lanes' curved throats are part of the street, not of the orbits' scoring
+	var outer_r := Layout.DIVIDER_X - Layout.DIVIDER_THICK * 0.5 - Feel.BALL_RADIUS
+	var outer_l := Layout.PLAY_LEFT + Layout.OUTER_THICK * 0.5 + Feel.BALL_RADIUS
+	for side: float in [-1.0, 1.0]:
+		var mouth := LaneMouth.new()
+		var wall_x := outer_r if side > 0.0 else outer_l
+		mouth.configure(Vector2(wall_x - side * Feel.LANE_MOUTH_RADIUS, Layout.LANE_MOUTH_TOP_Z),
+				Feel.LANE_MOUTH_RADIUS, side)
+		add_child(mouth)
 
 	spinner = Spinner.new()
 	spinner.name = "Spinner"
 	spinner.configure(&"spinner_numbers", Layout.SPINNER_AT, Layout.LANE_WIDTH_L)
 	add_child(spinner)
+	spinner.spun.connect(func(_total: int) -> void: _shot(&"spinner", ball))
 	_register([&"spinner_numbers"], spinner)
 
+	# THE GETAWAY: up the left lane, round the ring road, down the right lane
 	orbit = OrbitLane.new()
-	orbit.name = "OrbitLeft"
+	orbit.name = "Getaway"
 	add_child(orbit)
-	orbit.configure(&"orbit_left", Layout.ORBIT_L_ENTRY, Vector2(Layout.LANE_WIDTH_L, 0.25),
-			Layout.ring_point(Layout.ORBIT_L_EXIT_DEG, Layout.CHANNEL_MID_RADIUS), 0.2)
-	orbit.orbit_completed.connect(func() -> void: orbit_completed.emit())
+	orbit.configure(&"orbit_left", Layout.ORBIT_L_ENTRY, Vector2(Layout.LANE_WIDTH_L, 0.25), Layout.ORBIT_EXIT_R, 0.2)
+	orbit.entry_dir = Vector2(0.0, -1.0)
+	orbit.exit_dir = Vector2(0.0, 1.0)
+	orbit.orbit_completed.connect(_on_getaway)
 	_register([&"orbit_left"], orbit)
 
-	# THE TRUCK ROUTE: the right lane guide and the ring's right arm
-	var guide_r := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
-	guide_r.name = "TruckRouteGuide"
-	add_child(guide_r)
-	guide_r.bar(Vector2(Layout.LANE_GUIDE_R_X, Layout.RING_CENTER.y), Vector2(Layout.LANE_GUIDE_R_X, Layout.LANE_GUIDE_R_BOTTOM), Layout.GUIDE_THICK)
-	_register([&"orbit_right"], guide_r)
-	var arc_r := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
-	arc_r.name = "TruckRouteArc"
-	add_child(arc_r)
-	arc_r.arc(Layout.RING_CENTER, Layout.RING_RADIUS, Layout.RING_RIGHT_FROM_DEG, Layout.RING_RIGHT_TO_DEG, 16, Layout.GUIDE_THICK)
-	_register([&"orbit_right"], arc_r)
+	# THE TRUCK ROUTE: up the right lane, round the ring road, down the left lane
 	orbit_right = OrbitLane.new()
-	orbit_right.name = "OrbitRight"
+	orbit_right.name = "TruckRoute"
 	add_child(orbit_right)
-	orbit_right.configure(&"orbit_right", Layout.ORBIT_R_ENTRY, Vector2(0.36, 0.25),
-			Layout.ring_point(Layout.ORBIT_R_EXIT_DEG, Layout.CHANNEL_MID_RADIUS), 0.2)
-	orbit_right.orbit_completed.connect(func() -> void:
-		orbit_completed.emit()
-		truck_route_completed.emit())
+	orbit_right.configure(&"orbit_right", Layout.ORBIT_R_ENTRY, Vector2(Layout.LANE_WIDTH_L, 0.25), Layout.ORBIT_EXIT_L, 0.2)
+	orbit_right.entry_dir = Vector2(0.0, -1.0)
+	orbit_right.exit_dir = Vector2(0.0, 1.0)
+	orbit_right.orbit_completed.connect(_on_truck_route)
 	_register([&"orbit_right"], orbit_right)
 
 
-func _build_top_lanes() -> void:
-	var posts := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark())
-	posts.name = "TopLanePosts"
-	add_child(posts)
-	for i in range(Layout.TOP_POST_DEG.size()):
-		posts.bar(Layout.ring_point(Layout.TOP_POST_DEG[i]), Layout.TOP_POST_BOTTOM[i], Layout.GUIDE_THICK)
-	_register([&"rollovers"], posts)
-	for i in range(Layout.ROLLOVER_AT.size()):
-		var r := Rollover.new()
-		r.name = "Rollover%d" % (i + 1)
-		r.configure(StringName("rollover_%d" % (i + 1)), i, Layout.ROLLOVER_AT[i])
-		add_child(r)
-		r.rolled.connect(_on_rollover)
+func _build_alley() -> void:
+	alley = Alley.new()
+	alley.name = "Alley"
+	add_child(alley)
+	for i in range(alley.cans.size()):
+		var can := alley.cans[i]
+		_bumpers.append(can)
+		can.popped.connect(_on_can_popped)
+		if i > 0:
+			_register([can.id], can)
+	for r in alley.lanes:
 		rollovers.append(r)
 		_register([&"rollovers"], r)
+	alley.lane_rolled.connect(func(index: int, was_lit: bool) -> void:
+		rollover_rolled.emit(index, was_lit)
+		_shot(&"dropoff", ball))
+	alley.lanes_completed.connect(func() -> void: lanes_completed.emit())
+	alley.level_changed.connect(_on_can_level)
 
 
-func _build_bumpers() -> void:
-	for i in range(Layout.BUMPER_AT.size()):
-		var b := Bumper.new()
-		b.id = StringName("bumper_%d" % (i + 1))
-		b.group = TableScore.GROUP_BUMPERS
-		b.value = int(TableScore.BUMPER)
-		b.position = Layout.p3(Layout.BUMPER_AT[i])
-		b.size_scale = Layout.BUMPER_SCALE[i]
-		b.name = "Bumper%d" % (i + 1)
-		add_child(b)
-		_bumpers.append(b)
-		if i > 0:
-			_register([b.id], b)
+## The shot line's islands (docs/19 §3.1): the Wire's payphones on the left, Nonna's and Fat
+## Tony's doorways either side of the Alley, the Beat Cop on the right.
+func _build_islands() -> void:
+	var plinths := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.wood_dark(), _lib.brass())
+	plinths.name = "Islands"
+	add_child(plinths)
+	# the front face is the targets themselves: a wall there would take the hit off the switch
+	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP]:
+		var open_front := PackedVector2Array()
+		for i in range(1, poly.size()):
+			open_front.append(poly[i])
+		open_front.append(poly[0])
+		plinths.chain(open_front, Layout.GUIDE_THICK)
+	# a backstop just behind the plates, so an island whose targets are not bought yet (dormant,
+	# collision-free) is closed rather than an open box a ball can roll into
+	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP]:
+		var along := (poly[1] - poly[0]).normalized()
+		var inward := Vector2(along.y, -along.x) * (Layout.TARGET_THICK + Layout.GUIDE_THICK) * 0.5
+		var line := PackedVector2Array([poly[0] + inward - along * 0.3, poly[1] + inward + along * 0.3])
+		for part: PackedVector2Array in Geometry2D.intersect_polyline_with_polygon(line, poly):
+			plinths.chain(part, Layout.GUIDE_THICK)
+	var tops := MeshLib.begin()
+	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP]:
+		MeshLib.prism(tops, poly, Layout.GUIDE_HEIGHT - 0.02, 0.0)
+	var tm := MeshInstance3D.new()
+	tm.mesh = MeshLib.finish(tops, _lib.wood_dark())
+	tm.name = "IslandTops"
+	add_child(tm)
+
+	wire_bank = TargetBank.new()
+	wire_bank.name = "WireBank"
+	wire_bank.id = &"wire_bank"
+	add_child(wire_bank)
+	for i in range(Layout.WIRE_AT.size()):
+		var t := StandupTarget.new()
+		t.name = "Payphone%d" % (i + 1)
+		t.configure(StringName("wire_%d" % (i + 1)), Layout.WIRE_AT[i], Layout.WIRE_FACE, Layout.WIRE_LENGTHS[i])
+		wire_bank.add_target(t)
+	wire_bank.target_struck.connect(func(i: int) -> void:
+		payphone_rang.emit(i)
+		_shot(&"wire", ball))
+	_register([&"wire_bank"], wire_bank)
+
+	for i in range(Layout.STOREFRONT_IDS.size()):
+		var s := Storefront.new()
+		s.name = "Storefront%d" % (i + 1)
+		s.configure(Layout.STOREFRONT_IDS[i], Layout.STOREFRONT_ISLANDS[i], Layout.STOREFRONT_SIGNS[i])
+		add_child(s)
+		s.collected.connect(_on_storefront_collected)
+		var shot: StringName = &"nonnas" if i == 0 else &"fat_tonys"
+		s.door_opened.connect(func(_id: StringName) -> void: inserts.flash_shot(shot))
+		storefronts.append(s)
+
+	bribe_target = StandupTarget.new()
+	bribe_target.name = "BeatCop"
+	bribe_target.lamp_color = Color(1.0, 0.45, 0.15)
+	bribe_target.configure(&"bribe_target", Layout.BRIBE_AT, Layout.BRIBE_FACE, Layout.BRIBE_LENGTH)
+	add_child(bribe_target)
+	bribe_target.struck.connect(_on_bribe_struck)
+	_register([&"bribe_target"], bribe_target)
+
+
+func _build_tower() -> void:
+	var lane := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark(), _lib.brass())
+	lane.name = "LuckysLane"
+	add_child(lane)
+	lane.chain(Layout.LUCKY_LANE_L, Layout.GUIDE_THICK)
+	lane.chain(Layout.LUCKY_LANE_R, Layout.GUIDE_THICK)
+	tower = LuckyTower.new()
+	tower.name = "LuckysTower"
+	add_child(tower)
+	tower.entered.connect(func(b: Ball) -> void:
+		lucky_entered.emit(b)
+		_shot(&"luckys", b))
+	tower.washed.connect(func(_b: Ball) -> void: laundromat_pass.emit())
+	tower.top_floor_reached.connect(func(b: Ball) -> void:
+		if penthouse != null:
+			penthouse.on_seated(b))
+	tower.top_floor_left.connect(func(b: Ball) -> void:
+		if penthouse != null:
+			penthouse.on_left(b))
 
 
 func _build_slings() -> void:
@@ -524,43 +666,7 @@ func _build_slings() -> void:
 		_register([&"slingshots"], sl)
 
 
-func _build_wire() -> void:
-	wire_bank = TargetBank.new()
-	wire_bank.name = "WireBank"
-	wire_bank.id = &"wire_bank"
-	add_child(wire_bank)
-	for i in range(Layout.WIRE_AT.size()):
-		var t := StandupTarget.new()
-		t.name = "Payphone%d" % (i + 1)
-		t.configure(StringName("wire_%d" % (i + 1)), Layout.WIRE_AT[i], Layout.WIRE_FACE, Layout.WIRE_LENGTHS[i])
-		wire_bank.add_target(t)
-	_register([&"wire_bank"], wire_bank)
-
-
-func _build_storefronts() -> void:
-	for i in range(Layout.STOREFRONT_AT.size()):
-		var s := Storefront.new()
-		s.name = "Storefront%d" % (i + 1)
-		s.configure(Layout.STOREFRONT_IDS[i], Layout.STOREFRONT_AT[i], Layout.STOREFRONT_FACING[i],
-				Layout.STOREFRONT_RAKE_DEG[i], Layout.STOREFRONT_SIGNS[i])
-		add_child(s)
-		s.collected.connect(_on_storefront_collected)
-		s.washed.connect(_on_laundromat_wash)
-		storefronts.append(s)
-		if Layout.STOREFRONT_IDS[i] == &"storefront_laundromat":
-			_register([&"storefront_laundromat", &"laundromat_loop"], s)
-		else:
-			_register([Layout.STOREFRONT_IDS[i]], s)
-
-
 func _build_extras() -> void:
-	bribe_target = StandupTarget.new()
-	bribe_target.name = "BribeTarget"
-	bribe_target.configure(&"bribe_target", Layout.BRIBE_AT, Layout.BRIBE_FACE, Layout.BRIBE_LENGTH)
-	add_child(bribe_target)
-	bribe_target.struck.connect(_on_bribe_struck)
-	_register([&"bribe_target"], bribe_target)
-
 	for i in range(Layout.COP_AT.size()):
 		var c := StandupTarget.new()
 		c.name = "Cop%d" % (i + 1)
@@ -573,21 +679,26 @@ func _build_extras() -> void:
 		c.set_hardware_active(false)
 
 	kickback = Kickback.new()
-	kickback.name = "KickbackLeft"
+	kickback.name = "Enforcer"
 	kickback.configure(&"kickback_left", Layout.KICKBACK_AT, Layout.KICKBACK_SIZE, Vector2(0.15, -1.0))
 	add_child(kickback)
 	_register([&"kickback_left"], kickback)
+	kickback_right = Kickback.new()
+	kickback_right.name = "RightHandMan"
+	kickback_right.configure(&"kickback_right", Layout.KICKBACK_R_AT, Layout.KICKBACK_SIZE, Vector2(-0.12, -1.0))
+	add_child(kickback_right)
+	_register([&"kickback_right"], kickback_right)
 
 	magnet = DrainMagnet.new()
 	magnet.name = "CaptainsMagnet"
 	magnet.position = Layout.p3(Layout.MAGNET_AT)
-	magnet.drain_point = Vector2(0.0, Layout.DRAIN_Z + 0.2)
+	magnet.drain_point = Vector2(Layout.MIRROR_X, Layout.DRAIN_Z + 0.2)
 	add_child(magnet)
 
 	director = DrainMagnet.new()
 	director.name = "DirectorsMagnet"
 	director.position = Layout.p3(Layout.DIRECTOR_AT)
-	director.drain_point = Vector2(0.0, Layout.DRAIN_Z + 0.2)
+	director.drain_point = Vector2(Layout.MIRROR_X, Layout.DRAIN_Z + 0.2)
 	director.self_driven = true
 	add_child(director)
 
@@ -622,9 +733,7 @@ func _build_bosses() -> void:
 	boss_sedan.color = Feel.COL_INK.lightened(0.16)
 	add_child(boss_sedan)
 	boss_sedan.size_to(Layout.SEDAN_LENGTH, Layout.SEDAN_THICK)
-	boss_sedan.set_path(PackedVector2Array([
-		Vector2(Layout.SEDAN_RAIL_FROM_X, Layout.SEDAN_RAIL_Z), Vector2(Layout.SEDAN_RAIL_TO_X, Layout.SEDAN_RAIL_Z),
-	]))
+	boss_sedan.set_path(_sedan_path())
 	_wire_boss_target(boss_sedan)
 
 	boss_truck = BossTarget.new()
@@ -680,12 +789,17 @@ func _wire_boss_target(t: BossTarget) -> void:
 	t.broken.connect(func(kind: StringName) -> void: boss_down.emit(kind))
 
 
-## The truck's beat: the orbit channel, sampled so the body lies along the arch.
+func _sedan_path() -> PackedVector2Array:
+	return PackedVector2Array([
+		Vector2(Layout.SEDAN_RAIL_FROM_X, Layout.SEDAN_RAIL_Z), Vector2(Layout.SEDAN_RAIL_TO_X, Layout.SEDAN_RAIL_Z),
+	])
+
+
+## The truck's beat: the ring road, sampled so the body lies along the channel.
 func _truck_path() -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	for i in range(15):
-		var deg := lerpf(200.0, 340.0, float(i) / 14.0)
-		pts.append(Layout.ring_point(deg, Layout.CHANNEL_MID_RADIUS))
+		pts.append(Layout.channel_mid(lerpf(200.0, 340.0, float(i) / 14.0)))
 	return pts
 
 
@@ -694,7 +808,9 @@ func _build_segments() -> void:
 	club.name = "Club"
 	add_child(club)
 	club.bind_flippers(flipper_left, flipper_right)
-	club.staircase_climbed.connect(func(speed: float) -> void: staircase_climbed.emit(speed))
+	club.staircase_climbed.connect(func(speed: float) -> void:
+		staircase_climbed.emit(speed)
+		_shot(&"staircase", ball))
 	club.roulette_landed.connect(func(p: int, h: bool) -> void: roulette_landed.emit(p, h))
 	club.reels_state.connect(func(cols: Array) -> void: reels_state.emit(cols))
 	club.high_roller_held.connect(func(steps: int) -> void: high_roller_held.emit(steps))
@@ -705,8 +821,9 @@ func _build_segments() -> void:
 		_register(piece["ids"], piece["node"], ClubDeck.ID_DECK)
 
 	docks = Docks.new()
-	docks.name = "Docks"
+	docks.name = "Pier9"
 	add_child(docks)
+	docks.truck_route = orbit_right
 	docks.docks_entered.connect(func() -> void: docks_entered.emit())
 	docks.stack_cleared.connect(func(s: int) -> void: container_stack_cleared.emit(s))
 	docks.containers_state.connect(func(c: Array) -> void: containers_state.emit(c))
@@ -714,9 +831,7 @@ func _build_segments() -> void:
 	docks.crane_pulled.connect(func() -> void: crane_pulled.emit())
 	docks.cargo_shipped.connect(func(speed: float) -> void: cargo_shipped.emit(speed))
 	docks.pier_fall.connect(func(b: Ball) -> void: _lose_ball(b, &"pier_splash"))
-	_register([Docks.ID_DOCKS], docks)
-	for piece: Dictionary in docks.pieces():
-		_register(piece["ids"], piece["node"], Docks.ID_DOCKS)
+	_register([Docks.ID_DOCKS, Docks.ID_CONTAINERS, Docks.ID_CRANE], docks)
 
 	penthouse = Penthouse.new()
 	penthouse.name = "Penthouse"
@@ -726,16 +841,38 @@ func _build_segments() -> void:
 	penthouse.sitdown_entered.connect(func() -> void: sitdown_entered.emit())
 	penthouse.penthouse_entered.connect(func(speed: float) -> void: penthouse_entered.emit(speed))
 	penthouse.penthouse_returned.connect(func() -> void: penthouse_returned.emit())
-	_register([Penthouse.ID_PENTHOUSE], penthouse, ClubDeck.ID_DECK)
-	for piece: Dictionary in penthouse.pieces():
-		_register(piece["ids"], piece["node"], Penthouse.ID_PENTHOUSE)
+	penthouse.session_changed.connect(func(on: bool) -> void:
+		commission_session.emit(on)
+		_refresh_chair_arrows())
+	penthouse.chair_taken.connect(func(_i: int) -> void: _refresh_chair_arrows())
+	_register([Penthouse.ID_PENTHOUSE, Penthouse.ID_CHAIRS, Penthouse.ID_SITDOWN, Penthouse.ID_STAIRS], penthouse,
+			LuckyTower.ID_LAUNDROMAT)
 
 	city_hall = CityHall.new()
 	city_hall.name = "CityHall"
 	add_child(city_hall)
 	city_hall.dome_loop_completed.connect(func(speed: float) -> void: dome_loop_completed.emit(speed))
-	_register([CityHall.ID_CITY_HALL], city_hall, Penthouse.ID_PENTHOUSE)
-	_register([CityHall.ID_LOOP], city_hall.loop, CityHall.ID_CITY_HALL)
+	_register([CityHall.ID_CITY_HALL], city_hall)
+	_register([CityHall.ID_CITY_HALL, CityHall.ID_LOOP], city_hall.loop, CityHall.ID_CITY_HALL)
+
+
+## THE SEWER (docs/19 §3.4): two Street manholes that swallow a ball while lit, and the Alley's,
+## where it always comes up.
+func _build_sewer() -> void:
+	for i in range(Layout.MANHOLE_AT.size()):
+		var m := Manhole.new()
+		m.name = "Manhole%d" % (i + 1)
+		m.configure(StringName("manhole_%d" % (i + 1)), i, Layout.MANHOLE_AT[i], i == 2)
+		add_child(m)
+		m.swallowed.connect(_on_manhole)
+		manholes.append(m)
+		_register([&"sewer"], m)
+
+
+func _build_inserts() -> void:
+	inserts = InsertField.new()
+	inserts.name = "Inserts"
+	add_child(inserts)
 
 
 func _build_drain() -> void:
@@ -776,7 +913,6 @@ func _build_plunger() -> void:
 	plunger.starter_powers = PLUNGER_STARTER_POWERS
 	plunger.starter_band = PLUNGER_STARTER_DEFAULT_BAND
 	add_child(plunger)
-	# the rod, for the look
 	var rod := Node3D.new()
 	rod.name = "PlungerRod"
 	var lane_x := (Layout.DIVIDER_X + Layout.PLAY_RIGHT) * 0.5
@@ -861,6 +997,12 @@ func hardware_present(id: StringName) -> bool:
 			if sl.is_powered():
 				return true
 		return false
+	if id in Layout.STOREFRONT_IDS:
+		for s in storefronts:
+			if s.id == id:
+				return s.bank_enabled
+	if id == LuckyTower.ID_LAUNDROMAT:
+		return tower != null and tower.open
 	var found := false
 	for piece: Dictionary in _pieces:
 		var ids: Array[StringName] = piece["ids"]
@@ -927,12 +1069,18 @@ func refresh_hardware() -> void:
 			if construction != null:
 				construction.cancel(node)
 	_first_refresh = false
-	if club != null:
-		club.set_flippers_live(hardware_unlocked(ClubDeck.ID_DECK) and hardware_unlocked(ClubDeck.ID_FLIPPERS))
 	for s in storefronts:
 		s.bank_enabled = hardware_unlocked(s.id)
-		s.wash_enabled = s.id == &"storefront_laundromat" and hardware_unlocked(&"laundromat_loop")
+		s.wash_enabled = false
 		s.apply_build()
+	if tower != null:
+		tower.set_open(hardware_unlocked(LuckyTower.ID_LAUNDROMAT))
+		tower.penthouse_open = penthouse != null and penthouse.is_hardware_active()
+	if club != null:
+		club.high_roller_owned = hardware_unlocked(ClubDeck.ID_HIGH_ROLLER)
+	if alley != null:
+		# Full Load (the Second Set, docs/19 §5): the cans hold their level twice as long
+		alley.decay_seconds = Feel.CAN_LEVEL_DECAY * (2.0 if hardware_unlocked(ClubDeck.ID_FLIPPERS) else 1.0)
 	var power := 1.0
 	if Game != null and Game.stats != null:
 		power = Game.stats.flipper_power()
@@ -942,27 +1090,243 @@ func refresh_hardware() -> void:
 	if plunger != null:
 		plunger.bands_enabled = debug_all_hardware \
 				or (Game != null and Game.stats != null and Game.stats.flag(&"plunger_bands"))
+	_refresh_board_lamps()
 
 
 func _on_upgrade_purchased(_id: String, _level: int) -> void:
 	refresh_hardware()
 
 
+## The Empire Wheel's resting state: a district is lit once its hardware stands.
+func _refresh_board_lamps() -> void:
+	if inserts == null:
+		return
+	var owned: Array[bool] = [
+		true,
+		hardware_unlocked(&"wire_bank") or hardware_unlocked(&"spinner_numbers"),
+		hardware_unlocked(LuckyTower.ID_LAUNDROMAT),
+		hardware_unlocked(&"storefront_pizzeria") or hardware_unlocked(&"storefront_pawn"),
+		hardware_unlocked(ClubDeck.ID_DECK),
+		hardware_unlocked(Docks.ID_DOCKS),
+		penthouse != null and penthouse.is_hardware_active(),
+		hardware_unlocked(CityHall.ID_CITY_HALL),
+	]
+	for i in range(owned.size()):
+		if _wheel_override.has(i):
+			continue
+		inserts.set_wheel(i, InsertField.Mode.SOLID if owned[i] else InsertField.Mode.OFF)
+
+
+# ================================================================== board rules =====
+
+
+## Every major shot reports here: the flow's Jobs, the Commission and the inserts listen.
+func _shot(shot: StringName, b: Ball) -> void:
+	if inserts != null and SHOTS.has(shot):
+		inserts.flash_shot(shot)
+	if penthouse != null:
+		penthouse.on_shot(shot, b)
+	shot_made.emit(shot, b)
+
+
+func _on_can_popped(_can: Bumper, b: Ball) -> void:
+	if _alley_cool > 0.0:
+		return
+	_alley_cool = ALLEY_SHOT_COOLDOWN
+	_shot(&"alley", b)
+
+
+func _on_can_level(level: int) -> void:
+	can_level_changed.emit(level)
+	if level >= PENTHOUSE_LEVEL:
+		light_penthouse()
+
+
+func _on_getaway() -> void:
+	orbit_completed.emit()
+	_shot(&"getaway", ball)
+	if _clock - _last_getaway <= GETAWAY_DOUBLE_WINDOW or _sewer_on_one_getaway():
+		open_sewer()
+	_last_getaway = _clock
+	if _pier_live_run and docks != null and docks.is_hardware_active():
+		docks.ship_to_truck(ball.speed() if ball != null else 0.0)
+
+
+func _on_truck_route() -> void:
+	orbit_completed.emit()
+	truck_route_completed.emit()
+	_shot(&"truck_route", ball)
+
+
+func _sewer_on_one_getaway() -> bool:
+	return Game != null and Game.stats != null and Game.stats.flag(&"sewer_one_getaway")
+
+
+func _refresh_chair_arrows() -> void:
+	if inserts == null or penthouse == null:
+		return
+	inserts.clear_source(&"chair")
+	for shot: StringName in penthouse.waiting_shots():
+		inserts.light(shot, &"chair", InsertField.Mode.BLINK, Color(0.72, 0.52, 1.0), 5)
+
+
+# ------------------------------------------------------------------ the Sewer -----
+
+
+func open_sewer() -> void:
+	if manholes.is_empty() or not manholes[0].is_hardware_active():
+		return
+	sewer_open = true
+	_sewer_left = SEWER_OPEN_SECONDS
+	for m in manholes:
+		m.set_open(true)
+	AudioDirector.play(&"chime_b")
+
+
+func close_sewer() -> void:
+	sewer_open = false
+	_sewer_left = 0.0
+	for m in manholes:
+		m.set_open(false)
+
+
+func sewer_is_open() -> bool:
+	return sewer_open
+
+
+func _on_manhole(m: Manhole, b: Ball) -> void:
+	if not sewer_open:
+		return
+	var to := 2
+	var at := b.table_position()
+	var hole := Layout.p3(Layout.MANHOLE_AT[m.index], 0.0)
+	var ride := PathRide.start(b, PackedVector3Array([at, Vector3(hole.x, Feel.BALL_RADIUS * 0.5, hole.z),
+			Vector3(hole.x, -0.35, hole.z)]), 2.2)
+	_sewer_rides.append({"ride": ride, "t": 0.0, "from": m.index, "to": to})
+	m.flash()
+	AudioDirector.play(&"pier_splash")
+	TableScore.earn(TableScore.GROUP_ORBIT, TableScore.ORBIT * 2.0, StringName("manhole_%d" % (m.index + 1)), b)
+	close_sewer()
+
+
+func _tick_sewer(delta: float) -> void:
+	if sewer_open:
+		_sewer_left -= delta
+		if _sewer_left <= 0.0:
+			close_sewer()
+	for i in range(_sewer_rides.size() - 1, -1, -1):
+		var r: Dictionary = _sewer_rides[i]
+		var ride: PathRide = r["ride"]
+		if ride.ball == null or not is_instance_valid(ride.ball):
+			_sewer_rides.remove_at(i)
+			continue
+		r["t"] = float(r["t"]) + delta
+		if not ride.done():
+			ride.step(delta)
+			continue
+		ride.ball.visible = false
+		ride.step(delta)
+		if float(r["t"]) < SEWER_SECONDS:
+			continue
+		var to: int = r["to"]
+		var up := Layout.p3(Layout.MANHOLE_AT[to], Feel.BALL_RADIUS + 0.02)
+		var a := _search_rng.randf_range(0.0, TAU)
+		var b := ride.ball
+		b.visible = true
+		BallHold.release(b, up, Vector3(cos(a), 0.0, sin(a)) * SEWER_POP_SPEED)
+		manholes[to].flash()
+		AudioDirector.play(&"kickback")
+		sewer_warped.emit(int(r["from"]), to)
+		_sewer_rides.remove_at(i)
+
+
 # ================================================================== flow API =====
 
 
+## The Drop-Off skill shot: the lane the flow lit (−1 for none).
 func set_lit_rollover(index: int) -> void:
-	_lit_lane = index
-	for i in range(rollovers.size()):
-		rollovers[i].set_lit(i == index)
+	if alley != null:
+		alley.set_skill_lane(index)
 
 
 func lit_rollover() -> int:
-	return _lit_lane
+	return alley.skill_lane() if alley != null else -1
 
 
 func rollover_count() -> int:
 	return rollovers.size()
+
+
+func can_level() -> int:
+	return alley.level if alley != null else 0
+
+
+func raise_can_level(steps: int = 1) -> void:
+	if alley != null:
+		alley.raise_level(steps)
+
+
+## One source's say on a shot's arrow insert (Jobs, the Big Score, a mode).
+func light_shot(shot: StringName, source: StringName, mode: int, color: Color, priority: int = 0) -> void:
+	if inserts != null:
+		inserts.light(shot, source, mode, color, priority)
+
+
+func clear_shot_source(source: StringName) -> void:
+	if inserts != null:
+		inserts.clear_source(source)
+
+
+func set_fuse(fraction: float, burning: bool) -> void:
+	if inserts != null:
+		inserts.set_fuse(fraction, burning)
+
+
+func set_take(level: int) -> void:
+	if inserts != null:
+		inserts.set_take(level)
+
+
+## A district's lamp on the Empire Wheel (−1 mode hands it back to the resting state).
+func set_wheel(index: int, mode: int) -> void:
+	if inserts == null:
+		return
+	if mode < 0:
+		_wheel_override.erase(index)
+		_refresh_board_lamps()
+		return
+	_wheel_override[index] = mode
+	inserts.set_wheel(index, mode)
+
+
+func set_big_score(mode: int) -> void:
+	if inserts != null:
+		inserts.set_big_score(mode)
+
+
+## Light the roof: Lucky's lift takes the next ball up to the Penthouse.
+func light_penthouse() -> void:
+	if tower == null or penthouse == null or not penthouse.is_hardware_active():
+		return
+	if tower.sitdown_lit:
+		return
+	tower.sitdown_lit = true
+	penthouse.roof_lit = true
+	light_shot(&"luckys", &"roof", InsertField.Mode.PULSE, Color(0.72, 0.52, 1.0), 2)
+
+
+func penthouse_lit() -> bool:
+	return tower != null and tower.sitdown_lit
+
+
+## Pier 9's run state from the flow: while a run is live, a Getaway gets the load to the truck.
+func set_pier_run(active: bool) -> void:
+	_pier_live_run = active
+
+
+func reset_pier() -> void:
+	if docks != null:
+		docks.reset_pier()
 
 
 func set_raid_active(active: bool) -> void:
@@ -1101,9 +1465,7 @@ func set_boss_target(kind: StringName, mode: StringName, hits: int = 0, speed_ga
 	if mode == &"park":
 		t.park_at(Layout.SEDAN_PARK if kind == &"sedan" else Layout.TRUCK_PARK)
 	else:
-		t.set_path(PackedVector2Array([
-			Vector2(Layout.SEDAN_RAIL_FROM_X, Layout.SEDAN_RAIL_Z), Vector2(Layout.SEDAN_RAIL_TO_X, Layout.SEDAN_RAIL_Z),
-		]) if kind == &"sedan" else _truck_path())
+		t.set_path(_sedan_path() if kind == &"sedan" else _truck_path())
 		t.set_moving(true)
 	t.set_hardware_active(true)
 
@@ -1160,7 +1522,7 @@ func _on_goon_struck(target: StandupTarget, _ball_hit: Ball) -> void:
 
 func auto_collect_one() -> StringName:
 	for s in storefronts:
-		if s.visible and s.is_open():
+		if s.visible and s.bank_enabled and s.is_open():
 			if s.collect_now(ball).is_positive():
 				return s.id
 	return &""
@@ -1169,7 +1531,7 @@ func auto_collect_one() -> StringName:
 func storefront_armed() -> bool:
 	var any := false
 	for s in storefronts:
-		if not s.visible:
+		if not s.visible or not s.bank_enabled:
 			continue
 		any = true
 		if s.state_name() != &"cooldown":
@@ -1180,7 +1542,7 @@ func storefront_armed() -> bool:
 func storefronts_armed_count() -> int:
 	var n := 0
 	for s in storefronts:
-		if s.state_name() == &"armed":
+		if s.bank_enabled and s.state_name() == &"armed":
 			n += 1
 	return n
 
@@ -1195,21 +1557,15 @@ func spinner_spins() -> int:
 	return spinner.spins_total if spinner != null else 0
 
 
-func _on_rollover(index: int, was_lit: bool) -> void:
-	rollover_rolled.emit(index, was_lit)
-
-
 func _on_storefront_collected(id: StringName, amount: BigMoney) -> void:
 	storefront_collected.emit(id, amount)
-
-
-func _on_laundromat_wash(_id: StringName) -> void:
-	laundromat_pass.emit()
+	_shot(&"nonnas" if id == Layout.STOREFRONT_IDS[0] else &"fat_tonys", ball)
 
 
 func _on_bribe_struck(target: StandupTarget, ball_hit: Ball) -> void:
 	TableScore.hit(target.id, ball_hit)
 	bribe_offered.emit()
+	_shot(&"beat_cop", ball_hit)
 
 
 func _on_cop_struck(target: StandupTarget, ball_hit: Ball) -> void:
@@ -1271,12 +1627,20 @@ func _bind_ball() -> void:
 	for holder: Node in [flipper_left, flipper_right, plunger, magnet, director, gate, club, docks, penthouse, city_hall]:
 		if holder != null and holder.has_method(&"set_ball"):
 			holder.call(&"set_ball", ball)
+	for g in _lane_returns + _launch_flaps:
+		g.set_ball(ball)
+	for s in storefronts:
+		s.set_ball(ball)
 
 
 func _on_drain_entered(body: Node3D, sound: StringName = &"drain") -> void:
 	if not (body is Ball):
 		return
-	_lose_ball(body as Ball, sound)
+	var b := body as Ball
+	# a ball riding a carrier (the sewer, the lift) is not lost when it passes under the felt
+	if BallHold.is_held(b):
+		return
+	_lose_ball(b, sound)
 
 
 func _lose_ball(lost: Ball, sound: StringName = &"drain") -> void:
@@ -1301,6 +1665,8 @@ func _lose_ball(lost: Ball, sound: StringName = &"drain") -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_clock += delta
+	_alley_cool = maxf(_alley_cool - delta, 0.0)
 	if _respawn_in > 0.0:
 		if not auto_respawn:
 			_respawn_in = -1.0
@@ -1309,8 +1675,13 @@ func _physics_process(delta: float) -> void:
 			if _respawn_in <= 0.0:
 				_respawn_in = -1.0
 				spawn_ball()
+	_tick_sewer(delta)
 	_ball_search(delta)
 	_keep_magnets_apart()
+	if inserts != null and alley != null:
+		inserts.set_can_level(alley.level, alley.decay_fraction())
+	if tower != null and not tower.sitdown_lit and inserts != null:
+		inserts.light(&"luckys", &"roof", InsertField.Mode.OFF, Color.WHITE)
 
 
 func _ball_search(delta: float) -> void:
@@ -1321,7 +1692,7 @@ func _ball_search(delta: float) -> void:
 	if ball.speed() > Feel.BALL_SEARCH_SPEED or p.z > BALL_SEARCH_FLOOR_Z or lane_box().has_point(p):
 		_still_for = 0.0
 		return
-	for seg: Node in [club, penthouse, docks, city_hall]:
+	for seg: Node in [club, penthouse, docks, city_hall, tower]:
 		if seg != null and bool(seg.call(&"search_exempt", ball)):
 			_still_for = 0.0
 			return

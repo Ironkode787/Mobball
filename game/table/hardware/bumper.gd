@@ -1,19 +1,34 @@
 class_name Bumper
 extends StaticBody3D
-## A pop bumper: a solid post the ball bounces off and a skirt ring that fires the solenoid —
-## a radial shove plus the score. The can's art rides the cap; the body is the lamp.
+## A pop bumper: in the Alley, a trash can. The post is the can's full body; a real contact
+## closes the skirt switch and the solenoid throws the ball out along the contact normal at its
+## own pace (Feel.BUMPER_KICK_*), the same model as the slingshots, so every hit is lively and
+## none is a dud. A ball that comes to rest against the can is thrown off again.
+##
+## `level` is the Alley's development (docs/19 §3.2): Trash Can → Dumpster → Armored Truck →
+## Vault. Each level doubles the value and relights the lid band.
+
+signal popped(bumper: Bumper, ball: Ball)
+
+const LEVEL_COLORS: Array[Color] = [
+	Color(0.86, 0.80, 0.66), Color(1.0, 0.72, 0.26), Color(0.18, 0.90, 0.84), Color(1.0, 0.84, 0.30),
+]
+const LEVEL_NAMES: Array[StringName] = [&"TRASH CAN", &"DUMPSTER", &"ARMORED TRUCK", &"VAULT"]
+const MESH_RADIUS := 0.29               ## the bumper_can mesh is modelled at this radius
 
 @export var id: StringName = &"bumper"
 @export var value: int = Feel.BUMPER_VALUE
 @export var group: StringName = &"bumpers"
 @export var size_scale: float = 1.0
 
+var level: int = 0
 var _present: bool = true
 var _cooldown: float = 0.0
 var _pulse: float = 0.0
 var _ring: Area3D = null
 var _inside: Array[Ball] = []
 var _lamp: StandardMaterial3D = null
+var _level_ring: StandardMaterial3D = null
 
 
 func radius() -> float:
@@ -27,13 +42,14 @@ func _ready() -> void:
 	var r := radius()
 	var shape := CollisionShape3D.new()
 	var cyl := CylinderShape3D.new()
-	cyl.radius = r * 0.66
+	cyl.radius = r
 	cyl.height = 0.5
 	shape.shape = cyl
 	shape.position.y = 0.25
 	shape.name = "Body"
 	add_child(shape)
 
+	# the skirt: only used to find a ball parked against the can
 	_ring = Area3D.new()
 	_ring.name = "Skirt"
 	_ring.collision_layer = Feel.LAYER_ZONES
@@ -41,72 +57,90 @@ func _ready() -> void:
 	_ring.monitorable = false
 	var rs := CollisionShape3D.new()
 	var ring := CylinderShape3D.new()
-	ring.radius = r * 0.66 + Feel.BALL_RADIUS + 0.03
+	ring.radius = r + Feel.BALL_RADIUS + 0.02
 	ring.height = 0.5
 	rs.shape = ring
 	rs.position.y = 0.25
 	_ring.add_child(rs)
 	add_child(_ring)
-	_ring.body_entered.connect(_on_ball_entered)
-	_ring.body_exited.connect(_on_ball_exited)
+	_ring.body_entered.connect(func(b: Node3D) -> void:
+		if b is Ball:
+			_inside.append(b as Ball))
+	_ring.body_exited.connect(func(b: Node3D) -> void:
+		if b is Ball:
+			_inside.erase(b as Ball))
 	_build_look()
 	_apply_collision()
+	set_level(level)
 
 
 func _build_look() -> void:
 	var lib := MaterialLib.shared()
 	var r := radius()
-	_lamp = lib.lamp(Color(1.0, 0.80, 0.42))
+	_lamp = lib.lamp(LEVEL_COLORS[0])
+	_level_ring = lib.lamp(LEVEL_COLORS[0])
 	var tex: Texture2D = null
 	if Presentation != null and Presentation.art != null:
 		tex = Presentation.art.resolve(&"prop.trash_can", null, false)
 	var can := ToyLib.instance(&"bumper_can")
 	if can != null:
-		can.scale = Vector3.ONE * size_scale
+		can.scale = Vector3.ONE * (r / MESH_RADIUS)
 		ToyLib.bind(can, "Lamp", _lamp)
 		if tex != null:
 			ToyLib.bind(can, "Art", lib.decal(tex))
 		add_child(can)
-		return
-	var body := CylinderMesh.new()
-	body.top_radius = r * 0.62
-	body.bottom_radius = r * 0.66
-	body.height = 0.44
-	body.radial_segments = 24
-	var bm := MeshInstance3D.new()
-	bm.mesh = body
-	bm.material_override = _lamp
-	bm.position.y = 0.22
-	bm.name = "Lamp"
-	add_child(bm)
+	else:
+		var body := CylinderMesh.new()
+		body.top_radius = r * 0.94
+		body.bottom_radius = r
+		body.height = 0.44
+		body.radial_segments = 24
+		var bm := MeshInstance3D.new()
+		bm.mesh = body
+		bm.material_override = lib.steel()
+		bm.position.y = 0.22
+		bm.name = "Body"
+		add_child(bm)
+		var cap := CylinderMesh.new()
+		cap.top_radius = r * 1.04
+		cap.bottom_radius = r * 1.06
+		cap.height = 0.06
+		cap.radial_segments = 28
+		var cm := MeshInstance3D.new()
+		cm.mesh = cap
+		cm.material_override = _lamp
+		cm.position.y = 0.47
+		cm.name = "Lamp"
+		add_child(cm)
+	# the level ring round the foot: the Alley's upgrade reads from any angle
 	var st := MeshLib.begin()
-	MeshLib.ring(st, Vector3.ZERO, r * 0.66, r * 1.0, 0.03, 0.10, 28)
-	MeshLib.ring(st, Vector3.ZERO, r * 1.0, r * 0.96, 0.10, 0.0, 28)
-	var skirt := MeshInstance3D.new()
-	skirt.mesh = MeshLib.finish(st, lib.rubber_red())
-	skirt.name = "SkirtRing"
-	add_child(skirt)
-	var cap := CylinderMesh.new()
-	cap.top_radius = r * 1.06
-	cap.bottom_radius = r * 1.10
-	cap.height = 0.08
-	cap.radial_segments = 28
-	var cm := MeshInstance3D.new()
-	cm.mesh = cap
-	cm.material_override = lib.ink()
-	cm.position.y = 0.48
-	cm.name = "Cap"
-	add_child(cm)
-	if tex != null:
-		# the art is a top-down lid on ink: printed on a disc the size of the cap's top, the
-		# inscribed circle of the square lands on the cap and the corners are never built
-		var st_lid := MeshLib.begin()
-		MeshLib.disc(st_lid, Vector3(0.0, 0.522, 0.0), r * 1.06, 32)
-		var dm := MeshInstance3D.new()
-		dm.mesh = MeshLib.finish(st_lid, lib.decal(tex))
-		dm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		dm.name = "CapArt"
-		add_child(dm)
+	MeshLib.ring(st, Vector3.ZERO, r + 0.012, r + 0.055, 0.012, 0.012, 32)
+	var ring_mi := MeshInstance3D.new()
+	ring_mi.mesh = MeshLib.finish(st, _level_ring)
+	ring_mi.name = "LevelRing"
+	ring_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ring_mi)
+
+
+## 0..Feel.CAN_LEVEL_MAX. Value doubles per level.
+func set_level(l: int) -> void:
+	level = clampi(l, 0, Feel.CAN_LEVEL_MAX)
+	var c := LEVEL_COLORS[level]
+	if _lamp != null:
+		_lamp.albedo_color = c.darkened(0.25)
+		_lamp.emission = c
+	if _level_ring != null:
+		_level_ring.albedo_color = c.darkened(0.4)
+		_level_ring.emission = c
+		_level_ring.emission_energy_multiplier = 0.25 + 0.55 * float(level)
+
+
+func level_name() -> StringName:
+	return LEVEL_NAMES[level]
+
+
+func scaled_value() -> int:
+	return value * (1 << level)
 
 
 func visual_state() -> Dictionary:
@@ -117,9 +151,8 @@ func visual_state() -> Dictionary:
 	elif _pulse > 0.0:
 		state = TableVisualState.VisualState.ACTIVE
 		mods.append(&"pulse")
-	elif _cooldown > 0.0:
-		state = TableVisualState.VisualState.DISABLED
-		mods.append(&"cooldown")
+	if level > 0:
+		mods.append(StringName("level_%d" % level))
 	return TableVisualState.state_token(state, mods)
 
 
@@ -128,51 +161,47 @@ func _process(delta: float) -> void:
 		_pulse = maxf(_pulse - delta * 6.0, 0.0)
 	if _lamp != null:
 		_lamp.emission_energy_multiplier = lerpf(_lamp.emission_energy_multiplier,
-				0.35 + _pulse * 3.2, 1.0 - exp(-18.0 * delta))
+				0.3 + 0.35 * float(level) + _pulse * 3.2, 1.0 - exp(-18.0 * delta))
 
 
 func _physics_process(delta: float) -> void:
 	_cooldown = maxf(_cooldown - delta, 0.0)
-	if _inside.is_empty():
+	if _inside.is_empty() or _cooldown > 0.0:
 		return
 	for i in range(_inside.size() - 1, -1, -1):
 		if not is_instance_valid(_inside[i]):
 			_inside.remove_at(i)
-	if _cooldown > 0.0:
-		return
-	# a real pop's skirt fires on contact, not on approach: a ball resting against the cap
-	# has to be thrown off again or it sits there for the rest of the night
+	# a ball resting against the can has to be thrown off, or it sits there all night
 	for b in _inside:
 		if b.speed() < Feel.HARDWARE_STALL_SPEED:
-			_kick(b)
+			_fire(b, Vector3.ZERO)
 			return
 
 
-func _on_ball_exited(body: Node3D) -> void:
-	if body is Ball:
-		_inside.erase(body as Ball)
-
-
-func _on_ball_entered(body: Node3D) -> void:
-	if not (body is Ball):
+## Ball.gd forwards every real contact here.
+func on_ball_contact(ball: Ball) -> void:
+	if not _present or _cooldown > 0.0:
 		return
-	_inside.append(body as Ball)
-	if _cooldown > 0.0:
-		return
-	_kick(body as Ball)
+	_fire(ball, ball.approach_velocity())
 
 
-func _kick(ball: Ball) -> void:
+func _fire(ball: Ball, approach: Vector3) -> void:
 	_cooldown = Feel.BUMPER_COOLDOWN
-	var away := ball.table_position() - position
-	away.y = 0.0
-	if away.length() < 0.001:
-		away = Vector3(0.0, 0.0, 1.0)
-	away = away.normalized()
-	ball.kick(away * Feel.BUMPER_IMPULSE)
+	var n := ball.table_position() - position
+	n.y = 0.0
+	if n.length() < 0.001:
+		n = Vector3(0.0, 0.0, 1.0)
+	n = n.normalized()
+	var a := approach
+	a.y = 0.0
+	var into := maxf(-a.dot(n), 0.0)
+	var slide := a - n * a.dot(n)
+	var out := n * (Feel.BUMPER_KICK_SPEED + Feel.BUMPER_KICK_GAIN * into) + slide * Feel.BUMPER_TANGENT_KEEP
+	ball.set_velocity(out.limit_length(Feel.BUMPER_OUT_MAX))
 	_pulse = 1.0
 	AudioDirector.play(&"bumper_hit")
-	TableScore.earn(group, float(value), id, ball, Feel.BUMPER_IMPULSE)
+	TableScore.earn(group, float(scaled_value()), id, ball, out.length())
+	popped.emit(self, ball)
 
 
 func set_hardware_active(active: bool) -> void:

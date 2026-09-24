@@ -1,15 +1,18 @@
 extends Node3D
 ## Screenshot rig for the 3D machine (tools/shot.sh out.png res://tests/shot_machine.tscn).
-##   SHOT_VIEW=bare|block|full     which career stage is on the table
+##   SHOT_VIEW=bare|block|club|full which career stage is on the table (R0, R3, R4, R7)
 ##   SHOT_BALL=x,z                 where to park the ball (plan units); default at the flippers
 ##   SHOT_CAM=low|high|deck        camera framing
 
 const TABLE_SCENE := preload("res://game/table/table_main.tscn")
+## Everything the Ledger has built by the Block (R3), then what the Club (R4) adds.
 const BLOCK_SET: Array = [
 	&"inlane_guides", &"slingshots", &"bumper_2", &"bumper_3", &"rollovers", &"spinner_numbers",
-	&"orbit_left", &"orbit_right", &"wire_bank", &"laundromat_loop", &"storefront_laundromat",
-	&"storefront_pizzeria", &"storefront_pawn", &"bribe_target", &"kickback_left",
+	&"orbit_left", &"wire_bank", &"laundromat_loop", &"storefront_pizzeria", &"storefront_pawn",
+	&"bribe_target", &"kickback_left", &"sewer",
 ]
+const CLUB_SET: Array = [&"club_deck", &"staircase_ramp", &"roulette_wheel", &"slot_reels",
+	&"backroom_saucer"]
 
 var table: ProgressionTable = null
 var camera: CameraRig = null
@@ -27,6 +30,8 @@ func _ready() -> void:
 			pass
 		"block":
 			table.force_hardware(BLOCK_SET, true)
+		"club":
+			table.force_hardware(BLOCK_SET + CLUB_SET, true)
 		_:
 			table.debug_all_hardware = true
 	table.refresh_hardware()

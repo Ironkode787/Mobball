@@ -38,6 +38,7 @@ var _telegraph: float = 0.0
 var _bat_mesh: MeshInstance3D = null
 var _lamp: StandardMaterial3D = null
 var _pivot: Vector3 = Vector3.ZERO
+var _launch: Dictionary = {}              ## ball id -> {t, done}: this flip's shots
 
 
 func _ready() -> void:
@@ -61,6 +62,12 @@ func pivot() -> Vector3:
 
 func _set_yaw(yaw: float) -> void:
 	transform = Transform3D(Basis(Vector3.UP, yaw), _pivot)
+
+
+## Seconds for the up-stroke: a stronger solenoid (the Ledger's flipper power) swings the
+## same arc faster, so the whole bat hits harder without changing its geometry.
+func up_time() -> float:
+	return Feel.FLIPPER_UP_TIME / clampf(power_scale, 0.5, 2.0)
 
 
 func bat_length() -> float:
@@ -263,6 +270,7 @@ func _fire() -> void:
 	_phase_time = 0.0
 	_buffered_at = -1000.0
 	_glow = 1.0
+	_launch.clear()
 	var sitter := _pivot_sitter()
 	if sitter != null:
 		sitter.kick(_pivot_pop_direction() * Feel.FLIPPER_PIVOT_POP)
@@ -318,6 +326,84 @@ func _physics_process(delta: float) -> void:
 	_set_yaw(FlipperCurve.rotation_for(side, progress))
 	if _glow > 0.0:
 		_glow = maxf(_glow - delta * 5.0, 0.0)
+	if _present and not dead:
+		_shape_shots()
+		if state == State.HELD:
+			_grip(delta)
+
+
+## Where a ball sits against the bat: t along it (0 pivot, 1 tip) and its gap to the rubber.
+func _bat_contact(b: Ball) -> Vector2:
+	var rel := b.table_position() - position
+	var dir := Vector3(1.0, 0.0, 0.0).rotated(Vector3.UP, rotation.y)
+	var n2 := strike_normal()
+	var along := rel.x * dir.x + rel.z * dir.z
+	var perp := rel.x * n2.x + rel.z * n2.y
+	var gap := perp - _bat_radius(clampf(along, 0.0, bat_length())) - Feel.BALL_RADIUS
+	return Vector2(along / bat_length(), gap)
+
+
+static func shot_heading(t: float) -> float:
+	var c := Feel.FLIPPER_SHOT_CURVE
+	if t <= c[0].x:
+		return c[0].y
+	for i in range(1, c.size()):
+		if t <= c[i].x:
+			return lerpf(c[i - 1].y, c[i].y, (t - c[i - 1].x) / (c[i].x - c[i - 1].x))
+	return c[c.size() - 1].y
+
+
+## The aim: the first time a ball comes off the rising bat, its heading is set by where it met
+## the bat (Feel.FLIPPER_SHOT_CURVE). Applied once per ball per flip, the tick it leaves the bat.
+func _shape_shots() -> void:
+	if state != State.RISING and not (state == State.HELD and _phase_time < 0.05):
+		return
+	for b: Ball in Balls.live():
+		if not is_instance_valid(b) or BallHold.is_held(b):
+			continue
+		var id := b.get_instance_id()
+		var c := _bat_contact(b)
+		var touching := c.x > -0.15 and c.x < 1.2 and c.y > -0.08 and c.y < 0.05
+		if not _launch.has(id):
+			if touching:
+				_launch[id] = {"t": c.x, "done": false}
+			continue
+		var entry: Dictionary = _launch[id]
+		if bool(entry["done"]):
+			continue
+		var v := b.local_velocity()
+		var n2 := strike_normal()
+		var out := v.x * n2.x + v.z * n2.y
+		if out < Feel.FLIPPER_SHOT_MIN_SPEED or v.z >= 0.0:
+			continue
+		if touching and state == State.RISING:
+			continue
+		entry["done"] = true
+		var sign := 1.0 if side == &"left" else -1.0
+		var want := deg_to_rad(shot_heading(float(entry["t"])) * sign)
+		var have := atan2(v.x, -v.z)
+		var heading := lerp_angle(have, want, Feel.FLIPPER_SHOT_SHAPE)
+		var speed := Vector2(v.x, v.z).length()
+		b.set_velocity(Vector3(sin(heading) * speed, v.y, -cos(heading) * speed))
+
+
+## The rubber on a held bat takes the roll out of a ball running toward the tip.
+func _grip(delta: float) -> void:
+	var dir := Vector3(1.0, 0.0, 0.0).rotated(Vector3.UP, rotation.y)
+	for b: Ball in Balls.live():
+		if not is_instance_valid(b) or BallHold.is_held(b):
+			continue
+		var c := _bat_contact(b)
+		if c.x < 0.0 or c.x > 1.0 or c.y < -0.08 or c.y > 0.04:
+			continue
+		var v := b.local_velocity()
+		if v.length() > Feel.FLIPPER_GRIP_SPEED:
+			continue
+		var along := v.x * dir.x + v.z * dir.z
+		if along <= 0.0:
+			continue
+		var keep := exp(-Feel.FLIPPER_GRIP * delta)
+		b.set_velocity(v - dir * along * (1.0 - keep))
 
 
 func _process(delta: float) -> void:
@@ -339,8 +425,9 @@ func _advance(delta: float) -> void:
 	_phase_time += delta
 	match state:
 		State.RISING:
-			progress = FlipperCurve.up_progress(_phase_time)
-			if _phase_time >= Feel.FLIPPER_UP_TIME:
+			var stroke := up_time()
+			progress = FlipperCurve.up_progress(_phase_time, stroke)
+			if _phase_time >= stroke:
 				progress = 1.0
 				state = State.HELD
 				_phase_time = 0.0

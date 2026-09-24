@@ -13,6 +13,9 @@ const CONTRACT := {
 	&"pizza_sign": ["Pole", "Spin"],
 	&"washing_machine": ["Body", "Door"],
 	&"safe": ["Body", "Dial", "Handle"],
+	&"city_hall_dome": ["Body", "LampDome", "Trim"],
+	&"pier_crane": ["Body"],
+	&"pier_boom": ["Body"],
 }
 
 
