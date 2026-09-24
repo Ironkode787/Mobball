@@ -28,6 +28,8 @@ const LOAD_SECONDS := 0.55
 const RIDE_SPEED := 3.4
 const DROP_SPEED := 8.0
 const COOLDOWN := 1.2
+const LANE_EYE_Z := -1.30                   ## up the right lane, above its throat
+const TRUCK_WINDOW := 3.0                   ## s from the lane to the crane for a Truck Route ball
 const TOWER_AT := Vector2(2.45, -5.26)
 const TOWER_H := 1.05
 const CONTAINER_AT: Array = [Vector2(2.02, -5.19), Vector2(2.31, -5.19), Vector2(2.34, -4.92)]
@@ -41,7 +43,6 @@ enum Phase { IDLE, LIFT, SWING, LOAD, BACK, LOWER }
 var containers: Docks = null
 var crane: Node3D = null
 var lit: bool = true
-var truck_route: OrbitLane = null         ## the table binds the right orbit: only its balls are caught
 
 var _present: bool = false
 var _ball: Ball = null
@@ -51,6 +52,9 @@ var _ride: PathRide = null
 var _t: float = 0.0
 var _cool: float = 0.0
 var _sensor: Area3D = null
+var _lane_eye: Area3D = null
+var _up_lane: Dictionary = {}               ## ball instance id -> when it was seen going up the lane
+var _clock: float = 0.0
 var _boom: Node3D = null
 var _trolley: Node3D = null
 var _magnet_lamp: StandardMaterial3D = null
@@ -75,6 +79,22 @@ static func drop_point() -> Vector2:
 
 
 func _build_sensor() -> void:
+	# the pier's own eye in the right lane: a ball seen going up it is a Truck Route ball, so
+	# the crane knows one without the Truck Route's switches (a later buy) and never takes a
+	# freshly plunged ball entering the ring through the launch flaps
+	_lane_eye = Area3D.new()
+	_lane_eye.name = "LaneEye"
+	_lane_eye.collision_layer = Feel.LAYER_ZONES
+	_lane_eye.collision_mask = Feel.LAYER_BALL
+	_lane_eye.monitorable = false
+	var eye := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(Layout.LANE_WIDTH_L, 0.4, 0.2)
+	eye.shape = box
+	eye.position = Layout.p3(Vector2(Layout.LANE_R_X, LANE_EYE_Z), 0.2)
+	_lane_eye.add_child(eye)
+	add_child(_lane_eye)
+	_lane_eye.body_entered.connect(_on_lane_eye)
 	_sensor = Area3D.new()
 	_sensor.name = "CraneSensor"
 	_sensor.collision_layer = Feel.LAYER_ZONES
@@ -287,7 +307,8 @@ func _on_sensor(body: Node3D) -> void:
 	var b := body as Ball
 	if BallHold.is_held(b) or _loaded.size() >= STACKS:
 		return
-	if truck_route != null and not truck_route.armed():
+	var seen: float = _up_lane.get(b.get_instance_id(), -1000.0)
+	if _clock - seen > TRUCK_WINDOW:
 		return
 	crane_telegraph.emit()
 	AudioDirector.play(&"crane_telegraph")
@@ -298,7 +319,17 @@ func _on_sensor(body: Node3D) -> void:
 	docks_entered.emit()
 
 
+func _on_lane_eye(body: Node3D) -> void:
+	if not (body is Ball) or (body as Ball).local_velocity().z >= 0.0:
+		return
+	for id: int in _up_lane.keys():
+		if _clock - float(_up_lane[id]) > TRUCK_WINDOW:
+			_up_lane.erase(id)
+	_up_lane[body.get_instance_id()] = _clock
+
+
 func _physics_process(delta: float) -> void:
+	_clock += delta
 	_cool = maxf(_cool - delta, 0.0)
 	if _phase == Phase.IDLE or _ride == null:
 		return
@@ -369,10 +400,12 @@ func _process(delta: float) -> void:
 func set_hardware_active(active: bool) -> void:
 	_present = active
 	visible = active
-	if _sensor != null:
-		_sensor.collision_layer = Feel.LAYER_ZONES if active else 0
-		_sensor.collision_mask = Feel.LAYER_BALL if active else 0
+	for area: Area3D in [_sensor, _lane_eye]:
+		if area != null:
+			area.collision_layer = Feel.LAYER_ZONES if active else 0
+			area.collision_mask = Feel.LAYER_BALL if active else 0
 	if not active:
+		_up_lane.clear()
 		_release_everything()
 
 

@@ -71,7 +71,7 @@
     {
       "id": "shake_the_block",
       "name": "Shake the Block",
-      "desc": "Collect all 3 storefronts with one guy.",
+      "desc": "Collect from both shops with one guy.",
       "respect": 20,
       "check": "collect_all_one_ball",
       "params": {"group": "storefronts"},

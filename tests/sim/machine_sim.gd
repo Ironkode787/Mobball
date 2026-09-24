@@ -145,6 +145,11 @@ func _s_lanes_build_the_cans() -> void:
 	check(_completed == 1, "three lanes did not complete the set (%d)" % _completed)
 	check(table.can_level() == 1, "the cans did not go up a level (level %d)" % table.can_level())
 	check(table.alley.cans[0].scaled_value() == table.alley.cans[0].value * 2, "a Dumpster does not pay double")
+	# the next Night starts from the Trash Can, however well tonight went
+	table.light_penthouse()
+	table.reset_board()
+	check(table.can_level() == 0, "a new Night kept yesterday's can level (level %d)" % table.can_level())
+	check(not table.penthouse_lit(), "a new Night kept yesterday's lit roof")
 	# lane change: the flipper buttons rotate the lit lanes
 	table.alley.reset_night()
 	table.alley.lane_lit[0] = true
@@ -253,6 +258,26 @@ func _s_pier() -> void:
 	if is_instance_valid(b):
 		check(not BallHold.is_held(b), "the crane kept the ball")
 	table.reset_pier()
+	# the pier is bought before the Truck Route: its crane must take loads without that orbit
+	_reset()
+	var pier_set := [Docks.ID_DOCKS, Docks.ID_CONTAINERS, Docks.ID_CRANE]
+	table.debug_all_hardware = false
+	table.force_hardware(pier_set, true)
+	table.docks.set_lit(true)
+	check(not table.hardware_present(&"orbit_right"), "the Truck Route stood up with the pier")
+	await wait(Docks.COOLDOWN + 0.2)
+	var early := await drop_at(Vector2(Layout.LANE_R_X, 0.3), Vector3(0.0, 0.0, -24.0))
+	for i in range(ticks(6.0)):
+		await step(1)
+		if _loads > 0 and not table.docks.holds_ball():
+			break
+	check(_loads == 1, "the crane took nothing before the Truck Route was bought")
+	table.force_hardware(pier_set, false)
+	table.debug_all_hardware = true
+	table.refresh_hardware()
+	table.reset_pier()
+	if is_instance_valid(early):
+		table.despawn_ball()
 	finish()
 
 

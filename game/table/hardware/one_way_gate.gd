@@ -114,13 +114,10 @@ func side_of(p: Vector2) -> float:
 
 
 func _physics_process(_delta: float) -> void:
-	if not _present or _ball == null or not is_instance_valid(_ball):
+	if not _present:
 		return
-	var p := Layout.plan(_ball.table_position())
-	if absf((p - _centre).dot(_axis)) > _half_span + LATCH_BAND:
-		return
-	var d := side_of(p)
-	if absf(d) < hold_band:
+	var d := _deciding_side()
+	if is_nan(d) or absf(d) < hold_band:
 		return
 	var want_open := d > 0.0
 	if want_open == _open:
@@ -131,6 +128,26 @@ func _physics_process(_delta: float) -> void:
 		opened.emit()
 	else:
 		closed.emit()
+
+
+## The side of the flap the nearest ball along its span is on (NAN when none is). Every live
+## ball counts, so in a multiball an extra ball kicked up from the outlane still opens it and
+## one coming back down never finds it standing open for another.
+func _deciding_side() -> float:
+	var best := NAN
+	var candidates: Array[Ball] = Balls.live()
+	if candidates.is_empty() and _ball != null and is_instance_valid(_ball):
+		candidates.append(_ball)
+	for b in candidates:
+		if not is_instance_valid(b) or BallHold.is_held(b):
+			continue
+		var p := Layout.plan(b.table_position())
+		if absf((p - _centre).dot(_axis)) > _half_span + LATCH_BAND:
+			continue
+		var d := side_of(p)
+		if is_nan(best) or absf(d) < absf(best):
+			best = d
+	return best
 
 
 func _process(delta: float) -> void:

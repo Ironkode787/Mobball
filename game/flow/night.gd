@@ -246,6 +246,8 @@ func start() -> void:
 		nudge.meter.max_warnings = Game.stats.tilt_leans()
 		nudge.clear_tilt()
 	_set_raid_visual(false)
+	# yesterday's can levels, lit roof and Pier 9 loads do not carry into tonight
+	TableAPI.call_if(table, "reset_board")
 
 	Events.switch_hit.connect(_on_switch_hit)
 	Events.scored.connect(_on_scored)
@@ -718,6 +720,7 @@ func _lose_guy(guy: Dictionary, age: float = 0.0) -> void:
 	Game.set_fielded([])
 	Game.casino.close_visit()
 	Game.smuggling.abort()
+	TableAPI.call_if(table, "reset_pier")
 	_close_skill_window()
 	if raid_stretch:
 		raid.on_guy_lost()
@@ -796,6 +799,7 @@ func _release_night() -> void:
 	Game.meeting.end()
 	Game.casino.close_visit()
 	Game.smuggling.abort()
+	TableAPI.call_if(table, "reset_pier")
 	Game.sitdown.abort()
 	Game.set_fielded([])
 	TableAPI.call_if(table, "despawn_ball")
@@ -1800,7 +1804,7 @@ func _tick_collection(delta: float) -> void:
 		_open_the_block()
 
 
-## All three banks standing at once (docs/05 §3). Read off the table's own storefront list;
+## Every doorway bank standing at once (docs/05 §3). Read off the table's own storefront list;
 ## a table that does not have one simply never starts a round.
 func _all_storefronts_armed() -> bool:
 	var raw: Variant = TableAPI.prop(table, "storefronts", null)

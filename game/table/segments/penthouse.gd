@@ -134,6 +134,17 @@ func start_session() -> void:
 	session_changed.emit(true)
 
 
+## A new Night: nobody sitting, the roof dark.
+func reset_night() -> void:
+	var was := session_active()
+	session_left = 0.0
+	roof_lit = false
+	for i in range(CHAIRS):
+		_taken[i] = false
+	if was:
+		session_changed.emit(false)
+
+
 func session_active() -> bool:
 	return session_left > 0.0
 

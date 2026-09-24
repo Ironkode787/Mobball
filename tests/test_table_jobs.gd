@@ -12,6 +12,7 @@ const ALL_SHOTS: Array[StringName] = [&"alley", &"dropoff", &"wire", &"spinner",
 func run(t: TestCtx) -> void:
 	_deal(t)
 	_a_job(t)
+	_taking_is_not_a_shot(t)
 	_the_fuse(t)
 	_big_score(t)
 	_the_take(t)
@@ -89,6 +90,24 @@ func _deal(t: TestCtx) -> void:
 # --- one Job ------------------------------------------------------------------
 
 
+## The visit to Lucky's that takes a Job is the taking; it is not also the Job's first wash.
+func _taking_is_not_a_shot(t: TestCtx) -> void:
+	var jobs := TableJobs.new()
+	jobs.catalogue.clear()
+	jobs.catalogue.append({"id": "wash", "name": "Wash", "shots": {"luckys": 2}, "fuse": 30})
+	var shots: Array[StringName] = [&"wire", &"luckys"]
+	jobs.begin_night(0, shots, _rng(2))
+	var done: Array = []
+	jobs.job_done.connect(func(_line: int, job: Dictionary) -> void: done.append(job["id"]))
+	jobs.select(0)
+	jobs.on_lucky()
+	t.ok(not jobs.on_shot(&"luckys"), "the ball that took the Job does not count toward it")
+	jobs.on_shot(&"luckys")
+	t.eq(done.size(), 0, "one wash of two is not done")
+	jobs.on_shot(&"luckys")
+	t.eq(done, ["wash"], "two real washes are")
+
+
 func _a_job(t: TestCtx) -> void:
 	var jobs := _board(TableJobs.new())
 	var cans := _line_of(jobs, "cans")
@@ -143,6 +162,17 @@ func _the_fuse(t: TestCtx) -> void:
 	slow.on_lucky()
 	t.ok(slow.fuse_left > 30.0, "Slow Burn lights a longer fuse")
 
+	# the spinner can only buy back burnt fuse: spun at a full fuse it saves its budget
+	var full := _board(TableJobs.new())
+	full.select(_line_of(full, "lap"))
+	full.on_lucky()
+	for i in range(100):
+		full.on_shot(&"spinner")
+	full.tick(25.0)
+	for i in range(400):
+		full.on_shot(&"spinner")
+	t.near(full.fuse_left, 5.0 + TableJobs.FUSE_SPIN_MAX, 1e-6, "spinning at a full fuse wastes none of it")
+
 
 # --- the Big Score --------------------------------------------------------------
 
@@ -177,6 +207,7 @@ func _big_score(t: TestCtx) -> void:
 	jobs.end_big_score()
 	t.ok(not jobs.big_score_active and jobs.jackpots_left.is_empty(), "back to one ball, it ends")
 	t.eq(jobs.on_lucky(), &"", "and does not relight: the Night's lines stay done")
+	t.ok(not jobs.arrow_states().has(&"wire"), "and the Wire stops asking for a payphone")
 
 
 func _the_take(t: TestCtx) -> void:

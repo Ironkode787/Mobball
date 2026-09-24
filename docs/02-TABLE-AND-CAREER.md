@@ -56,7 +56,7 @@ a newspaper front page, and a new music stem.
 | R0 | **Lookout** | 0 | The Alley: bare table | Flip, earn, survive |
 | R1 | **Errand Boy** | 10 | Numbers lane + Job board | Jobs (missions), Lean |
 | R2 | **Numbers Runner** | 50 | The Corner: Wire target, payphones | The Wire draws; laundering v0 |
-| R3 | **Soldier** | 150 | The Block: 3 storefronts, left orbit | Protection collections; first boss |
+| R3 | **Soldier** | 150 | The Block: two doorway banks, the Sewer, left orbit | Protection collections; first boss |
 | R4 | **Capo** | 400 | **THE CLUB** — upper deck | Casino gambling = laundering v2; 2-ball Family Meeting |
 | R5 | **Underboss** | 1,000 | **THE DOCKS** — lower-left mini-field + right orbit | Smuggling; Heists; kickbacks |
 | R6 | **Boss** | 2,500 | **PENTHOUSE** — top level | The Commission table; Elections; 3-ball |

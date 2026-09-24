@@ -624,7 +624,7 @@
       "branch": "rackets", "tier": 6,
       "name": "The Penthouse",
       "flavor": "Top floor. Long table. Five chairs, and you know whose they are.",
-      "cost": "800M", "repeat": null, "requires": ["rackets.club_license"],
+      "cost": "800M", "repeat": null, "requires": ["rackets.club_license", "rackets.getaway_loop", "rackets.truck_route"],
       "reveal": {"rank": 6},
       "effects": [
         {"kind": "unlock_hardware", "target": "penthouse"},

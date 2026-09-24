@@ -135,6 +135,7 @@ var _sewer_left: float = 0.0
 var _sewer_rides: Array[Dictionary] = []     ## {ride: PathRide, t, from, to}
 var _alley_cool: float = 0.0
 var _pier_live_run: bool = false
+var _can_level_seen: int = 0
 var _wheel_override: Dictionary = {}
 var _lane_returns: Array[OneWayGate] = []
 var _launch_flaps: Array[OneWayGate] = []
@@ -823,7 +824,6 @@ func _build_segments() -> void:
 	docks = Docks.new()
 	docks.name = "Pier9"
 	add_child(docks)
-	docks.truck_route = orbit_right
 	docks.docks_entered.connect(func() -> void: docks_entered.emit())
 	docks.stack_cleared.connect(func(s: int) -> void: container_stack_cleared.emit(s))
 	docks.containers_state.connect(func(c: Array) -> void: containers_state.emit(c))
@@ -1138,8 +1138,10 @@ func _on_can_popped(_can: Bumper, b: Ball) -> void:
 
 func _on_can_level(level: int) -> void:
 	can_level_changed.emit(level)
-	if level >= PENTHOUSE_LEVEL:
+	# a rise into the level lights the roof; the cans decaying down to it do not
+	if level >= PENTHOUSE_LEVEL and level > _can_level_seen:
 		light_penthouse()
+	_can_level_seen = level
 
 
 func _on_getaway() -> void:
@@ -1317,6 +1319,23 @@ func light_penthouse() -> void:
 
 func penthouse_lit() -> bool:
 	return tower != null and tower.sitdown_lit
+
+
+## A new Night starts from a dark board (the flow calls this as it starts): the cans back to
+## the Trash Can and the lanes unlit, the Sewer shut, the roof dark, Pier 9's yard empty.
+func reset_board() -> void:
+	if alley != null:
+		alley.reset_night()
+	_can_level_seen = 0
+	close_sewer()
+	_last_getaway = -1000.0
+	if tower != null:
+		tower.sitdown_lit = false
+	if penthouse != null:
+		penthouse.reset_night()
+	clear_shot_source(&"roof")
+	_pier_live_run = false
+	reset_pier()
 
 
 ## Pier 9's run state from the flow: while a run is live, a Getaway gets the load to the truck.

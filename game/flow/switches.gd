@@ -11,7 +11,7 @@ extends RefCounted
 const COVER_SIZE := {
 	&"rollovers": 3,
 	&"wire": 3,
-	&"storefronts": 3,
+	&"storefronts": 2,     # the doorway banks the table has (Layout.STOREFRONT_IDS)
 }
 
 const _PREFIXES: Array[Array] = [

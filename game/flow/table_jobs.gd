@@ -80,6 +80,9 @@ var night_big_scores: int = 0
 var night_jackpots: int = 0
 
 var _spin_bought: float = 0.0
+## The table reports the Lucky's visit that takes a Job as a shot as well; that one is the
+## taking, not the first of the Job's shots.
+var _taken_at_luckys: bool = false
 
 
 func _init() -> void:
@@ -119,6 +122,7 @@ func begin_night(rank: int, shots: Array[StringName], rng: RandomNumberGenerator
 	selected = -1
 	running = -1
 	fuse_left = 0.0
+	_taken_at_luckys = false
 	done_tonight = 0
 	big_score_lit = false
 	big_score_active = false
@@ -146,6 +150,11 @@ func begin_night(rank: int, shots: Array[StringName], rng: RandomNumberGenerator
 
 func live() -> bool:
 	return not lines.is_empty()
+
+
+## Every line of Tonight's Work is done: the payphones have nothing left to ring.
+func all_done() -> bool:
+	return live() and done_tonight >= lines.size()
 
 
 func line_job(line: int) -> Dictionary:
@@ -209,12 +218,17 @@ func _start_job(line: int) -> void:
 		left[StringName(shot)] = int(job["shots"][shot])
 	lines[line]["left"] = left
 	lines[line]["state"] = LineState.RUNNING
+	_taken_at_luckys = true
 	job_started.emit(line)
 	changed.emit()
 
 
 ## A shot the table reports. True if it counted for a Job or a jackpot.
 func on_shot(shot: StringName) -> bool:
+	if _taken_at_luckys:
+		_taken_at_luckys = false
+		if shot == VAULT_SHOT:
+			return false
 	var counted := false
 	if big_score_active and jackpots_left.has(shot):
 		jackpots_left.erase(shot)
@@ -236,9 +250,10 @@ func on_shot(shot: StringName) -> bool:
 			if all_in:
 				_finish_job()
 	if shot == &"spinner" and running >= 0 and _spin_bought < FUSE_SPIN_MAX:
-		var buy := minf(FUSE_SPIN_SECONDS, FUSE_SPIN_MAX - _spin_bought)
-		_spin_bought += buy
-		fuse_left = minf(fuse_left + buy, fuse_total)
+		var buy := minf(minf(FUSE_SPIN_SECONDS, FUSE_SPIN_MAX - _spin_bought), fuse_total - fuse_left)
+		if buy > 0.0:
+			_spin_bought += buy
+			fuse_left += buy
 	if counted:
 		changed.emit()
 	return counted
@@ -363,7 +378,7 @@ func arrow_states() -> Dictionary:
 			out[StringName(shot)] = [1, &"job"]
 		out[VAULT_SHOT] = [2, &"accept"]
 		return out
-	if live():
+	if live() and not all_done():
 		out[&"wire"] = [1, &"phone"]
 	return out
 
@@ -381,6 +396,8 @@ func headline() -> String:
 		return "%s  %s  %ds" % [String(job.get("name", "JOB")).to_upper(), _left_text(lines[running]["left"]), int(ceil(fuse_left))]
 	if selected >= 0:
 		return "%s: TAKE IT AT LUCKY'S" % String(lines[selected]["job"].get("name", "JOB")).to_upper()
+	if all_done():
+		return "THE WIRE: TONIGHT'S WORK IS DONE"
 	if live():
 		return "THE WIRE: %d OF %d DONE, HIT A PAYPHONE" % [done_tonight, lines.size()]
 	return ""

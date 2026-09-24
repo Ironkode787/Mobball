@@ -172,7 +172,8 @@ The nest's geometry is set so the ball *chatters*:
   by one lane, the way Space Cadet's launch area works. Three reel standups, the roulette
   saucer and the back room; whatever rolls down the deck goes home through the cashier.
 - **Pier 9** (R5):
-  - The crane's magnet takes a Truck Route ball off the top of the ring road, swings it over
+  - The crane's magnet takes a Truck Route ball (one its own eye saw come up the right lane,
+    so the pier works from the day it is bought) off the top of the ring road, swings it over
     the quay and loads a container: a visible lock that opens a 40 s smuggling run.
   - Three containers loaded ships the load and pays it. A Getaway during the run sends the
     load to the truck and doubles it.

@@ -130,15 +130,16 @@ func _collection(t: TestCtx) -> void:
 	var c := CollectionRound.new()
 	c.begin_night()
 	t.ok(not c.active, "no round until the whole block is armed")
-	t.ok(c.on_all_armed(), "three armed banks start one")
+	t.eq(int(Switches.COVER_SIZE[&"storefronts"]), Layout.STOREFRONT_IDS.size(),
+			"a round asks for exactly the shops the table has")
+	t.ok(c.on_all_armed(), "every armed bank starts one")
 	t.ok(not c.on_all_armed(), "and it does not restart on top of itself")
 	t.near(c.time_left, CollectionRound.SECONDS, 1e-9, "25 seconds on the clock")
 
-	t.ok(not c.on_collected(&"storefront_laundromat"), "one shop is not a round")
-	t.ok(not c.on_collected(&"storefront_laundromat"), "and the same shop twice is still one")
+	t.ok(not c.on_collected(&"storefront_pizzeria"), "one shop is not a round")
+	t.ok(not c.on_collected(&"storefront_pizzeria"), "and the same shop twice is still one")
 	t.eq(c.collected_count(), 1, "the round counts shops, not visits")
-	t.ok(not c.on_collected(&"storefront_pizzeria"), "two is not a round either")
-	t.ok(c.on_collected(&"storefront_pawn"), "the third one wins it")
+	t.ok(c.on_collected(&"storefront_pawn"), "the other one wins it")
 	t.ok(not c.active, "which ends the round")
 	t.eq(c.night_won, 1, "booked as perfect")
 
@@ -262,7 +263,7 @@ func _collection_respect_is_nightly(t: TestCtx) -> void:
 
 	var before := Game.respect
 	Game.collection.on_all_armed()
-	for id in [&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn"]:
+	for id in Layout.STOREFRONT_IDS:
 		Game.collection.on_collected(id)
 	var first := Game.collection_completed(&"storefront_pawn", value)
 	t.eq(Game.respect - before, CollectionRound.RESPECT, "the first perfect round pays ☆10")
@@ -271,7 +272,7 @@ func _collection_respect_is_nightly(t: TestCtx) -> void:
 	before = Game.respect
 	Game.collection.tick(CollectionRound.RETRIGGER_GAP + 0.1)
 	Game.collection.on_all_armed()
-	for id in [&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn"]:
+	for id in Layout.STOREFRONT_IDS:
 		Game.collection.on_collected(id)
 	var second := Game.collection_completed(&"storefront_pawn", value)
 	t.eq(Game.respect - before, 0, "the second perfect round of the Night pays no ☆")
@@ -283,7 +284,7 @@ func _collection_respect_is_nightly(t: TestCtx) -> void:
 	Game.start_night()
 	before = Game.respect
 	Game.collection.on_all_armed()
-	for id in [&"storefront_laundromat", &"storefront_pizzeria", &"storefront_pawn"]:
+	for id in Layout.STOREFRONT_IDS:
 		Game.collection.on_collected(id)
 	Game.collection_completed(&"storefront_pawn", value)
 	t.eq(Game.respect - before, CollectionRound.RESPECT, "tomorrow's first round pays again")

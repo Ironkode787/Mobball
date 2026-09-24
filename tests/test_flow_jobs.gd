@@ -168,14 +168,12 @@ func _one_ball_checks(t: TestCtx) -> void:
 
 	var shops := _only("shake_the_block")
 	var shops_done := _completions(shops)
-	shops.on_storefront(&"storefront_laundromat")
 	shops.on_storefront(&"storefront_pizzeria")
 	shops.begin_ball(1)
 	shops.on_storefront(&"storefront_pawn")
 	t.eq(shops_done.size(), 0, "the collections have to be one guy's work")
-	shops.on_storefront(&"storefront_laundromat")
 	shops.on_storefront(&"storefront_pizzeria")
-	t.eq(shops_done, ["shake_the_block"], "all three shops in one run")
+	t.eq(shops_done, ["shake_the_block"], "both shops in one run")
 
 
 func _bank_and_bribe(t: TestCtx) -> void:
