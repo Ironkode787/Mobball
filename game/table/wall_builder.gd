@@ -81,6 +81,12 @@ func _smooth(points: PackedVector2Array, t: float, h: float) -> void:
 	body.add_child(shape)
 
 
+## Draw a polyline with the others but give it no collider: its solid shape lives elsewhere.
+func outline(points: PackedVector2Array, thickness: float, height: float = -1.0) -> void:
+	var h := default_height if height <= 0.0 else height
+	chains.append({"points": points, "thickness": maxf(thickness, MIN_THICKNESS), "height": h, "base": base})
+
+
 func bar(from: Vector2, to: Vector2, thickness: float, height: float = -1.0) -> void:
 	chain(PackedVector2Array([from, to]), thickness, height)
 

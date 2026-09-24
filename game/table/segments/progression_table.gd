@@ -57,7 +57,7 @@ signal commission_session(active: bool)
 signal payphone_rang(index: int)
 
 const BALL_SCENE := preload("res://game/core/ball.tscn")
-const PLUNGER_STARTER_POWERS := [0.55, 0.58, 0.80]
+const PLUNGER_STARTER_POWERS := [0.53, 0.57, 0.80]
 const PLUNGER_STARTER_DEFAULT_BAND := 1
 const PLUNGER_FIXED_POWER := 0.55
 const MAGNET_MIN_GAP := DrainMagnet.TELEGRAPH + 0.5
@@ -139,6 +139,8 @@ var _can_level_seen: int = 0
 var _wheel_override: Dictionary = {}
 var _lane_returns: Array[OneWayGate] = []
 var _launch_flaps: Array[OneWayGate] = []
+var _rail_shut: StaticBody3D = null
+var _rail_open: StaticBody3D = null
 
 
 func segment_id() -> StringName:
@@ -431,19 +433,19 @@ func _build_walls() -> void:
 	add_child(body)
 	var walls := WallBuilder.new(body, Layout.WALL_HEIGHT * 1.6)
 	var t := Layout.OUTER_THICK
-	# outer boundary: left side, the arch, right side, bottom
-	walls.bar(Vector2(Layout.PLAY_LEFT, Layout.PLAY_BOTTOM), Vector2(Layout.PLAY_LEFT, Layout.ARCH_CENTER.y), t)
-	walls.arc(Layout.ARCH_CENTER, Layout.ARCH_RADIUS, 180.0, 360.0, 64, t)
-	walls.bar(Vector2(Layout.PLAY_RIGHT, Layout.ARCH_CENTER.y), Vector2(Layout.PLAY_RIGHT, Layout.PLAY_BOTTOM), t)
+	# outer boundary: the sides and the arch are one piece, so a ball riding the arch round into
+	# an orbit lane meets no post where the arch meets the side (it used to lose a third of its
+	# speed there); the bottom
+	var outer := PackedVector2Array([Vector2(Layout.PLAY_LEFT, Layout.PLAY_BOTTOM)])
+	outer.append_array(Layout.arch_points(64))
+	outer.append(Vector2(Layout.PLAY_RIGHT, Layout.PLAY_BOTTOM))
+	walls.chain(outer, t)
 	walls.bar(Vector2(Layout.PLAY_LEFT, Layout.PLAY_BOTTOM), Vector2(Layout.PLAY_RIGHT, Layout.PLAY_BOTTOM), t)
-	# shooter lane divider and floor stop
-	walls.bar(Vector2(Layout.DIVIDER_X, Layout.DIVIDER_TOP), Vector2(Layout.DIVIDER_X, Layout.DIVIDER_BOTTOM),
-			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
-	# the Truck Route's rail, in two runs either side of the launch flap
-	walls.chain(Layout.rail_points(Layout.RAIL_TOP_DEG + 1.0, Layout.RAIL_GATE_FROM_DEG, 24), Layout.DIVIDER_THICK,
-			Layout.WALL_HEIGHT)
-	walls.chain(Layout.rail_points(Layout.RAIL_GATE_TO_DEG, 360.0, 8), Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
-	walls.chain(Layout.launch_wall_points(20), Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
+	# the shooter lane's divider running on up into the Truck Route's rail either side of the
+	# launch flaps, and the lane's outer wall closing onto the rail's upper run: drawn here, made
+	# solid by _build_gate
+	walls.outline(_launch_rail_open(), Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
+	walls.outline(_divider_rail(Layout.RAIL_GATE_TO_DEG, 8), Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
 	walls.bar(Vector2(Layout.DIVIDER_X, Layout.LANE_FLOOR_Z), Vector2(Layout.PLAY_RIGHT, Layout.LANE_FLOOR_Z),
 			Layout.DIVIDER_THICK, Layout.WALL_HEIGHT)
 	# the inlane return sweeps and the lane-return deflectors: starter furniture
@@ -471,14 +473,52 @@ func _build_walls() -> void:
 	_register([&"inlane_guides"], guides)
 
 
+## The rail from `from_deg` round to the divider's top and on down the divider, as one piece:
+## an orbit riding the rail down into the right lane meets no post where the divider starts.
+static func _divider_rail(from_deg: float, steps: int) -> PackedVector2Array:
+	var pts := Layout.rail_points(from_deg, 360.0, steps)
+	pts.append(Vector2(Layout.DIVIDER_X, Layout.DIVIDER_BOTTOM))
+	return pts
+
+
+## The shooter lane's outer wall round the top with the rail's upper run, as one piece.
+static func _launch_rail_open() -> PackedVector2Array:
+	var upper := Layout.launch_wall_points(44)
+	var run := Layout.rail_points(Layout.RAIL_GATE_FROM_DEG, Layout.RAIL_TOP_DEG + 1.0, 24)
+	for i in range(1, run.size()):
+		upper.append(run[i])
+	return upper
+
+
 func _build_gate() -> void:
+	# The rail through the flaps is solid in one of two shapes, each without a seam. Shut, it
+	# runs unbroken from the arch to the divider, and the shooter lane's wall stops against its
+	# back. Open, it stops either side of the flaps, and the lane's wall closes onto the upper run
+	# until its face is flush with the rail's, so the plunge is handed onto the ring road riding
+	# the rail. Solid blades used to stand in the rail instead, each with a post at either end,
+	# and an orbit pressed against the rail caught the post at every joint.
+	_rail_shut = WallBuilder.make_body("RailShut")
+	add_child(_rail_shut)
+	var shut := WallBuilder.new(_rail_shut, Layout.WALL_HEIGHT)
+	shut.chain(_divider_rail(Layout.RAIL_TOP_DEG + 1.0, 64), Layout.DIVIDER_THICK)
+	shut.chain(Layout.launch_wall_points(40, Layout.launch_wall_meets_rail_deg()), Layout.DIVIDER_THICK)
+	_rail_open = WallBuilder.make_body("RailOpen")
+	add_child(_rail_open)
+	var open := WallBuilder.new(_rail_open, Layout.WALL_HEIGHT)
+	open.chain(_launch_rail_open(), Layout.DIVIDER_THICK)
+	open.chain(_divider_rail(Layout.RAIL_GATE_TO_DEG, 8), Layout.DIVIDER_THICK)
+	_rail_open.collision_layer = 0
 	gate = OneWayGate.new()
-	# the launch flaps: in the rail, swinging in from the shooter lane outside it. Each blade is
-	# bent along the rail with its inner face flush with the rail's, so an orbit riding round
-	# the inside meets no step where the flaps begin or end
+	# the launch flaps: bent along the rail, swinging in from the shooter lane outside it. They
+	# only swing and decide: while any is open the rail takes its open shape
 	const FLAP_THICK := 0.04
 	var inset := FLAP_THICK * 0.5 - Layout.DIVIDER_THICK * 0.5
 	var span := (Layout.RAIL_GATE_TO_DEG - Layout.RAIL_GATE_FROM_DEG) / float(Layout.RAIL_GATE_FLAPS)
+	var line := PackedVector2Array()
+	var deg := Layout.RAIL_GATE_FROM_DEG - 16.0
+	while deg <= minf(Layout.RAIL_GATE_TO_DEG + 16.0, 360.0):
+		line.append(Layout.ring_point(deg, Layout.rail_radius(deg) + inset))
+		deg += 1.0
 	for i in range(Layout.RAIL_GATE_FLAPS):
 		var d0 := Layout.RAIL_GATE_FROM_DEG + span * float(i)
 		var d1 := d0 + span
@@ -491,10 +531,28 @@ func _build_gate() -> void:
 			arc.append(Layout.ring_point(d, Layout.rail_radius(d) + inset))
 		flap.configure(&"shooter_gate", arc[0], arc[arc.size() - 1], FLAP_THICK, Vector2(cos(mid), sin(mid)))
 		flap.arc_points = arc
-		flap.hold_band = 0.02
+		flap.reference = line
+		flap.solid = false
+		# the plunge crosses the flaps at a shallow angle, so it reaches the later ones already
+		# part-way through their line: any ball whose centre is not yet clear inside opens them
+		# (an orbit ball riding the shut rail sits a whole ball inside)
+		flap.hold_band = -0.10
+		flap.clear_band = Feel.BALL_RADIUS + FLAP_THICK * 0.5 - 0.005
+		flap.latch_band = 0.45
 		add_child(flap)
+		flap.opened.connect(_set_launch_rail)
+		flap.closed.connect(_set_launch_rail)
 		if i > 0:
 			_launch_flaps.append(flap)
+
+
+## The rail takes its open shape while any launch flap is open.
+func _set_launch_rail() -> void:
+	var open := gate != null and gate.is_open()
+	for f in _launch_flaps:
+		open = open or f.is_open()
+	_rail_open.collision_layer = Feel.LAYER_WALLS if open else 0
+	_rail_shut.collision_layer = 0 if open else Feel.LAYER_WALLS
 
 
 ## THE RING ROAD (docs/19 §3.1): the orbit channel between the ring guide and the arch, the two

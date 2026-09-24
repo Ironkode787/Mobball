@@ -110,7 +110,7 @@ flipped into every shot below.
 | **TRUCK ROUTE** (right orbit) | 0.40 u lane at x 1.94 | **L**, late | Up the right lane, round the ring road (where Pier 9's crane can take it), down the left lane over the spinner → left inlane | Orbit value; Pier 9 shipments (R5) | As the Getaway |
 | **THE WIRE** (3 payphones) | The island left of the Staircase | **R**, mid-bat | Standups | **Picks a Job** (each phone is a line) | — |
 | **BEAT COP** (standup) | The island right of Lucky's lane | **L** | Standup | Bribe: Heat −20 for dirty | — |
-| **THE DROP-OFF** (plunge) | Shooter lane → launch flaps in the ring road's rail | Plunger | Weak (≈ 0.50–0.55): back down the right lane. Medium (≈ 0.56–0.61): into a Drop-Off lane. Hard (≈ 0.62 and up): round the ring to the Getaway lane | Lit lane = skill shot (☆ and a free can level). The flipper buttons move the lit lane while the ball is on its way | — |
+| **THE DROP-OFF** (plunge) | Shooter lane → launch flaps in the ring road's rail | Plunger | Weak (≈ 0.50–0.555): back down the right lane. Medium (≈ 0.56–0.585): into a Drop-Off lane. Hard (≈ 0.59 and up): round the ring to the Getaway lane. The rubber band's three pulls are 0.53 / 0.57 / 0.80 | Lit lane = skill shot (☆ and a free can level). The flipper buttons move the lit lane while the ball is on its way | — |
 
 **Flow.**
 - Each orbit returns to the bat that shot it, so orbits are repeatable combo builders.
@@ -295,6 +295,22 @@ The same machine at R0, R3, R4 and R7, captured in game at phone size:
   never meets the curve, so the lane returns still feed the inlanes. The launch flaps are bent
   along the rail with their inner face flush with it, so an orbit rides past them without a
   step.
+- **The launch merge.** Five flaps span 305°–345° of the rail. Along them the shooter lane's
+  outer wall closes at a steady 13° until its face is flush with the rail's inside, and it is
+  one piece with the upper rail, so the plunge is handed onto the ring road riding the rail. It
+  used to stop at the rail's outer face, leaving the ball overlapping the rail where it resumed:
+  the plunge hit the rail's end head on, after clipping a step where the lane's top was
+  narrower than the lane. A full pull now crosses the top of the ring at about 19 u/s instead
+  of losing most of its speed at the flaps. The flaps read a ball's side against the whole rail rather than
+  their own chords, open for a ball not yet a full ball inside, and fall shut once no ball is
+  near.
+- **No pockets.** Each shop's back falls toward the plaza, so a ball behind Fat Tony's or
+  Nonna's rolls off the inner end and back down between them; the back door opens on a hair
+  for a ball on the shop floor. The Staircase has stringers: its sides run down to the
+  playfield wherever its floor is raised, so nothing rolls under it. The nest's shoulders meet
+  the side walls below the upper cans' middles, which ends a loop where a can kicked the ball
+  up into the corner under the lane block and the wall sent it back. `machine_sim` drops balls
+  across the board and fails any that park or stay caged in a small box for 2.5 s.
 - **Table** (`game/table/`):
   - `layout.gd` rewritten.
   - `progression_table.gd` rebuilt for the new board.

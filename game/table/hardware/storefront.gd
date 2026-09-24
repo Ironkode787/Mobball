@@ -81,6 +81,18 @@ func centre() -> Vector2:
 	return (outline[0] + outline[1] + outline[2] + outline[3]) * 0.25
 
 
+## Unit vector along the back door, back-left to back-right.
+func back_direction() -> Vector2:
+	return (outline[2] - outline[3]).normalized()
+
+
+## Unit normal of the back door pointing into the shop.
+func back_inward() -> Vector2:
+	var along := back_direction()
+	var n := Vector2(-along.y, along.x)
+	return n if n.dot(facing()) > 0.0 else -n
+
+
 func _ready() -> void:
 	var lib := MaterialLib.shared()
 	var a := outline[0]
@@ -117,7 +129,10 @@ func _ready() -> void:
 	_shutter_mesh.name = "ShutterLook"
 	_shutter.add_child(_shutter_mesh)
 	_orient_box(_shutter_mesh, mid, along, inner, JAMB_HEIGHT, 0.04, JAMB_HEIGHT * 0.5)
-	# the back door: the collection happens on the way out
+	# the back door: the collection happens on the way out. The back need not run parallel to
+	# the front, so everything on it is laid along its own edge.
+	var back_along := back_direction()
+	var back_in := back_inward()
 	_door = Area3D.new()
 	_door.name = "Door"
 	_door.collision_layer = Feel.LAYER_ZONES
@@ -129,17 +144,20 @@ func _ready() -> void:
 	var back_span := outline[2].distance_to(outline[3])
 	box.size = Vector3(back_span - JAMB_THICK * 2.0, 0.5, 0.10)
 	cs.shape = box
-	cs.position = Vector3(back_mid.x, 0.25, back_mid.y) + Vector3(face.x, 0.0, face.y) * 0.08
-	cs.rotation.y = Layout.yaw_facing(face)
+	cs.position = Vector3(back_mid.x, 0.25, back_mid.y) + Vector3(back_in.x, 0.0, back_in.y) * 0.08
+	cs.rotation.y = Layout.yaw_facing(back_in)
 	_door.add_child(cs)
 	add_child(_door)
 	_door.body_entered.connect(_on_door_entered)
 	# the back door swings one way: out into the plaza
 	_back_gate = OneWayGate.new()
 	_back_gate.name = "BackDoor"
-	var inward := -face
-	_back_gate.configure(StringName(String(id) + "_back_door"), outline[3] + along * JAMB_THICK - inward * 0.02,
-			outline[2] - along * JAMB_THICK - inward * 0.02, 0.03, face)
+	_back_gate.configure(StringName(String(id) + "_back_door"), outline[3] + back_along * JAMB_THICK + back_in * 0.02,
+			outline[2] - back_along * JAMB_THICK + back_in * 0.02, 0.03, back_in)
+	# the shop is shallower than a ball is wide: a ball on its floor is always within a ball of
+	# the door, so the door has to open on a hair
+	_back_gate.hold_band = 0.02
+	_back_gate.clear_band = Feel.BALL_RADIUS
 	add_child(_back_gate)
 	# the shop floor: a ball that stops in here is walked out of the back door
 	_inside = Area3D.new()
@@ -148,13 +166,13 @@ func _ready() -> void:
 	_inside.collision_mask = Feel.LAYER_BALL
 	_inside.monitorable = false
 	var ics := CollisionShape3D.new()
-	var ibox := BoxShape3D.new()
-	var depth := ((outline[0] + outline[1]) * 0.5).distance_to((outline[2] + outline[3]) * 0.5)
-	ibox.size = Vector3(span - JAMB_THICK * 2.0, 0.5, depth)
-	ics.shape = ibox
-	var c := centre()
-	ics.position = Vector3(c.x, 0.25, c.y)
-	ics.rotation.y = Layout.yaw_facing(face)
+	var prism := ConvexPolygonShape3D.new()
+	var corners := PackedVector3Array()
+	for q in outline:
+		corners.append(Vector3(q.x, 0.0, q.y))
+		corners.append(Vector3(q.x, 0.5, q.y))
+	prism.points = corners
+	ics.shape = prism
 	_inside.add_child(ics)
 	add_child(_inside)
 	_build_look(a, b, along, face, span)
@@ -177,9 +195,9 @@ func _build_look(a: Vector2, b: Vector2, along: Vector2, face: Vector2, span: fl
 	# the floor of the shop: a lit threshold that says the door is open
 	_door_lamp = lib.lamp(neon_col.lerp(Color.WHITE, 0.25))
 	var floor_mi := MeshInstance3D.new()
-	var c := centre()
-	var depth := ((outline[0] + outline[1]) * 0.5).distance_to((outline[2] + outline[3]) * 0.5)
-	_orient_box(floor_mi, c, along, span - JAMB_THICK * 2.0, 0.006, depth - 0.02, 0.003)
+	var fst := MeshLib.begin()
+	MeshLib.prism(fst, outline, 0.006)
+	floor_mi.mesh = MeshLib.finish(fst)
 	floor_mi.material_override = _door_lamp
 	floor_mi.name = "Threshold"
 	floor_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -193,12 +211,16 @@ func _build_look(a: Vector2, b: Vector2, along: Vector2, face: Vector2, span: fl
 	add_child(lintel)
 	var back_lintel := MeshInstance3D.new()
 	var back_mid := (outline[2] + outline[3]) * 0.5
-	_orient_box(back_lintel, back_mid, along, outline[2].distance_to(outline[3]) + 0.04, 0.10, 0.06, LINTEL_Y + 0.05)
+	_orient_box(back_lintel, back_mid, back_direction(), outline[2].distance_to(outline[3]) + 0.04, 0.10, 0.06,
+			LINTEL_Y + 0.05)
 	back_lintel.material_override = lib.wood()
 	back_lintel.name = "BackLintel"
 	add_child(back_lintel)
 	var roof := MeshInstance3D.new()
-	_orient_box(roof, c, along, span + 0.02, 0.03, depth + 0.02, LINTEL_Y + 0.115)
+	var rst := MeshLib.begin()
+	var eave: Array[PackedVector2Array] = Geometry2D.offset_polygon(outline, 0.01, Geometry2D.JOIN_MITER)
+	MeshLib.prism(rst, eave[0] if not eave.is_empty() else outline, 0.03, LINTEL_Y + 0.10, true)
+	roof.mesh = MeshLib.finish(rst)
 	roof.material_override = lib.brass_dark()
 	roof.name = "Roof"
 	add_child(roof)
@@ -340,7 +362,8 @@ func _ball_inside() -> Ball:
 	if _inside == null:
 		return null
 	for body in _inside.get_overlapping_bodies():
-		if body is Ball and not BallHold.is_held(body as Ball):
+		if body is Ball and not BallHold.is_held(body as Ball) \
+				and Geometry2D.is_point_in_polygon(Layout.plan((body as Ball).table_position()), outline):
 			return body as Ball
 	return null
 
@@ -355,7 +378,7 @@ func _walk_out(delta: float) -> void:
 	if _still < 0.4:
 		return
 	_still = 0.0
-	var back := -facing()
+	var back := ((outline[2] + outline[3]) * 0.5 - (outline[0] + outline[1]) * 0.5).normalized()
 	b.set_velocity(Vector3(back.x, 0.0, back.y) * 4.0)
 
 

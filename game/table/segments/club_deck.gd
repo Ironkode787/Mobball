@@ -232,6 +232,7 @@ func _build_ramps() -> void:
 	staircase.name = "Staircase"
 	staircase.configure(ID_STAIRCASE, Layout.STAIR_PATH)
 	staircase.entry_speed = 4.0
+	staircase.skirt = true
 	add_child(staircase)
 	staircase.crested.connect(func(speed: float) -> void:
 		_reels.clear()

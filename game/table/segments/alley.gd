@@ -50,7 +50,7 @@ func _build_walls() -> void:
 				Vector2(mx + s * Layout.NEST_HALF, Layout.NEST_BOTTOM), Layout.GUIDE_THICK)
 		# shoulders from the outer lane guides down to the side walls keep the lanes' spill in
 		var gx: float = Layout.DROPOFF_GUIDE_X[0] if s < 0.0 else Layout.DROPOFF_GUIDE_X[3]
-		walls.bar(Vector2(gx, Layout.NEST_TOP), Vector2(mx + s * Layout.NEST_HALF, Layout.NEST_TOP + 0.04),
+		walls.bar(Vector2(gx, Layout.NEST_TOP), Vector2(mx + s * Layout.NEST_HALF, Layout.NEST_SHOULDER_Z),
 				Layout.GUIDE_THICK)
 	# the lane block: four guides from the ring road's inner edge down to the nest
 	var guides := WallPiece.new(Layout.GUIDE_HEIGHT, 0.0, _lib.brass_dark(), _lib.brass())

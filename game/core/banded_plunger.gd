@@ -7,7 +7,7 @@ extends Plunger
 
 ## These are intentionally safe launch powers. The shipped geometry starts to miss the arch
 ## below roughly 0.90, so the starter agency is bounded to reliable feeds.
-const STARTER_POWERS := [0.55, 0.58, 0.80]
+const STARTER_POWERS := [0.53, 0.57, 0.80]
 ## Touch pulls are mapped to these bands in 64 px steps; desktop input keeps the middle band.
 const STARTER_BAND_DISTANCE_PX := 64.0
 const DEFAULT_STARTER_BAND := 1

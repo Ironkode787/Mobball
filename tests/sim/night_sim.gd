@@ -367,7 +367,10 @@ func _s3_raid_lost() -> void:
 		await step(2)
 	var doomed := TableAPI.ball(table)
 	# The ball is live and scoring on a real machine until the drain takes it: the confiscation
-	# is measured against the bankroll at the last instant before the forced loss.
+	# is measured against the bankroll at the last instant before the forced loss. A spinner the
+	# plunge has already set turning would go on paying through the drain, so it is stopped.
+	for spinner: Node in table.find_children("*", "Spinner", true, false):
+		(spinner as Spinner).kick(0.0)
 	dirty_before = Game.wallet.dirty
 	await _force_drain()
 	# The authored drain is physics-driven, but call its own guarded entry point if a headless

@@ -118,6 +118,10 @@ func half_width_at(s: float) -> float:
 ## Length of floor at the mouth built without walls: a ball that fails the climb and rolls
 ## back out can leave sideways instead of resting in a walled pocket.
 var open_mouth_length: float = 0.0
+## Close the sides under a raised floor down to the playfield. A ramp standing over the open
+## field otherwise has a wedge beneath it that a ball rolls into and cannot leave. Not for a
+## ramp another lane runs under.
+var skirt: bool = false
 
 
 func _build_channel() -> void:
@@ -135,6 +139,11 @@ func _build_channel() -> void:
 		var up1: Vector3 = frames[i + 1][4] * wall_height
 		# floor
 		_quad(faces, c0 - r0, c0 + r0, c1 + r1, c1 - r1)
+		if skirt and maxf(c0.y, c1.y) > 0.001:
+			var g0 := Vector3(0.0, -c0.y, 0.0)
+			var g1 := Vector3(0.0, -c1.y, 0.0)
+			_quad(faces, c0 - r0 + g0, c1 - r1 + g1, c1 - r1, c0 - r0)
+			_quad(faces, c0 + r0, c1 + r1, c1 + r1 + g1, c0 + r0 + g0)
 		if _cum[i] < open_mouth_length:
 			continue
 		# walls, with inward lips along the top
@@ -218,7 +227,7 @@ func _build_look() -> void:
 			MeshLib.tube(st, PackedVector3Array([right[i], low_right[i]]), RAIL_RADIUS * 0.5, 5)
 			MeshLib.tube(st, PackedVector3Array([low_left[i], low_right[i]]), RAIL_RADIUS * 0.5, 5)
 			next_tie += 0.55
-		if s >= next_post and c.y > 0.12:
+		if s >= next_post and c.y > 0.12 and not skirt:
 			var floor_y := _floor_height_under(c)
 			for side: Vector3 in [c - r * hw, c + r * hw]:
 				MeshLib.tube(st, PackedVector3Array([Vector3(side.x, floor_y, side.z), side]), RAIL_RADIUS * 0.6, 5, false)
@@ -229,6 +238,8 @@ func _build_look() -> void:
 	mi.mesh = MeshLib.finish(st, mat)
 	mi.name = "Wireform"
 	add_child(mi)
+	if skirt:
+		_build_skirt_look(frames, lib)
 	_mouth_lamp = lib.lamp(Color(1.0, 0.82, 0.40))
 	var mouth := BoxMesh.new()
 	mouth.size = Vector3(minf(entry_size.x * 0.8, 0.6), 0.012, entry_size.y * 0.5)
@@ -238,6 +249,28 @@ func _build_look() -> void:
 	mm.position = _samples[0] + Vector3(0.0, 0.006, 0.0) + _mouth_dir * 0.3
 	mm.name = "MouthLamp"
 	add_child(mm)
+
+
+## The skirt's panels, from the same frames as its collider: a stringer each side of the stair.
+func _build_skirt_look(frames: Array, lib: MaterialLib) -> void:
+	var st := MeshLib.begin()
+	for i in range(frames.size() - 1):
+		var c0: Vector3 = frames[i][0]
+		var c1: Vector3 = frames[i + 1][0]
+		if maxf(c0.y, c1.y) <= 0.001:
+			continue
+		var g0 := Vector3(0.0, -c0.y, 0.0)
+		var g1 := Vector3(0.0, -c1.y, 0.0)
+		for side: float in [-1.0, 1.0]:
+			var out: Vector3 = frames[i][1] * side
+			var r0: Vector3 = frames[i][1] * float(frames[i][3]) * side
+			var r1: Vector3 = frames[i + 1][1] * float(frames[i + 1][3]) * side
+			MeshLib.quad(st, c0 + r0 + g0, c1 + r1 + g1, c1 + r1, c0 + r0, out)
+			MeshLib.quad(st, c0 + r0 + g0, c1 + r1 + g1, c1 + r1, c0 + r0, -out)
+	var mi := MeshInstance3D.new()
+	mi.mesh = MeshLib.finish(st, lib.brass_dark())
+	mi.name = "Skirt"
+	add_child(mi)
 
 
 ## Posts stand on whatever storey is under the rail; the segments override this per deck.

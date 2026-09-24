@@ -43,12 +43,15 @@ const LANE_FLOOR_Z := 5.15              ## the plunger rests the ball against th
 const RAIL_RADIUS := DIVIDER_X - (-0.185)   ## about RING_CENTER, where it leaves the divider
 const RAIL_EASE_FROM_DEG := 345.0           ## concentric below this (toward 360°)
 const RAIL_TOP_DEG := 270.0                 ## meets the arch here
-const RAIL_GATE_FROM_DEG := 321.0           ## the launch flaps span the rail between these
+const RAIL_GATE_FROM_DEG := 305.0           ## the launch flaps span the rail between these
 const RAIL_GATE_TO_DEG := 345.0
-const RAIL_GATE_FLAPS := 3
-## The top of the shooter lane runs round beside the rail at full width, then its outer wall
-## closes on the rail along the flaps: a steady 17° squeeze that steers the plunge through.
-const LAUNCH_LANE_WIDTH := 0.31
+const RAIL_GATE_FLAPS := 5
+## The top of the shooter lane runs round beside the rail at the lane's own width (a narrower
+## start is a step the plunge clips), then its outer wall closes along the flaps until its face
+## is flush with the rail's inside: a long, even squeeze that hands the plunge onto the ring
+## road riding the rail. Stopping short of that left the ball overlapping the rail where it
+## resumes, and the plunge hit the rail's end head on.
+const LAUNCH_LANE_WIDTH := PLAY_RIGHT - OUTER_THICK * 0.5 - DIVIDER_X - DIVIDER_THICK * 0.5
 const SPAWN := Vector2(2.37, 4.975)
 
 # ------------------------------------------------------------------ the ring road -----
@@ -89,16 +92,22 @@ const BUMPER_AT: Array = [Vector2(-0.185, -3.27), Vector2(-0.655, -3.95), Vector
 const NEST_HALF := 1.08                 ## side walls at MIRROR_X ± this
 const NEST_TOP := -4.29                 ## where the lane block ends
 const NEST_BOTTOM := -2.95              ## the side walls stop; below is the open plaza
+## The shoulders from the outer lane guides meet the side walls this low, so no ball can sit
+## against a side wall above an upper can's middle: up there every kick sent it back into the
+## corner under the lane block, off the wall and onto the can again, for good.
+const NEST_SHOULDER_Z := -3.93
 const DROPOFF_X: PackedFloat32Array = [-0.585, -0.185, 0.215]
 const DROPOFF_GUIDE_X: PackedFloat32Array = [-0.785, -0.385, 0.015, 0.415]
 const DROPOFF_ROLLOVER_Z := -4.45
 
 # ------------------------------------------------------------------ the Block (shot line) -----
 ## Islands are storefront plinths; the plaza behind Nonna's and Fat Tony's is open so the
-## Alley spills out between them.
+## Alley spills out between them. Each shop's back falls toward the Alley: a ball behind it
+## rolls off the inner end into the plaza, where a back parallel to the raked front sloped
+## the other way, into the dead corner against Lucky's lane (or under the Staircase).
 const ISLAND_WIRE: PackedVector2Array = [Vector2(-2.05, -0.60), Vector2(-1.70, -0.84), Vector2(-1.70, -2.30), Vector2(-2.05, -2.30)]
-const ISLAND_NONNA: PackedVector2Array = [Vector2(-1.25, -1.74), Vector2(-0.73, -1.86), Vector2(-0.73, -2.10), Vector2(-1.25, -1.98)]
-const ISLAND_TONY: PackedVector2Array = [Vector2(0.36, -1.86), Vector2(0.88, -1.74), Vector2(0.88, -1.98), Vector2(0.36, -2.10)]
+const ISLAND_NONNA: PackedVector2Array = [Vector2(-1.25, -1.74), Vector2(-0.73, -1.86), Vector2(-0.73, -2.10), Vector2(-1.25, -2.26)]
+const ISLAND_TONY: PackedVector2Array = [Vector2(0.36, -1.86), Vector2(0.88, -1.74), Vector2(0.88, -2.26), Vector2(0.36, -2.10)]
 ## The Beat Cop's island: between Lucky's lane and the Truck Route guide, its face square to a
 ## +22° shot off the left bat.
 const ISLAND_COP: PackedVector2Array = [Vector2(1.36, -0.95), Vector2(1.685, -0.82), Vector2(1.685, -2.45),
@@ -241,16 +250,23 @@ static func rail_radius(deg: float) -> float:
 	return lerpf(arch_radius_from_ring(d), RAIL_RADIUS, f)
 
 
-## The shooter lane's outer wall above the divider (360° round to the last flap).
-static func launch_wall_points(steps: int) -> PackedVector2Array:
+## The shooter lane's outer wall above the divider, from 360° round to `to_deg` (by default
+## the last flap, where its face is flush with the rail's inside).
+static func launch_wall_points(steps: int, to_deg: float = RAIL_GATE_FROM_DEG) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	for i in range(steps + 1):
-		var deg := lerpf(360.0, RAIL_GATE_FROM_DEG, float(i) / float(steps))
+		var deg := lerpf(360.0, to_deg, float(i) / float(steps))
 		var w := LAUNCH_LANE_WIDTH
 		if deg < RAIL_GATE_TO_DEG:
-			w *= (deg - RAIL_GATE_FROM_DEG) / (RAIL_GATE_TO_DEG - RAIL_GATE_FROM_DEG)
+			w = lerpf(-DIVIDER_THICK, LAUNCH_LANE_WIDTH,
+					(deg - RAIL_GATE_FROM_DEG) / (RAIL_GATE_TO_DEG - RAIL_GATE_FROM_DEG))
 		pts.append(ring_point(deg, rail_radius(deg) + DIVIDER_THICK + w))
 	return pts
+
+
+## Where the closing shooter lane's wall reaches the back of the rail.
+static func launch_wall_meets_rail_deg() -> float:
+	return lerpf(RAIL_GATE_FROM_DEG, RAIL_GATE_TO_DEG, DIVIDER_THICK / (LAUNCH_LANE_WIDTH + DIVIDER_THICK))
 
 
 static func rail_point(deg: float) -> Vector2:
@@ -268,6 +284,14 @@ static func rail_points(from_deg: float, to_deg: float, steps: int) -> PackedVec
 static func ring_point(deg: float, radius: float = RING_RADIUS) -> Vector2:
 	var a := deg_to_rad(deg)
 	return RING_CENTER + Vector2(cos(a), sin(a)) * radius
+
+
+## The arch as a polyline from 180° to 360°, `steps` segments.
+static func arch_points(steps: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	for i in range(steps + 1):
+		pts.append(arch_point(lerpf(180.0, 360.0, float(i) / float(steps))))
+	return pts
 
 
 static func arch_point(deg: float, radius: float = ARCH_RADIUS) -> Vector2:

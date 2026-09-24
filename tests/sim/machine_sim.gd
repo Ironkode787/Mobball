@@ -178,10 +178,13 @@ func _s_lucky() -> void:
 	check(_lucky == 1, "the scoop did not take the ball")
 	check(_washed == 1, "the drum did not wash")
 	if is_instance_valid(b):
-		await wait(0.4)
+		await wait(0.05)
 		var p := b.table_position()
-		check(p.z < Layout.NEST_BOTTOM + 0.2 and absf(p.x - Layout.MIRROR_X) < Layout.NEST_HALF,
+		check(p.z < Layout.NEST_BOTTOM and absf(p.x - Layout.MIRROR_X) < Layout.NEST_HALF,
 				"the side door did not let the ball into the Alley (%s)" % str(p))
+		var pops := _pops
+		await watch(1.0, b)
+		check(_pops > pops, "the ball let out into the Alley never hit a can")
 	finish()
 
 
@@ -399,6 +402,7 @@ func _s_no_pockets() -> void:
 	begin("no pockets: a ball dropped anywhere on the board keeps moving or is taken")
 	var worst := 0
 	var at_worst := Vector3.ZERO
+	var cages := PackedStringArray()
 	var z := -4.2
 	while z <= 3.2:
 		var x := -2.3
@@ -412,15 +416,46 @@ func _s_no_pockets() -> void:
 			if int(w["still_max"]) > worst:
 				worst = int(w["still_max"])
 				at_worst = w["still_at"]
+			if w["caged"]:
+				cages.append("%s -> %s" % [str(p), str(w["caged_at"])])
 		z += 0.55
 	print("        longest still spell %.2f s at %s" % [float(worst) / 240.0, str(at_worst)])
 	check(float(worst) / 240.0 < 2.5, "a ball sat still %.1f s at %s" % [float(worst) / 240.0, str(at_worst)])
+	check(cages.is_empty(), "a ball was caged: %s" % "; ".join(cages))
+	# where balls did lodge: behind Fat Tony's (rattling in the corner against Lucky's lane),
+	# behind Nonna's, and under the Staircase beside it. The shops' backs fall to the plaza, so
+	# a ball back there rolls out between them and on down the table
+	for drop: Array in [[Vector2(0.75, -2.30), Vector3.ZERO], [Vector2(0.55, -2.25), Vector3.ZERO],
+			[Vector2(0.80, -2.60), Vector3.ZERO], [Vector2(-0.95, -2.30), Vector3.ZERO],
+			[Vector2(-1.15, -2.45), Vector3.ZERO], [Vector2(-1.18, -1.58), Vector3(-1.6, 0.0, -1.2)]]:
+		var b := await drop_at(drop[0], drop[1], 2)
+		var w := await watch(4.0, b)
+		check(not w["alive"] or float(w["max_z"]) > -1.2,
+				"a ball dropped at %s never came back down the table (got to z %.2f)" % [str(drop[0]), float(w["max_z"])])
+		check(not w["caged"], "a ball dropped at %s was caged at %s" % [str(drop[0]), str(w["caged_at"])])
 	finish()
 
 
+## Solid, or a void no ball can reach (a ball placed there proves nothing about play): the
+## islands, the deck, the tower, the cans; the sealed pocket between the nest's right wall, the
+## ring and the tower; the voids between the nest's shoulders and the ring; and anywhere a ball
+## would be placed through the ring's inner guide.
 func _inside_solid(p: Vector2) -> bool:
 	for poly: PackedVector2Array in [Layout.ISLAND_WIRE, Layout.ISLAND_COP, Layout.ISLAND_NONNA, Layout.ISLAND_TONY]:
 		if Geometry2D.is_point_in_polygon(p, poly):
+			return true
+	var from_ring := p.distance_to(Layout.RING_CENTER)
+	if absf(from_ring - Layout.RING_RADIUS) < Feel.BALL_RADIUS + Layout.GUIDE_THICK:
+		return true
+	var tower_front := Layout.TOWER_RECT.position.y + Layout.TOWER_RECT.size.y
+	if p.x > Layout.MIRROR_X + Layout.NEST_HALF and p.y < tower_front and from_ring < Layout.RING_RADIUS:
+		return true
+	for side: float in [-1.0, 1.0]:
+		var gx: float = Layout.DROPOFF_GUIDE_X[0] if side < 0.0 else Layout.DROPOFF_GUIDE_X[3]
+		var wall_x := Layout.MIRROR_X + side * Layout.NEST_HALF
+		var f := (p.x - gx) / (wall_x - gx)
+		if f >= 0.0 and f <= 1.0 and p.y < lerpf(Layout.NEST_TOP, Layout.NEST_SHOULDER_Z, f) \
+				and from_ring < Layout.RING_RADIUS:
 			return true
 	if Geometry2D.is_point_in_polygon(p, ClubDeck.outline()):
 		return true

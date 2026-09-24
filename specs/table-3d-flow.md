@@ -27,7 +27,7 @@ Ledger id still owns a piece of hardware that stands up when bought.
 | Physics | Jolt, 240 Hz, penetration slop 0.004, speculative contact 0.02 |
 | Surfaces | playfield friction 0.09 (waxed wood), walls 0.14/bounce 0.18, rubber 0.40/0.58, steel rails 0.08/0.15 |
 | Flippers | length 0.78, 45 ms to full extension, curve in `FlipperCurve`; the Club's pair is half size |
-| Plunger | 34 u/s at full pull; starter bands 0.55 / 0.58 / 0.80 |
+| Plunger | 34 u/s at full pull; starter bands 0.53 / 0.57 / 0.80 |
 
 All constants live in `game/core/feel.gd`; all positions in `game/table/layout.gd`.
 
@@ -61,11 +61,13 @@ from the middle. On the left the same rail fences the Docks' water from the lane
 rollover 1) · Lucky's · the docks gate (R5) · bribe notch. **Both:** the centre alley into
 Nonna's and the pops.
 
-**The Drop-Off** is a physics ladder: a plunged ball climbs the arch and peels off the outer
-wall the moment it drops under ~5 u/s, into whichever funnel is under it. Soft (0.55) dies
-into lane 3, medium (0.58) carries to lane 2 at the apex, hard (≥0.68) never peels — it laps
-the arch and comes down the left lane over rollover 1. Measured with
-`tests/probe_machine.tscn`; asserted by `tests/sim/machine_sim.tscn`.
+**The Drop-Off** is a physics ladder: a plunged ball rides the shooter lane round, is handed
+onto the ring road through the launch flaps, and peels off the outer wall into whichever
+Drop-Off lane is under it once it slows. Soft (0.50–0.555) crests the top and rolls back down
+the right lane, medium (0.56–0.585) drops into a lane (lane 3 at the low end, lane 1 at the
+high end), hard (≥ 0.59) laps the ring and comes down the Getaway lane. The starter bands sit
+in the middle of those. Measured with `tests/probe_trace.tscn` (`PROBE_PLUNGE`); asserted by
+`tests/sim/machine_sim.tscn`.
 
 **Upstairs.** The Staircase (mouth on the left bat's line) climbs the right edge over the
 payphones, the right lane and the shooter gate, and enters the Club deck through its right

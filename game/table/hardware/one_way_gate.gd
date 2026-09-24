@@ -17,12 +17,26 @@ var to_point: Vector2 = Vector2.ZERO
 var thickness: float = 0.05
 var pass_from: Vector2 = Vector2(0.0, 1.0)
 var base_height: float = 0.0
-## How far off the flap's line the ball has to be before the flap changes its mind. A flap in a
-## lane barely wider than the ball needs a hair trigger.
+## How far onto the passing side the ball has to be before the flap opens. A flap in a lane
+## barely wider than the ball, or at the back of a shallow shop, needs a hair trigger; one the
+## ball crosses at a shallow angle opens for a ball already part-way over its line (negative).
 var hold_band: float = HOLD_BAND
+## How far past the flap the ball has to be before it closes again: the whole ball, or the
+## blade turns solid inside it and throws it.
+var clear_band: float = HOLD_BAND
+## How far past the blade's ends a ball still counts. At least a ball's reach plus a physics
+## step of travel, or a fast ball meets the end of the blade before the flap has seen it.
+var latch_band: float = LATCH_BAND
 ## A curved blade (three or more plan points from `from_point` to `to_point`): a run of flaps
 ## set in a curved rail then rides as smoothly as the rail does. Empty means a straight blade.
 var arc_points: PackedVector2Array = PackedVector2Array()
+## The line a ball's side is read against when that is longer than the blade (plan points, the
+## blade lying along it): a run of flaps in one curved rail reads the ball against the whole
+## rail, so a flap ahead of a ball crossing at a shallow angle sees it as it really is and not
+## against its own chord, which a curving, easing rail leaves well off the ball's line.
+var reference: PackedVector2Array = PackedVector2Array()
+## False for a flap that only swings and decides, in a rail the table makes solid around it.
+var solid: bool = true
 
 var _body: StaticBody3D = null
 var _present: bool = true
@@ -35,6 +49,8 @@ var _half_span: float = 0.0
 var _flap: Node3D = null
 var _swing_sign: float = 1.0
 var _angle: float = 0.0
+var _ref_from: float = 0.0
+var _ref_to: float = 0.0
 
 
 func configure(p_id: StringName, from: Vector2, to: Vector2, p_thickness: float,
@@ -54,13 +70,21 @@ func configure(p_id: StringName, from: Vector2, to: Vector2, p_thickness: float,
 
 
 func _ready() -> void:
-	_body = WallBuilder.make_body("Blade", Feel.LAYER_WALLS, Feel.make_material(Feel.WALL_FRICTION, 0.12))
-	add_child(_body)
-	var walls := WallBuilder.new(_body, Layout.GUIDE_HEIGHT, base_height)
-	if arc_points.size() >= 3:
-		walls.chain(arc_points, thickness)
-	else:
-		walls.bar(from_point, to_point, thickness)
+	if reference.size() >= 2:
+		_ref_from = _along_reference(from_point).x
+		_ref_to = _along_reference(to_point).x
+		if _ref_from > _ref_to:
+			var t := _ref_from
+			_ref_from = _ref_to
+			_ref_to = t
+	if solid:
+		_body = WallBuilder.make_body("Blade", Feel.LAYER_WALLS, Feel.make_material(Feel.WALL_FRICTION, 0.12))
+		add_child(_body)
+		var walls := WallBuilder.new(_body, Layout.GUIDE_HEIGHT, base_height)
+		if arc_points.size() >= 3:
+			walls.chain(arc_points, thickness)
+		else:
+			walls.bar(from_point, to_point, thickness)
 	_build_look()
 	_apply_collision()
 
@@ -110,16 +134,49 @@ func is_open() -> bool:
 
 
 func side_of(p: Vector2) -> float:
+	if reference.size() >= 2:
+		return _along_reference(p).y
 	return (p - _centre).dot(_normal)
+
+
+## (distance along the reference to the point nearest `p`, signed offset from it toward
+## `pass_from`).
+func _along_reference(p: Vector2) -> Vector2:
+	var best := Vector2.ZERO
+	var nearest := INF
+	var run := 0.0
+	for i in range(reference.size() - 1):
+		var a := reference[i]
+		var b := reference[i + 1]
+		var seg := b - a
+		var length := seg.length()
+		if length < 1e-6:
+			continue
+		var dir := seg / length
+		var t := clampf((p - a).dot(dir), 0.0, length)
+		var q := a + dir * t
+		var gap := p.distance_to(q)
+		if gap < nearest:
+			nearest = gap
+			var n := Vector2(-dir.y, dir.x)
+			if n.dot(_normal) < 0.0:
+				n = -n
+			best = Vector2(run + t, (p - q).dot(n))
+		run += length
+	return best
 
 
 func _physics_process(_delta: float) -> void:
 	if not _present:
 		return
 	var d := _deciding_side()
-	if is_nan(d) or absf(d) < hold_band:
-		return
-	var want_open := d > 0.0
+	var want_open := _open
+	if is_nan(d):
+		want_open = false               # nothing near it: a gate falls shut
+	elif d > hold_band:
+		want_open = true
+	elif d < -clear_band:
+		want_open = false
 	if want_open == _open:
 		return
 	_open = want_open
@@ -142,9 +199,16 @@ func _deciding_side() -> float:
 		if not is_instance_valid(b) or BallHold.is_held(b):
 			continue
 		var p := Layout.plan(b.table_position())
-		if absf((p - _centre).dot(_axis)) > _half_span + LATCH_BAND:
-			continue
-		var d := side_of(p)
+		var d := 0.0
+		if reference.size() >= 2:
+			var at := _along_reference(p)
+			if at.x < _ref_from - latch_band or at.x > _ref_to + latch_band:
+				continue
+			d = at.y
+		else:
+			if absf((p - _centre).dot(_axis)) > _half_span + latch_band:
+				continue
+			d = side_of(p)
 		if is_nan(best) or absf(d) < absf(best):
 			best = d
 	return best

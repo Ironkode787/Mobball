@@ -28,7 +28,7 @@ func _ready() -> void:
 		a += 2.0
 	d["channel_mid"] = mid
 	d["rail"] = _plain(Layout.rail_points(Layout.RAIL_TOP_DEG, 360.0, 48))
-	d["launch_wall"] = _plain(Layout.launch_wall_points(20))
+	d["launch_wall"] = _plain(Layout.launch_wall_points(44))
 	d["club_outline"] = _plain(ClubDeck.outline())
 	d["club"] = {"front": ClubDeck.DECK_FRONT, "left": ClubDeck.DECK_LEFT, "right": ClubDeck.DECK_RIGHT,
 			"return_path": _plain(ClubDeck.RETURN_PATH)}
