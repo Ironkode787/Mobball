@@ -69,8 +69,8 @@ const MEETING_SPREAD := Vector2(0.28, -0.14)
 ## Outer band of the playfield width, each side, that counts as an outlane for the Slippery
 ## trait. Read against the table's own bounds so flow never hard-codes this table's posts.
 const OUTLANE_BAND := 0.25
-## How often the storefront banks are read for a Collection Round trigger.
-const STOREFRONT_POLL := 0.25
+## How long Manny waits to try again when no bank is standing to collect.
+const AUTO_COLLECT_RETRY := 1.0
 ## Sammy's Spare (specs/m2-content.md §5): the first jam of the Night falls out by itself, and
 ## every jam after it is this fraction of its natural length.
 const SPARE_JAM_SCALE := 1.0 / 3.0
@@ -164,7 +164,6 @@ var _after_beat: StringName = &""
 var _wire_enabled: bool = false
 ## The table has briefcase hardware, so the bagman does his rounds this Night.
 var _briefcases_on: bool = false
-var _collect_poll: float = 0.0
 ## Guys whose ball was saved and is waiting to be put back on the table next tick.
 var _reserve_queue: Array[Dictionary] = []
 ## `last_ball` fired; the Meeting ends unless a pending save puts a ball back first.
@@ -466,9 +465,9 @@ func _tick_crew(delta: float) -> void:
 	var before := Game.wallet.dirty
 	var got := StringName(TableAPI.call_if(table, "auto_collect_one", [], &""))
 	if got == &"":
-		# Nothing was lit. He waits a beat rather than a whole interval — he is standing
+		# No bank standing. He waits a beat rather than a whole interval — he is standing
 		# right there.
-		_collect_in = minf(every, STOREFRONT_POLL * 4.0)
+		_collect_in = minf(every, AUTO_COLLECT_RETRY)
 		return
 	Game.auto_collected.emit(got, Game.wallet.dirty.sub_clamped(before))
 
@@ -1790,44 +1789,33 @@ func _tick_collection(delta: float) -> void:
 	Game.collection.tick(delta)
 	if was_active and not Game.collection.active:
 		Game.collection_changed.emit(false, Game.collection.collected_count())
-	_collect_poll -= delta
-	if _collect_poll > 0.0:
-		return
-	_collect_poll = STOREFRONT_POLL
-	if Game.collection.active or not _all_storefronts_armed():
-		return
-	if Game.collection.on_all_armed():
-		AudioDirector.play(&"paper_slip")
-		Game.collection_changed.emit(true, 0)
-	elif Game.administration_active():
-		# In office the block is never shut: the banks come back up for you (docs/05 §8).
-		_open_the_block()
 
 
-## Every doorway bank standing at once (docs/05 §3). Read off the table's own storefront list;
-## a table that does not have one simply never starts a round.
-func _all_storefronts_armed() -> bool:
+## The block's shops that can pay tonight: bought, on the table and not boarded up.
+func _live_storefronts() -> int:
 	var raw: Variant = TableAPI.prop(table, "storefronts", null)
 	if not (raw is Array):
-		return false
-	var shops: Array = raw
-	if shops.size() < int(Switches.COVER_SIZE.get(&"storefronts", 3)):
-		return false
-	for s: Variant in shops:
+		return 0
+	var n := 0
+	for s: Variant in raw:
 		var node := s as Node3D
 		if node == null or not is_instance_valid(node) or not node.visible:
-			return false
-		if not node.has_method("state_name"):
-			return false
-		if StringName(node.call("state_name")) != &"armed":
-			return false
-	return true
+			continue
+		if node.has_method("state_name") and StringName(node.call("state_name")) != &"shut":
+			n += 1
+	return n
 
 
 func _on_table_storefront(id: StringName, amount: BigMoney) -> void:
 	if not running:
 		return
-	if not Game.collection.on_collected(id):
+	var was_active := Game.collection.active
+	if Game.administration_active():
+		# In office the block is never shut: the banks come back up for you (docs/05 §8).
+		_open_the_block()
+	if not Game.collection.on_collected(id, _live_storefronts()):
+		if Game.collection.active and not was_active:
+			AudioDirector.play(&"paper_slip")
 		Game.collection_changed.emit(Game.collection.active, Game.collection.collected_count())
 		return
 	# Perfect round: the last shop pays its value again, ☆10, and the back room lights up.
@@ -1835,7 +1823,7 @@ func _on_table_storefront(id: StringName, amount: BigMoney) -> void:
 	Game.election_note(&"block")
 	AudioDirector.play(&"job_done")
 	_arpeggio([&"chime_a", &"chime_c"], 0.1)
-	Game.collection_changed.emit(false, int(Switches.COVER_SIZE.get(&"storefronts", 3)))
+	Game.collection_changed.emit(false, _live_storefronts())
 
 
 # =================================================================== raid =====

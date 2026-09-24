@@ -127,36 +127,42 @@ func _wire_determinism(t: TestCtx) -> void:
 
 
 func _collection(t: TestCtx) -> void:
+	var shops := Layout.STOREFRONT_IDS.size()
+	t.eq(int(Switches.COVER_SIZE[&"storefronts"]), shops, "a round asks for exactly the shops the table has")
 	var c := CollectionRound.new()
 	c.begin_night()
-	t.ok(not c.active, "no round until the whole block is armed")
-	t.eq(int(Switches.COVER_SIZE[&"storefronts"]), Layout.STOREFRONT_IDS.size(),
-			"a round asks for exactly the shops the table has")
-	t.ok(c.on_all_armed(), "every armed bank starts one")
-	t.ok(not c.on_all_armed(), "and it does not restart on top of itself")
+	t.ok(not c.active, "no round until a shop pays")
+	t.ok(not c.on_collected(&"storefront_pizzeria", shops), "the first shop to pay starts one")
+	t.ok(c.active, "…and the round is on")
 	t.near(c.time_left, CollectionRound.SECONDS, 1e-9, "25 seconds on the clock")
-
-	t.ok(not c.on_collected(&"storefront_pizzeria"), "one shop is not a round")
-	t.ok(not c.on_collected(&"storefront_pizzeria"), "and the same shop twice is still one")
+	t.ok(not c.on_collected(&"storefront_pizzeria", shops), "the same shop again is still one")
 	t.eq(c.collected_count(), 1, "the round counts shops, not visits")
-	t.ok(c.on_collected(&"storefront_pawn"), "the other one wins it")
+	t.ok(c.on_collected(&"storefront_pawn", shops), "the other one wins it")
 	t.ok(not c.active, "which ends the round")
 	t.eq(c.night_won, 1, "booked as perfect")
+
+	# The Night-1 bug: a lone shop, or a block of boarded-up ones, has nothing to race.
+	var alone := CollectionRound.new()
+	alone.begin_night()
+	alone.on_collected(&"storefront_pizzeria", 1)
+	t.ok(not alone.active, "one shop on the table never starts a round")
+	alone.on_collected(&"storefront_pizzeria", 0)
+	t.ok(not alone.active, "nor does a block with no live shop")
 
 	# A lapsed round: the clock runs out and it costs nothing.
 	var lapse := CollectionRound.new()
 	lapse.begin_night()
-	lapse.on_all_armed()
-	lapse.on_collected(&"storefront_pizzeria")
+	lapse.on_collected(&"storefront_pizzeria", shops)
 	lapse.tick(CollectionRound.SECONDS + 0.1)
 	t.ok(not lapse.active, "the clock runs out")
 	t.eq(lapse.night_won, 0, "and nothing was won")
-	t.ok(not lapse.on_all_armed(),
-			"the block is still standing, but the round does not immediately re-arm")
+	lapse.on_collected(&"storefront_pawn", shops)
+	t.ok(not lapse.active, "a collect right after a lapse does not start the next round at once")
 	lapse.tick(CollectionRound.RETRIGGER_GAP + 0.1)
-	t.ok(lapse.on_all_armed(), "after a beat of quiet it can start again")
-	t.eq(lapse.collected_count(), 0, "from nothing")
-	t.ok(not lapse.on_collected(&"storefront_pizzeria"),
+	lapse.on_collected(&"storefront_pawn", shops)
+	t.ok(lapse.active, "after a beat of quiet a collect starts one again")
+	t.eq(lapse.collected_count(), 1, "counting only that collect")
+	t.ok(not lapse.has_collected(&"storefront_pizzeria"),
 			"the shop collected in the lapsed round does not count toward the new one")
 
 	# THE RULING (balance sim): the ☆10 is once a NIGHT, like the combo's tiers. A repeatable
@@ -261,19 +267,18 @@ func _collection_respect_is_nightly(t: TestCtx) -> void:
 	Game.combo.reset()
 	var value := BigMoney.from_float(1_000.0)
 
+	var shops := Layout.STOREFRONT_IDS.size()
 	var before := Game.respect
-	Game.collection.on_all_armed()
 	for id in Layout.STOREFRONT_IDS:
-		Game.collection.on_collected(id)
+		Game.collection.on_collected(id, shops)
 	var first := Game.collection_completed(&"storefront_pawn", value)
 	t.eq(Game.respect - before, CollectionRound.RESPECT, "the first perfect round pays ☆10")
 	t.ok(first.is_positive(), "…and the last shop pays its value again")
 
 	before = Game.respect
 	Game.collection.tick(CollectionRound.RETRIGGER_GAP + 0.1)
-	Game.collection.on_all_armed()
 	for id in Layout.STOREFRONT_IDS:
-		Game.collection.on_collected(id)
+		Game.collection.on_collected(id, shops)
 	var second := Game.collection_completed(&"storefront_pawn", value)
 	t.eq(Game.respect - before, 0, "the second perfect round of the Night pays no ☆")
 	t.ok(second.is_positive(), "…but it still pays the double")
@@ -283,9 +288,8 @@ func _collection_respect_is_nightly(t: TestCtx) -> void:
 	Game.end_night({"guys_lost": 3, "tilts": 0, "raid": ""})
 	Game.start_night()
 	before = Game.respect
-	Game.collection.on_all_armed()
 	for id in Layout.STOREFRONT_IDS:
-		Game.collection.on_collected(id)
+		Game.collection.on_collected(id, shops)
 	Game.collection_completed(&"storefront_pawn", value)
 	t.eq(Game.respect - before, CollectionRound.RESPECT, "tomorrow's first round pays again")
 
@@ -357,8 +361,7 @@ func _save_round_trip(t: TestCtx) -> void:
 	Game.meeting.note_collection_round()
 	Game.casino.resolve(0, true, BigMoney.from_float(50.0), 1.48, false)
 	Game.casino.book_payout(BigMoney.from_float(10.0), true)
-	Game.collection.on_all_armed()
-	Game.collection.on_collected(&"a")
+	Game.collection.on_collected(&"a", 2)
 	Game.wire.begin_night(4, 1)
 	Game.wire.draw(0, BigMoney.zero())
 

@@ -17,13 +17,13 @@ extends RefCounted
 
 ## Nodes considered per Count before the loop gives up (a guard, never reached in practice).
 const MAX_BUYS_PER_COUNT := 24
-## Storefront collect cadence: three bank targets, the door, the 20 s re-arm. Used to cap
-## the projection's collect income at something the hardware can physically deliver.
-const COLLECT_CYCLE_SEC := SimTable.STOREFRONT_OPEN_SEC * 0.5 + SimTable.STOREFRONT_REARM_SEC
+## Storefront collect cadence: three bank targets, then the PAID re-arm. Used to cap the
+## projection's collect income at something the hardware can physically deliver.
+const COLLECT_CYCLE_SEC := SimTable.STOREFRONT_REARM_SEC
 ## Shots a payphone bank takes per completion when every hit lands somewhere useful.
 const WIRE_USEFUL_SHOTS := 3.0
-## Shots a storefront takes per collection: three targets down, then the door.
-const STOREFRONT_USEFUL_SHOTS := 4.0
+## Shots a storefront takes per collection: its three targets down.
+const STOREFRONT_USEFUL_SHOTS := 3.0
 ## Nothing further away than this many Nights of clean income is worth pricing — a player
 ## does not plan around a card they cannot reach this year, and pricing them all is what
 ## makes the policy the slow half of the sim. The horizon widens on its own as income grows,
@@ -415,7 +415,7 @@ func _club_projection(table: SimTable, stats: Stats, rank: int, shots: float,
 
 
 ## Can the back room light at all tonight? Two slots Jackpots, or one perfect Collection
-## Round — which needs all three blocks standing at once (`CollectionRound.on_all_armed`).
+## Round — which needs the whole block bought (`CollectionRound.on_collected`).
 func _meeting_lightable(stats: Stats, jackpots: float) -> bool:
 	if not stats.hardware_unlocked(&"backroom_saucer"):
 		return false

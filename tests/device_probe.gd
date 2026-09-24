@@ -63,6 +63,22 @@ func _run() -> void:
 			await _tap(done)
 			await _frames(5)
 
+	var how := _find_button(get_tree().root, "HOW IT WORKS")
+	_check(how != null, "HOW IT WORKS is reachable from the front door")
+	if how != null:
+		await _tap(how)
+		await _frames(8)
+		var sheet: Node = main.get("rules_sheet")
+		_check(sheet != null, "HOW IT WORKS opens the rules sheet")
+		_check_visible_buttons_inside_safe(get_tree().root, "HOW IT WORKS")
+		await _shot("1c_rules")
+		var rules_done := _find_button(get_tree().root, "DONE")
+		_check(rules_done != null, "the rules sheet has a safe DONE control")
+		if rules_done != null:
+			await _tap(rules_done)
+			await _frames(5)
+		_check(main.get("rules_sheet") == null, "DONE closes the rules sheet")
+
 	# ATTRACT → ROLL CALL via a real touch on ROLL CALL, then start the prepared Night.
 	var roll := _find_button(get_tree().root, "ROLL CALL")
 	_check(roll != null, "ROLL CALL button exists")
@@ -120,6 +136,7 @@ func _run() -> void:
 				"the first real earning event advances the coach")
 		_check(not String(coach.call("message")).contains("LUCKY"),
 				"Night 1 never advertises the still-locked laundromat")
+	await _check_rules_mid_night(hud)
 	feedback.call("clear")
 	# Deterministic presentation fixture on the real Night: readable content must stay safe,
 	# while impact rings and edge atmosphere are allowed to bleed beneath rounded glass.
@@ -254,6 +271,40 @@ func _run() -> void:
 	print("DEVICE PROBE: %s" % ("OK" if failures == 0 else "%d FAILURES" % failures))
 	_clean_probe_save()
 	get_tree().quit(0 if failures == 0 else 1)
+
+
+## The HUD's RULES tab: a full touch target clear of the corner nudge taps, and the Night
+## waits while the sheet is up.
+func _check_rules_mid_night(hud: Node) -> void:
+	var tab: Button = hud.call("rules_button") if hud != null else null
+	_check(tab != null and tab.is_visible_in_tree(), "the HUD shows a RULES tab during the Night")
+	if tab == null:
+		return
+	var rect := tab.get_global_rect()
+	_check(rect.size.y >= Presentation.theme.touch_min and rect.size.x >= Presentation.theme.touch_min,
+			"the RULES tab is a full touch target (%s)" % rect.size)
+	_check(rect.position.x >= InputController.NUDGE_CORNER_WIDTH
+			and rect.end.x <= 1080.0 - InputController.NUDGE_CORNER_WIDTH,
+			"the RULES tab leaves both corner nudge taps alone (%s)" % rect)
+	_check_inside_safe(tab, "RULES tab")
+	var nudges := [0]
+	var count_nudge := func(_direction: Vector2) -> void: nudges[0] += 1
+	Events.nudged.connect(count_nudge)
+	await _tap(tab)
+	await _frames(8)
+	_check(main.get("rules_sheet") != null, "a touch on RULES opens the rules sheet mid-Night")
+	_check(get_tree().paused, "the Night waits while the rules are up")
+	_check(nudges[0] == 0, "the RULES touch never reaches the table as a nudge")
+	await _shot("2c_rules_night")
+	_check_visible_buttons_inside_safe(get_tree().root, "RULES MID-NIGHT")
+	var back := _find_button(get_tree().root, "BACK TO THE TABLE")
+	_check(back != null, "the rules sheet offers BACK TO THE TABLE mid-Night")
+	if back != null:
+		await _tap(back)
+		await _frames(5)
+	_check(main.get("rules_sheet") == null and not get_tree().paused,
+			"BACK TO THE TABLE closes the sheet and the Night carries on")
+	Events.nudged.disconnect(count_nudge)
 
 
 func _clean_probe_save() -> void:

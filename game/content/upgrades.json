@@ -596,7 +596,7 @@
         {"kind": "unlock_hardware", "target": "cargo_ramp"},
         {"kind": "idle_rate_add", "target": "smuggling", "value": "1.2K"}
       ],
-      "table_change": "the dockyard gates open below the block — crates, crane, and a pier you can fall off"
+      "table_change": "Pier 9 opens at the top right — a crane that loads a passing ball into the containers"
     },
     {
       "id": "rackets.night_shipments",
@@ -633,7 +633,7 @@
         {"kind": "unlock_hardware", "target": "penthouse_stairs"},
         {"kind": "idle_rate_add", "target": "penthouse", "value": "2K"}
       ],
-      "table_change": "the room above the Club lights up — the calmest, most dangerous place in the city"
+      "table_change": "Lucky's gets a roof: the Penthouse — the calmest, most dangerous place in the city"
     },
 
     {

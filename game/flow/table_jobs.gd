@@ -4,7 +4,8 @@ extends RefCounted
 ##
 ##   * Roll Call deals three lines, one per payphone. Hit a payphone and its line rings: that Job
 ##     is SELECTED and its shots light.
-##   * Shoot LUCKY'S to take it: the fuse lights, full.
+##   * Shoot LUCKY'S to take it: the fuse lights, full. With no line rung, Lucky's gives you the
+##     next open one (docs/20 §4): the payphones choose, they are not a gate.
 ##   * Make the lit shots before the fuse burns down (the NUMBERS spinner buys time). Done pays
 ##     dirty and ☆ and marks the line; a blown fuse puts the line back on the board.
 ##   * Finish all three lines in a Night and BIG SCORE lights at Lucky's: every shot on the board
@@ -201,7 +202,10 @@ func on_lucky() -> StringName:
 	if big_score_lit and not big_score_active:
 		_start_big_score()
 		return &"big_score"
-	if running < 0 and selected >= 0 and int(lines[selected]["state"]) == LineState.SELECTED:
+	if running < 0 and live():
+		if selected < 0 or int(lines[selected]["state"]) != LineState.SELECTED:
+			if not select(next_open_line(-1)):
+				return &""
 		_start_job(selected)
 		return &"job"
 	return &""
@@ -395,12 +399,26 @@ func headline() -> String:
 		var job: Dictionary = lines[running]["job"]
 		return "%s  %s  %ds" % [String(job.get("name", "JOB")).to_upper(), _left_text(lines[running]["left"]), int(ceil(fuse_left))]
 	if selected >= 0:
-		return "%s: TAKE IT AT LUCKY'S" % String(lines[selected]["job"].get("name", "JOB")).to_upper()
+		return "SHOOT LUCKY'S TO TAKE %s" % String(lines[selected]["job"].get("name", "JOB")).to_upper()
 	if all_done():
-		return "THE WIRE: TONIGHT'S WORK IS DONE"
+		return "TONIGHT'S WORK IS DONE"
 	if live():
-		return "THE WIRE: %d OF %d DONE, HIT A PAYPHONE" % [done_tonight, lines.size()]
+		var next := next_open_line(-1)
+		if next >= 0:
+			return "SHOOT LUCKY'S FOR A JOB: %s" % String(lines[next]["job"].get("name", "JOB")).to_upper()
 	return ""
+
+
+## A shot as the player reads it on the playfield.
+const SHOT_NAMES := {
+	&"alley": "THE CANS", &"dropoff": "DROP-OFF LANES", &"wire": "PAYPHONES", &"spinner": "SPINNER",
+	&"getaway": "GETAWAY", &"luckys": "LUCKY'S", &"beat_cop": "BEAT COP", &"nonnas": "NONNA'S",
+	&"fat_tonys": "FAT TONY'S", &"truck_route": "TRUCK ROUTE", &"staircase": "STAIRCASE",
+}
+
+
+static func shot_name(shot: StringName) -> String:
+	return String(SHOT_NAMES.get(shot, String(shot).replace("_", " ").to_upper()))
 
 
 static func _left_text(left: Dictionary) -> String:
@@ -408,7 +426,7 @@ static func _left_text(left: Dictionary) -> String:
 	for shot: Variant in left:
 		var n := int(left[shot])
 		if n > 0:
-			parts.append("%s ×%d" % [String(shot).replace("_", " ").to_upper(), n])
+			parts.append("%s ×%d" % [shot_name(StringName(shot)), n])
 	return " · ".join(parts)
 
 

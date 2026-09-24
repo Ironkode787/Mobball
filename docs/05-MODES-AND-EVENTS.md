@@ -49,9 +49,10 @@ feeling as "greed vs. sirens." That's the game working.
 
 ## 3. Collection Rounds
 
-Trigger: both doorway banks (Nonna's and Fat Tony's, [19](19-PLAYFIELD-REDESIGN.md)) armed
-simultaneously. 25s timer: collect both in either order; finishing lights **Double Collection**
-on the last one. Perfect round = ☆10 (**first
+Trigger: the first shop that pays (Nonna's or Fat Tony's knocked down,
+[20](20-SHOTS-YOU-CAN-MAKE.md) §4), with a second shop open tonight. 25s timer: collect the rest
+of the block; the last one pays **Double Collection**. A lapsed round costs nothing, and 8s of
+quiet follow any round before a collect can start the next. Perfect round = ☆10 (**first
 perfect round each Night** — sim-tuned; later rounds pay money and light the Meeting) + the
 pizzeria throws a pizza across the table (full-screen physics gag, +$).
 

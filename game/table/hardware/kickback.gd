@@ -85,13 +85,22 @@ func _on_ball_entered(body: Node3D) -> void:
 	if not (body is Ball) or not ready_to_fire():
 		return
 	var ball := body as Ball
-	_cool = cooldown_seconds
+	_cool = reload_seconds()
 	_flash = 1.0
 	ball.set_velocity(Vector3.ZERO)
 	ball.kick(Vector3(direction.x, 0.0, direction.y) * impulse)
 	AudioDirector.play(&"kickback")
 	TableScore.hit(id, ball, impulse)
 	fired.emit()
+
+
+## How long it takes to reload after it fires: Big Sal (`kickback_cooldown_mult`) makes it quicker.
+func reload_seconds(stats: Stats = null) -> float:
+	var from := stats
+	if from == null and Game != null:
+		from = Game.stats
+	var mult := from.kickback_cooldown_mult() if from != null else 1.0
+	return cooldown_seconds * clampf(mult, 0.05, 1.0)
 
 
 func recharge() -> void:

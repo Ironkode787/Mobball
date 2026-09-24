@@ -1,17 +1,19 @@
 class_name CollectionRound
 extends RefCounted
-## COLLECTION ROUNDS (docs/05 §3). All three storefront banks armed at once starts a 25 s
-## round: collect all three in any order and the last one pays double and lights the Family
-## Meeting. Miss the clock and the round simply lapses — a Collection Round costs nothing to
-## fail, which is what makes it a tempo change rather than a threat.
+## COLLECTION ROUNDS (docs/05 §3, docs/20 §4). The first shop that pays up starts a 25 s round:
+## collect the rest of the block before the clock runs out and the last one pays double and
+## lights the Family Meeting. Miss the clock and the round simply lapses — a Collection Round
+## costs nothing to fail, which is what makes it a tempo change rather than a threat.
+##
+## It used to start when every bank stood at once, which a boarded-up shop also did: every
+## Night opened on a round nobody could play, owning the HUD's objective line.
 ##
 ## The ☆10 lands on the FIRST perfect round of a Night and no other (`take_respect`), the same
 ## way the combo's tiers do. Balance-sim ruling: paid per round it was 87% of a good player's
 ## whole Respect, so rank tracked how many laps you could run round three shops instead of the
 ## Jobs board it is supposed to track. The money is per round; the ladder is per Night.
 ##
-## Pure logic on a fed clock. The NightController watches the storefronts and forwards the
-## collects; `Game` pays the double.
+## Pure logic on a fed clock. The NightController forwards the collects; `Game` pays the double.
 
 const SECONDS := 25.0
 ## The FIRST perfect round of a Night is worth this; every one after it pays money and lights
@@ -19,8 +21,7 @@ const SECONDS := 25.0
 const RESPECT := 10
 ## The last collect pays its own value again — "Double Collection" (docs/05 §3).
 const LAST_PAYS_EXTRA := 1.0
-## After a lapsed round the three banks are usually still armed. Without a beat of quiet the
-## round would immediately re-arm and the HUD timer would never stop moving.
+## A beat of quiet after a round ends, won or lapsed, before a collect can start the next.
 const RETRIGGER_GAP := 8.0
 
 var active: bool = false
@@ -63,25 +64,28 @@ func collected_count() -> int:
 	return _collected.size()
 
 
-## The whole block is armed. True if this actually started a round.
-func on_all_armed() -> bool:
-	if active or _cooldown > 0.0:
-		return false
-	active = true
-	time_left = SECONDS
-	_collected.clear()
-	rounds_started += 1
-	night_started += 1
-	total_started += 1
-	return true
+## Whether this shop has paid in the running round.
+func has_collected(id: StringName) -> bool:
+	return _collected.has(String(id))
 
 
-## One storefront collected. True on the third — the round is won.
-func on_collected(id: StringName) -> bool:
+## A shop paid. With no round running, this starts one — as long as the block has another shop
+## to collect. With one running, it counts; the last of the block's `shops` wins it. True on
+## the win.
+func on_collected(id: StringName, shops: int) -> bool:
 	if not active:
+		if _cooldown > 0.0 or shops < 2:
+			return false
+		active = true
+		time_left = SECONDS
+		_collected.clear()
+		_collected[String(id)] = true
+		rounds_started += 1
+		night_started += 1
+		total_started += 1
 		return false
 	_collected[String(id)] = true
-	if _collected.size() < int(Switches.COVER_SIZE.get(&"storefronts", 3)):
+	if _collected.size() < shops:
 		return false
 	active = false
 	time_left = 0.0

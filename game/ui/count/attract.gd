@@ -8,6 +8,7 @@ extends CanvasLayer
 
 signal start_pressed
 signal settings_pressed
+signal rules_pressed
 
 ## The attract screen is deliberately a presentation-only layer. The live table remains
 ## behind it (and remains the source of truth for the cabinet), while this little marquee
@@ -213,7 +214,18 @@ func _ready() -> void:
 	settings_button.custom_minimum_size.y = float(Presentation.theme.control_for(&"compact_button").get(
 			"min_height", Presentation.theme.touch_min))
 	settings_button.pressed.connect(func() -> void: settings_pressed.emit())
-	col.add_child(settings_button)
+	var rules_button := PaperKit.action_button("HOW IT WORKS", &"quiet")
+	rules_button.name = "RulesButton"
+	rules_button.custom_minimum_size.y = settings_button.custom_minimum_size.y
+	rules_button.pressed.connect(func() -> void: rules_pressed.emit())
+	var quiet_row := HBoxContainer.new()
+	quiet_row.name = "QuietRow"
+	quiet_row.add_theme_constant_override("separation", int(Presentation.theme.spacing_for(&"space_16")))
+	rules_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	settings_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	quiet_row.add_child(rules_button)
+	quiet_row.add_child(settings_button)
+	col.add_child(quiet_row)
 
 	Game.safe_changed.connect(_on_safe_changed)
 	if _reduced_motion_enabled():

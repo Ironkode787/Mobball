@@ -29,6 +29,7 @@ var count: CountScreen = null
 var roll_call: RollCallScreen = null
 var ledger: Node = null
 var settings_sheet: SettingsSheet = null
+var rules_sheet: RulesSheet = null
 var night: NightController = null
 var onboarding: OnboardingCoach = null
 
@@ -88,6 +89,7 @@ func _ready() -> void:
 		hud = GameHUD.new()
 		hud.name = "HUD"
 		add_child(hud)
+		hud.rules_pressed.connect(open_rules)
 
 	AudioDirector.music_start()
 	AudioDirector.music_set_level(_music_level)
@@ -227,6 +229,8 @@ func _apply_state(state: StringName) -> void:
 	var wants_ledger := state == &"ledger"
 	if settings_sheet != null and is_instance_valid(settings_sheet):
 		_close_settings()
+	if rules_sheet != null and is_instance_valid(rules_sheet):
+		_close_rules()
 	# Remove old owners first. A queued child remains in the scene tree until the next
 	# frame, which can otherwise produce two focusable screen roots during a handoff.
 	if not wants_ledger:
@@ -269,6 +273,7 @@ func _want_attract(on: bool) -> void:
 		_last_route_interaction = "ROLL CALL"
 		Game.open_roll_call())
 	attract.settings_pressed.connect(_open_settings)
+	attract.rules_pressed.connect(open_rules)
 	add_child(attract)
 
 
@@ -365,6 +370,36 @@ func _open_settings() -> void:
 	add_child(settings_sheet)
 	_last_route_interaction = "settings_opened"
 	_record_owner_transition(&"overlay_opened", Game.state)
+
+
+## HOW IT WORKS. Mid-Night the table waits while it is open: nothing drains behind a sheet.
+func open_rules() -> void:
+	if _owner_is_live(rules_sheet):
+		return
+	_release_route_focus()
+	rules_sheet = RulesSheet.new()
+	rules_sheet.name = "Rules"
+	if table != null and table.has_method("hardware_unlocked"):
+		var board := table
+		rules_sheet.has_hardware = func(id: StringName) -> bool: return bool(board.call("hardware_unlocked", id))
+	rules_sheet.closed.connect(_close_rules)
+	add_child(rules_sheet)
+	if Game.state == &"night":
+		get_tree().paused = true
+	_last_route_interaction = "rules_opened"
+	_record_owner_transition(&"overlay_opened", Game.state)
+
+
+func _close_rules() -> void:
+	get_tree().paused = false
+	if rules_sheet == null or not is_instance_valid(rules_sheet):
+		rules_sheet = null
+		return
+	_release_focus_for(rules_sheet)
+	_dispose_owner(rules_sheet)
+	rules_sheet = null
+	_last_route_interaction = "rules_closed"
+	_record_owner_transition(&"overlay_closed", Game.state)
 
 
 func _close_settings() -> void:
@@ -475,7 +510,7 @@ func owner_snapshot() -> Dictionary:
 	var nodes: Array[Dictionary] = []
 	for pair: Array in [["attract", attract], ["roll_call", roll_call], ["night", night],
 			["count", count], ["ledger", ledger], ["settings", settings_sheet],
-			["onboarding", onboarding]]:
+			["rules", rules_sheet], ["onboarding", onboarding]]:
 		var node: Node = pair[1] as Node
 		nodes.append({
 			"owner": String(pair[0]),

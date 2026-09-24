@@ -2,8 +2,8 @@ class_name Storefront
 extends Node3D
 ## A protection racket as pinball hardware (docs/20 §3.3): a shop on its own island with a
 ## three-bank of drops across its front. Knock all three down and the shop pays up on the
-## spot — minutes of that racket's idle income — then the bank rests a few seconds, lit PAID,
-## and stands up again.
+## spot — minutes of that racket's idle income — then the bank rests, lit PAID, and stands up
+## again for the next collection.
 ##
 ## Before the racket is bought the shop is boarded up: a shutter across the front, a dark sign,
 ## and the island still stands as part of the board's shape.
@@ -32,9 +32,9 @@ const NEON := {
 
 @export var id: StringName = &"storefront"
 
-## Kept for the balance model's reading of the shop (game/sim/sim_table.gd).
-var open_seconds: float = 0.0
-var rearm_seconds: float = 4.0
+## How long a shop that just paid stays PAID with its bank down (the balance model mirrors it:
+## SimTable.STOREFRONT_REARM_SEC).
+var rearm_seconds: float = 12.0
 var sign_text: StringName = &"SHOP"
 var bank_enabled: bool = true
 var wash_enabled: bool = false

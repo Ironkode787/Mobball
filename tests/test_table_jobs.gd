@@ -12,6 +12,7 @@ const ALL_SHOTS: Array[StringName] = [&"alley", &"dropoff", &"wire", &"spinner",
 func run(t: TestCtx) -> void:
 	_deal(t)
 	_a_job(t)
+	_lucky_takes_the_next_job(t)
 	_taking_is_not_a_shot(t)
 	_the_fuse(t)
 	_big_score(t)
@@ -111,10 +112,10 @@ func _taking_is_not_a_shot(t: TestCtx) -> void:
 func _a_job(t: TestCtx) -> void:
 	var jobs := _board(TableJobs.new())
 	var cans := _line_of(jobs, "cans")
-	t.eq(jobs.on_lucky(), &"", "Lucky's takes nothing before a payphone rang")
 	t.ok(jobs.select(cans), "a payphone picks the line up")
 	t.ok(not jobs.on_shot(&"alley"), "a picked-up Job does not count until it is taken")
 	t.eq(jobs.on_lucky(), &"job", "Lucky's takes it")
+	t.eq(jobs.running, cans, "the one the payphone rang")
 	t.near(jobs.fuse_left, 30.0, 1e-9, "and the fuse lights full")
 	t.ok(not jobs.select(_line_of(jobs, "call")), "one Job at a time")
 	t.ok(not jobs.on_shot(&"wire"), "a shot the Job did not ask for does not count")
@@ -128,7 +129,28 @@ func _a_job(t: TestCtx) -> void:
 	t.eq(done, ["cans"], "two of two is, and the Job pays once")
 	t.eq(jobs.line_state(cans), TableJobs.LineState.DONE, "its line is marked")
 	t.ok(not jobs.select(cans), "a done line cannot be picked up again")
-	t.eq(jobs.on_lucky(), &"", "and Lucky's has nothing left to take for it")
+
+
+## The payphones choose; they are not a gate (docs/20 §4). With no line rung, Lucky's gives
+## the next open one, never a done one, and nothing once the board is cleared.
+func _lucky_takes_the_next_job(t: TestCtx) -> void:
+	var jobs := _board(TableJobs.new())
+	t.ok(jobs.headline().begins_with("SHOOT LUCKY'S FOR A JOB"), "the HUD says where a Job comes from")
+	var expected := jobs.next_open_line(-1)
+	t.eq(jobs.on_lucky(), &"job", "Lucky's gives a Job without a payphone")
+	var first := jobs.running
+	t.eq(first, expected, "the next open line")
+	for shot: Variant in (jobs.line_job(first)["shots"] as Dictionary).keys():
+		for i in range(int(jobs.line_job(first)["shots"][shot]) + 1):
+			jobs.on_shot(StringName(shot))
+	t.eq(jobs.line_state(first), TableJobs.LineState.DONE, "that Job is made")
+	t.eq(jobs.on_lucky(), &"job", "Lucky's gives the next one")
+	t.ok(jobs.running != first, "…which is not the done one")
+	jobs.running = -1
+	for i in range(jobs.lines.size()):
+		jobs.lines[i]["state"] = TableJobs.LineState.DONE
+	jobs.selected = -1
+	t.eq(jobs.on_lucky(), &"", "a cleared board has nothing left to give")
 
 
 func _the_fuse(t: TestCtx) -> void:

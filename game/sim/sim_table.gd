@@ -57,9 +57,8 @@ const CRATE_RESET_SEC := 6.0
 ## `complete_value` is 0 — claiming the Commission is FLOW-3's, not the bank's.
 const PENTHOUSE_CHAIRS := 5
 const CHAIR_RESET_SEC := 8.0
-## Mirrors `Storefront.open_seconds` / `rearm_seconds` and `TargetBank.reset_seconds`.
-const STOREFRONT_OPEN_SEC := 6.0
-const STOREFRONT_REARM_SEC := 20.0
+## Mirrors `Storefront.rearm_seconds` and `TargetBank.reset_seconds`.
+const STOREFRONT_REARM_SEC := 12.0
 const STOREFRONT_TARGETS := 3
 const WIRE_TARGETS := 3
 const WIRE_RESET_SEC := 2.0

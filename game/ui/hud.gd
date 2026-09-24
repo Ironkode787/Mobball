@@ -11,6 +11,9 @@ extends CanvasLayer
 ## Signal-driven for state, per-frame for clocks (a countdown is a per-frame value by nature,
 ## as is the plunger charge).
 
+## HOW IT WORKS, from the RULES tab under the objective line.
+signal rules_pressed
+
 const STRIP_H := 168.0
 ## Tall phones put the unsafe top glass behind the table art and reserve only this shallow,
 ## two-row panel below it for information. The cutout must not turn into a black spacer.
@@ -50,6 +53,8 @@ var _respect_hint: Label = null
 var _respect_meter: RespectMeter = null
 var _objective: Label = null
 var _objective_backdrop: ColorRect = null
+var _rules: Button = null
+var _rules_pill: Panel = null
 var _combo_left: float = 0.0
 var _modes: VBoxContainer = null
 var _wire: Label = null
@@ -148,6 +153,7 @@ func _ready() -> void:
 	add_child(_charge)
 
 	_build_modes()
+	_build_rules_tab()
 	_apply_safe_area()
 	Presentation.safe.margins_changed.connect(_on_safe_margins_changed)
 
@@ -244,6 +250,7 @@ func _apply_safe_area() -> void:
 	_objective.offset_right = -(m.z + 26.0)
 	_objective.offset_top = _modes.offset_top + 4.0
 	_objective.offset_bottom = _modes.offset_bottom - 2.0
+	_place_rules_tab(viewport_width)
 	_charge.offset_right = -(m.z + (18.0 if _compact else 28.0))
 	_charge.offset_left = -(m.z + (18.0 if _compact else 28.0) + (44.0 if _compact else 176.0))
 	_charge.offset_top = -(m.w + (224.0 if _compact else 320.0))
@@ -287,6 +294,7 @@ func _update_geometry_contract(m: Vector4, profile: Dictionary, header_bottom: f
 			"respect": _global_control_rect(_respect),
 			"objective": _global_control_rect(_objective_backdrop),
 			"objective_label": _global_control_rect(_objective),
+			"rules": _global_control_rect(_rules),
 			"plunger": _global_control_rect(_charge),
 			"shooter_lane": lane,
 			"lane_clearance": lane,
@@ -581,6 +589,58 @@ func _build_modes() -> void:
 	_ritual = _add_mode(Presentation.theme.brass.lightened(0.15))
 
 
+## A tab hanging under the objective line, in the middle third of the screen: the top corners
+## are the nudge taps (InputController.NUDGE_CORNER_WIDTH), and a tap up the middle does
+## nothing else. The whole tab is a full touch target; only the pill in it is drawn.
+func _build_rules_tab() -> void:
+	_rules = Button.new()
+	_rules.name = "RulesButton"
+	_rules.text = "?  RULES"
+	_rules.flat = true
+	_rules.focus_mode = Control.FOCUS_NONE
+	_rules.clip_text = false
+	var typography := Presentation.theme.typography_for(&"button")
+	_rules.add_theme_font_override("font", typography["font"] as Font)
+	for slot: StringName in [&"font_color", &"font_hover_color", &"font_focus_color"]:
+		_rules.add_theme_color_override(slot, Presentation.theme.brass)
+	for slot: StringName in [&"font_pressed_color", &"font_hover_pressed_color"]:
+		_rules.add_theme_color_override(slot, Presentation.theme.newsprint)
+	for state: StringName in [&"normal", &"hover", &"pressed", &"hover_pressed", &"focus", &"disabled"]:
+		_rules.add_theme_stylebox_override(state, StyleBoxEmpty.new())
+	_rules.pressed.connect(func() -> void: rules_pressed.emit())
+	add_child(_rules)
+	_rules_pill = Panel.new()
+	_rules_pill.name = "RulesPill"
+	_rules_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rules_pill.show_behind_parent = true
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = Color(Presentation.theme.ink, 0.86)
+	pill.border_color = Presentation.theme.brass.darkened(0.12)
+	pill.set_border_width_all(2)
+	pill.set_corner_radius_all(22)
+	_rules_pill.add_theme_stylebox_override("panel", pill)
+	_rules.add_child(_rules_pill)
+
+
+func _place_rules_tab(viewport_width: float) -> void:
+	if _rules == null:
+		return
+	var touch := Presentation.theme.touch_min
+	var w := 196.0 if _compact else 228.0
+	var pill_h := 50.0 if _compact else 58.0
+	_rules.add_theme_font_size_override("font_size", 24 if _compact else 28)
+	_rules.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_rules.size = Vector2(w, touch)
+	_rules.position = Vector2(viewport_width * 0.5 - w * 0.5,
+			_objective_backdrop.offset_bottom + 2.0 - (touch - pill_h) * 0.5)
+	_rules_pill.position = Vector2(0.0, (touch - pill_h) * 0.5)
+	_rules_pill.size = Vector2(w, pill_h)
+
+
+func rules_button() -> Button:
+	return _rules
+
+
 func _add_mode(color: Color) -> Label:
 	var l := PaperKit.type_label("", &"caption", color)
 	l.add_theme_font_size_override("font_size", 20)
@@ -650,21 +710,24 @@ func _process(delta: float) -> void:
 func _update_modes() -> void:
 	if _modes == null:
 		return
-	# Keep every producer live and model-backed, but give the player one readable objective. The
-	# priority order is the deterministic ownership contract: a live boss owns the line before
-	# the meeting, then collection, wire, casino, endgame, job, and the ritual fallback.
+	# Keep every producer live and model-backed, but give the player one readable objective, and
+	# the one they can act on (docs/20 §5): a fight, then the Job whose fuse is burning, a live
+	# round or mode, what Lucky's will start next, and only then the passive lines (the casino's
+	# streaks and the Wire's draws happen whatever the player does).
 	var modes: Array[Dictionary] = [
 		{"id": &"boss", "label": _boss, "text": _boss_text()},
-		{"id": &"meeting", "label": _meeting, "text": _meeting_text()},
+		{"id": &"job_live", "label": null, "text": _job_live_text()},
 		{"id": &"collection", "label": _collect, "text": _collection_text()},
-		{"id": &"wire", "label": _wire, "text": _wire_text()},
-		{"id": &"casino", "label": _casino, "text": _casino_text()},
+		{"id": &"meeting", "label": _meeting, "text": _meeting_text()},
 		{"id": &"federal", "label": _federal, "text": _federal_text()},
 		{"id": &"empire", "label": _empire, "text": _empire_text()},
 		{"id": &"heist", "label": _heist, "text": _heist_text()},
 		{"id": &"docks", "label": _docks, "text": _docks_text()},
 		{"id": &"city", "label": _city, "text": _city_text()},
 		{"id": &"ritual", "label": _ritual, "text": _ritual_text()},
+		{"id": &"job", "label": null, "text": _job_objective()},
+		{"id": &"casino", "label": _casino, "text": _casino_text()},
+		{"id": &"wire", "label": _wire, "text": _wire_text()},
 	]
 	var objective_text := ""
 	_priority_trace = PackedStringArray()
@@ -679,10 +742,10 @@ func _update_modes() -> void:
 			objective_text = _short_objective(text)
 			_selected_objective_source = source
 		# Producer labels remain a compatibility/debug surface but are not equal-weight rows.
-		label.visible = false
+		if label != null:
+			label.visible = false
 	if objective_text.is_empty():
-		objective_text = _job_objective()
-		_priority_trace.append("job:%s" % ("active" if not objective_text.is_empty() else "idle"))
+		objective_text = "KEEP THE BALL IN PLAY"
 	_objective.text = "OBJECTIVE  ·  " + objective_text
 	_objective.visible = true
 	_objective.add_theme_font_size_override("font_size", 17 if _compact else 22)
@@ -717,19 +780,35 @@ func _fit_objective() -> void:
 	_objective.add_theme_font_size_override("font_size", px)
 
 
+## A Job whose fuse is burning, or the Big Score: the line owns the HUD after a fight does.
+func _job_live_text() -> String:
+	var jobs := Game.table_jobs
+	if jobs == null or not (jobs.running >= 0 or jobs.big_score_active or jobs.big_score_lit):
+		return ""
+	return jobs.headline()
+
+
+## What the player can start: the next table Job at Lucky's, or tonight's Roll Call slip.
 func _job_objective() -> String:
 	var board := Game.table_jobs.headline() if Game.table_jobs != null else ""
 	if not board.is_empty():
 		return board
 	var active := Game.jobs.active_jobs()
 	if active.is_empty():
-		return "KEEP THE BALL IN PLAY"
+		return _wash_hint()
 	var job: Dictionary = active[0]
 	var name := String(job.get("name", "TONIGHT'S WORK"))
 	var description := String(job.get("desc", "KEEP THE BALL IN PLAY"))
 	if description.is_empty():
 		return name
 	return "%s  ·  %s" % [name, description]
+
+
+## Before any Job is on the table, the one thing worth saying: dirty money is washed at Lucky's.
+func _wash_hint() -> String:
+	if Game.wallet.dirty.is_positive() and Game.stats.hardware_unlocked(&"laundromat_loop"):
+		return "SHOOT LUCKY'S TO WASH YOUR DIRTY CASH"
+	return ""
 
 
 ## The fight, when there is one: who, which phase, and what he is doing to you right now.
@@ -759,11 +838,16 @@ func _meeting_text() -> String:
 	return ""
 
 
+## The round names the shop still to collect: the only thing the player has to do about it.
 func _collection_text() -> String:
 	if not Game.collection.active:
 		return ""
-	return "COLLECTION ROUND   ·   %d/3   ·   %0.1fs" \
-			% [Game.collection.collected_count(), maxf(Game.collection.time_left, 0.0)]
+	var left := PackedStringArray()
+	for i in range(Layout.STOREFRONT_IDS.size()):
+		if not Game.collection.has_collected(Layout.STOREFRONT_IDS[i]):
+			left.append(String(Layout.STOREFRONT_SIGNS[i]))
+	return "COLLECTION   ·   %s NEXT   ·   %ds" % [" + ".join(left),
+			int(ceilf(maxf(Game.collection.time_left, 0.0)))]
 
 
 func _wire_text() -> String:

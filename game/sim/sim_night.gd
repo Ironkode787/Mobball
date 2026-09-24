@@ -52,10 +52,6 @@ const SURVIVE_SECONDS := 60.0
 const TILT_HEAT := 5.0
 ## Mirrors `RaidMode.DURATION`.
 const RAID_SECONDS := 45.0
-## Mirrors `NightController.STOREFRONT_POLL`: how often the banks are read for a Collection
-## Round trigger. It matters — a block that is all-armed for less than one poll never starts
-## a round, which is the difference between a Meeting lighting tonight and not.
-const STOREFRONT_POLL := 0.25
 
 ## Longest step the event loop will take with no shot in it. Only bounds how coarsely the
 ## spinner tail, the idle trickle and the storefront timers are sampled — the economy math
@@ -167,7 +163,7 @@ var _crates: Dictionary = {}
 var _crate_reset: Dictionary = {}
 var _chairs: Dictionary = {}
 var _chair_reset: float = -1.0
-## Per storefront: {"state": &"armed"/&"open"/&"cooldown", "down": int, "timer": float}
+## Per storefront: {"state": &"armed"/&"cooldown", "down": int, "timer": float}
 var _fronts: Dictionary = {}
 var _raid_left: float = -1.0
 var _raid_pending: bool = false
@@ -182,8 +178,6 @@ var _limp_left: float = 0.0
 var _limp_used: bool = false
 ## Manny's clock (`auto_collect_interval`).
 var _collect_in: float = 0.0
-## Storefront-poll clock for the Collection Round trigger (`NightController.STOREFRONT_POLL`).
-var _collect_poll: float = 0.0
 ## The guy the line-up is currently pointing at — his traits are on the money path.
 var _guy: Dictionary = {}
 var _guy_slot: int = -1
@@ -522,8 +516,8 @@ func _tick_wash(dt: float) -> void:
 
 
 ## `NightController._tick_crew`: Manny (`auto_collect_interval`) walks a till every N seconds
-## and hands the money in. He can only work a shop that is actually open — an empty block
-## costs him a beat, not the whole interval, because he is standing right there.
+## and hands the money in. He can only work a shop whose bank is standing — a block that has
+## just paid costs him a beat, not the whole interval, because he is standing right there.
 func _tick_crew(dt: float) -> void:
 	var every := state.stats.auto_collect_interval()
 	if every <= 0.0:
@@ -531,17 +525,17 @@ func _tick_crew(dt: float) -> void:
 	_collect_in -= dt
 	if _collect_in > 0.0:
 		return
-	var open_shop := &""
+	var standing := &""
 	for hw: Variant in _fronts:
-		if (_fronts[hw] as Dictionary)["state"] == &"open":
-			open_shop = hw
+		if (_fronts[hw] as Dictionary)["state"] == &"armed":
+			standing = hw
 			break
-	if open_shop == &"":
+	if standing == &"":
 		_collect_in = minf(every, AUTO_COLLECT_RETRY)
 		return
 	_collect_in = every
 	auto_collects += 1
-	_collect_from(open_shop)
+	_collect_from(standing)
 
 
 ## `NightController._tick_wire`: every 90 s of play the tote board draws 00–99 and the
@@ -557,26 +551,9 @@ func _tick_wire(dt: float) -> void:
 	state.wire_draw(ticket)
 
 
-## `NightController._tick_collection`: all three banks standing at once starts a 25 s round.
+## `NightController._tick_collection`: the round's clock (the first collect starts it).
 func _tick_collection(dt: float) -> void:
 	state.collection.tick(dt)
-	_collect_poll -= dt
-	if _collect_poll > 0.0:
-		return
-	_collect_poll = STOREFRONT_POLL
-	if state.collection.active or not _all_storefronts_armed():
-		return
-	if state.collection.on_all_armed():
-		state.collection_rounds += 1
-
-
-func _all_storefronts_armed() -> bool:
-	if _fronts.size() < int(Switches.COVER_SIZE.get(&"storefronts", 3)):
-		return false
-	for hw: Variant in _fronts:
-		if (_fronts[hw] as Dictionary)["state"] != &"armed":
-			return false
-	return true
 
 
 ## The blade, integrated: `Spinner._physics_process` with the segment count solved instead
@@ -623,11 +600,7 @@ func _tick_hardware(dt: float) -> void:
 		if f["timer"] > 0.0:
 			continue
 		f["timer"] = 0.0
-		if f["state"] == &"open":
-			# Nobody came through: the shutters go back up (Storefront._close).
-			f["state"] = &"armed"
-			f["down"] = 0
-		elif f["state"] == &"cooldown":
+		if f["state"] == &"cooldown":
 			f["state"] = &"armed"
 			f["down"] = 0
 
@@ -828,18 +801,14 @@ func _shoot_storefront(prefer: StringName) -> void:
 			if _watch_switches:
 				state.jobs.on_switch(StringName("%s_t%d" % [hw, int(f["down"])]), &"storefronts")
 			if int(f["down"]) >= SimTable.STOREFRONT_TARGETS:
-				f["state"] = &"open"
-				f["timer"] = SimTable.STOREFRONT_OPEN_SEC
-		&"open":
-			if hw == &"storefront_laundromat":
-				_wash_pass()
-			_collect_from(hw)
+				_collect_from(hw)
 		_:
 			wasted_shots += 1
 
 
-## Cash out one open till. The Collection Round watches these: three in one 25 s window and
-## the last one pays its value again, ☆10 lands, and the back room lights up (docs/05 §3).
+## A bank down: the shop pays. The Collection Round watches these: the first starts a 25 s
+## round, the rest of the block inside it and the last pays its value again, ☆10 lands, and
+## the back room lights up (docs/05 §3).
 func _collect_from(hw: StringName) -> void:
 	var f: Dictionary = _fronts[hw]
 	var value := SimTable.collect_value(hw, state.stats, state.catalog)
@@ -849,7 +818,7 @@ func _collect_from(hw: StringName) -> void:
 	f["state"] = &"cooldown"
 	f["down"] = 0
 	f["timer"] = SimTable.STOREFRONT_REARM_SEC
-	if state.collection.on_collected(hw):
+	if state.collection.on_collected(hw, _fronts.size()):
 		state.collection_completed(hw, value)
 
 
@@ -994,24 +963,18 @@ func _storefront_armed() -> bool:
 	return false
 
 
-## Which storefront this shot actually lands on. A disciplined player works the one that is
-## open (or one still standing); a duffer sprays across the block and hits shutters.
+## Which storefront this shot actually lands on. A disciplined player works one still standing;
+## a duffer sprays across the block and hits a shop that has just paid.
 func _pick_storefront(prefer: StringName) -> StringName:
 	if _fronts.is_empty():
 		return &""
 	if _rng.randf() < profile.target_discipline:
 		if _fronts.has(prefer) and (_fronts[prefer] as Dictionary)["state"] != &"cooldown":
 			return prefer
-		var open_ones: Array[StringName] = []
 		var armed: Array[StringName] = []
 		for hw: Variant in _fronts:
-			match (_fronts[hw] as Dictionary)["state"]:
-				&"open":
-					open_ones.append(hw)
-				&"armed":
-					armed.append(hw)
-		if not open_ones.is_empty():
-			return open_ones[_rng.randi() % open_ones.size()]
+			if (_fronts[hw] as Dictionary)["state"] == &"armed":
+				armed.append(hw)
 		if not armed.is_empty():
 			return armed[_rng.randi() % armed.size()]
 	var all: Array = _fronts.keys()

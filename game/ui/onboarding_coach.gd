@@ -85,7 +85,7 @@ func _show_stage(next: StringName) -> void:
 			_panel.visible = true
 		&"earn":
 			_eyebrow.text = "FIRST TAKE"
-			_message.text = "SPEND DIRTY CASH IN THE COUNT" if _layout_narrow \
+			_message.text = "RED IS DIRTY · THE COUNT WASHES SOME" if _layout_narrow \
 					else "RED IS DIRTY CASH · THE COUNT SHOWS WHAT YOU CAN SPEND"
 			_message.add_theme_color_override("font_color", Feel.COL_DIRTY.lightened(0.18))
 			_left = EARN_CONFIRM_SECONDS
